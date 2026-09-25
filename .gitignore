@@ -43,6 +43,7 @@ _nvngx.dll
 /tools/dlssnr_probe/scalers_*.bmp
 /tools/dlssnr_probe/proppage*.bmp
 /tools/dlssnr_probe/freeze_dump.txt
+/tools/dlssnr_probe/run_all_report.txt
 /tools/dlssnr_probe/sr_*.png
 /tools/dlssnr_probe/upscale_refs/
 /tools/dlssnr_probe/models/

@@ -62,18 +62,33 @@ static int RunPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dls
 		// surface is.
 		CComPtr<IWICImagingFactory> factory;
 		CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
-		std::wstring file = L"C:\\Windows\\Web\\Wallpaper\\ThemeB\\img24.jpg";
+		// Every picture of the folder is a candidate, and the first one big enough
+		// wins: the suite pans over a 4K frame, so a smaller reference -- the line-art
+		// test, say -- cannot stand in for one.
+		std::vector<std::wstring> candidates;
 		{
 			WIN32_FIND_DATAW fd = {};
 			HANDLE h = FindFirstFileW(L"upscale_refs\\*.png", &fd);
 			if (h != INVALID_HANDLE_VALUE) {
-				file = std::wstring(L"upscale_refs\\") + fd.cFileName;
+				do {
+					candidates.push_back(std::wstring(L"upscale_refs\\") + fd.cFileName);
+				} while (FindNextFileW(h, &fd));
 				FindClose(h);
 			}
 		}
+		candidates.push_back(L"C:\\Windows\\Web\\Wallpaper\\ThemeB\\img24.jpg");
+
 		UpscaleRef ref;
 		std::string error;
-		if (!factory || !LoadReference(factory, file.c_str(), ref, error) || ref.W < 3840 || ref.H < 2160) {
+		std::wstring file;
+		for (const std::wstring& candidate : candidates) {
+			if (factory && LoadReference(factory, candidate.c_str(), ref, error)
+					&& ref.W >= 3840 && ref.H >= 2160) {
+				file = candidate;
+				break;
+			}
+		}
+		if (file.empty()) {
 			printf("  a 3840x2160 reference is needed in upscale_refs (%s)\n", error.c_str());
 			rc = 1;
 		}

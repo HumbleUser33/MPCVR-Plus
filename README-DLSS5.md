@@ -867,6 +867,24 @@ playback_test.exe --filter <ax>   any of the above with another build of the x64
 
 ---
 
+## Following upstream
+
+This fork branched at upstream's 0.10.7. It adds over a hundred files of its own while
+changing fewer than forty of upstream's, and in those it deletes barely a hundred lines: it
+adds, it almost never replaces, which is why a new upstream version merges cheaply. The
+procedure, the inventory of what the fork adds and the traps already met are in
+**[MERGING-UPSTREAM.md](MERGING-UPSTREAM.md)**. Any update starts with
+
+    git fetch upstream
+    python tools\upstream_check.py
+
+which is read-only and reports what the merge will cost before anything is touched: the
+upstream commits that reach this fork's code, a trial merge with the conflicts you will
+really get, resource numbers used by both sides, and whether the generated shader files
+will need regenerating.
+
+---
+
 ## Licence and credits
 
 MPC Video Renderer is by **Aleksoid1978** and contributors and is licensed **GPLv3**; see
