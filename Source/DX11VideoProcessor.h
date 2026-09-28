@@ -195,6 +195,12 @@ private:
 
 	bool m_bVPRTXVideoHDR = false;
 	bool m_bVPUseRTXVideoHDR = false;
+	// Whether the driver's tone mapping really acts on what the processor is fed: it
+	// does on an 8-bit picture and on a 4:4:4 one, and not on a 10-bit 4:2:0 frame,
+	// where the HDR output is the renderer's own conversion.
+	bool m_bRTXVideoHDRTonemaps = false;
+	// How deep the HDR swap-chain retry in InitializeD3D11VP has gone into itself.
+	int m_nHdrSwapChainRetry = 0;
 
 	bool m_bVPReplaceChroma = false;    // the setting
 	bool m_bChromaReplacedVP = false;   // and the shaders rebuild this source's chroma

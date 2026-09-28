@@ -407,10 +407,15 @@ HRESULT CVRMainPPage::OnActivate()
 		L"Available for Direct3D 11.\n"
 		"Requires hardware and driver support:\n"
 		"- Nvidia RTX (x64 only)\n"
-		"The driver only tone maps an 8-bit or a 4:4:4 picture: on a\n"
-		"10-bit source it does nothing unless \"Replace VP chroma\n"
-		"upsampling\" hands the processor a 4:4:4 one, and the\n"
-		"statistics only claim it where it really applies.");
+		"It asks for two things: an HDR picture out of an SDR source,\n"
+		"which works whatever comes in, and the driver's own tone\n"
+		"mapping on top, which does not. Measured here, the driver\n"
+		"tone maps an 8-bit picture (37.1) and a 4:4:4 one (37.7) and\n"
+		"leaves a 10-bit 4:2:0 frame exactly as it found it (0.000).\n"
+		"So on a 10-bit source, tick \"Replace VP chroma upsampling\"\n"
+		"as well: it hands the processor a 4:4:4 picture and the tone\n"
+		"mapping then really happens. Without it the statistics say\n"
+		"so rather than claiming it.");
 	AddHint(IDC_COMBO5,
 		L"Used for YUV 4:2:0/4:2:2 input formats when the video\n"
 		"processor does not convert them: it does its own chroma.\n"

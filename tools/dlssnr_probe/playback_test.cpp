@@ -478,6 +478,8 @@ struct Config {
 	bool bHardwareVP = false; // --chroma: this run goes through the hardware processor
 	bool b444 = false;        // --chroma: this run feeds 4:4:4, the reference
 	bool bReplaceChroma = false; // --chroma: the processor keeps the picture, the shaders its chroma
+	bool bHdrOut = false;        // --chroma: HDR passthrough, for the RTX Video HDR runs
+	int iRtxHdr = -1;            // and the extension: -1 leaves the setting, 0 off, 1 on
 };
 
 struct Result {
@@ -675,6 +677,15 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		sets.bVPScaling = false;
 		sets.iTexFormat = TEXFMT_AUTOINT;
 		sets.bUseDither = false;
+		// The RTX Video HDR runs ask for HDR output. The desktop has to be in HDR
+		// already for that to mean anything -- the filter is still not allowed to
+		// switch it, iHdrToggleDisplay stays Disabled just above.
+		if (config.bHdrOut) {
+			sets.bHdrPassthrough = true;
+		}
+		if (config.iRtxHdr >= 0) {
+			sets.bVPRTXVideoHDR = config.iRtxHdr != 0;
+		}
 	}
 	if (g_bScalers && !g_bHardwareVP) {
 		// The shader video processor converts and scales, not the hardware one.
@@ -1192,6 +1203,11 @@ int wmain(int argc, wchar_t* argv[])
 		{ "4:2:0, shaders, FSRCNNX 8 AR",      false, false, true, -1, CHROMA_FSRCNNX8AR               },
 		{ "4:2:0, hardware VP, chroma replaced, Jinc", false, false, true, -1, CHROMA_Jinc, true, false, true },
 		{ "4:2:0, hardware VP, chroma replaced, FSRCNNX 8 AR", false, false, true, -1, CHROMA_FSRCNNX8AR, true, false, true },
+		// Does the driver's RTX Video HDR do anything to this picture? The pair differs
+		// by the extension alone, so the answer is whether their two pictures differ.
+		{ "4:2:0, hardware VP, HDR out, RTX Video HDR OFF", false, false, true, -1, -1, true, false, false, true, 0 },
+		{ "4:2:0, hardware VP, HDR out, RTX Video HDR ON",  false, false, true, -1, -1, true, false, false, true, 1 },
+		{ "4:2:0, VP + 4:4:4 pre-pass, HDR out, RTX Video HDR ON", false, false, true, -1, CHROMA_CatmullRom, true, false, true, true, 1 },
 	};
 	const Config* configs = g_bChroma ? chromaConfigs : g_bScalers ? scalerConfigs : dlssConfigs;
 	const int configCount = (int)(g_bChroma ? std::size(chromaConfigs)

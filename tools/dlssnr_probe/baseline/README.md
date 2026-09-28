@@ -16,23 +16,16 @@ quietly stop exercising a path. The comparison catches both — it ignores the t
 say more about the machine's mood than about the code, and it flags a row that has **stopped
 being measured** as loudly as one that moved.
 
-## One step of this baseline is not green
+## The step that was not green is fixed
 
-**`pictures from a decoder's device` fails, 3 to 4 checks of 14.** The battery found it on its
-first run, and it is recorded here as measured rather than hidden, so that the next comparison
-shows it unchanged instead of springing it on somebody.
+The battery found, on its first run, that ticking **Replace VP chroma upsampling** while the
+film played left the screen frozen on the decoder-device path. It was the HDR retry in
+`InitializeD3D11VP` calling back into itself without a bound: the processor and the swap chain
+could not agree on whether the picture was HDR, and each pass asked for another. It is bounded
+now -- once is all it ever legitimately takes -- and `playback_test --gpu --toggle` runs clean
+three times over.
 
-What it is: with the pictures arriving as D3D11 textures the way a hardware decoder delivers
-them — which also means a 10-bit P010 source, since that is what `d3d11_source.inl` sends —
-ticking **Replace VP chroma upsampling** while the film plays leaves the screen frozen. The
-renderer goes on drawing at 24 fps and every call returns at once; only the desktop stops
-being updated. Unticking the box brings it back. The same toggles on the memory path, in
-NV12, all pass, so it is the decoder device, the 10-bit source, or the two together — the
-battery says *that* it happens, not yet *why*.
-
-It is not a regression of the work that built this battery: the 4:4:4 pre-pass it involves
-predates it. Until it is understood, this step's failure is the known state; anything else
-failing is new.
+The report in this folder is from **after** that fix.
 
 ## What the numbers depend on
 

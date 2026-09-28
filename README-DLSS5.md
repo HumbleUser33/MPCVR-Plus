@@ -543,12 +543,17 @@ The processor keeps the picture, so what only it can do keeps applying, with one
 way (`tools/dlssnr_probe` `vp444_probe`, which measures how much enabling an extension changes
 the picture, in 8-bit levels):
 
-- **RTX Video HDR** goes on working, and on a 10-bit source it starts working: the driver
-  leaves a 10-bit 4:2:0 picture untouched (0.000) and tone maps the same frame in 4:4:4 as it
-  does an 8-bit one (37.7 against 37.9). The filter therefore stops asking for it on a 10-bit
-  4:2:0 picture, where it never did anything, and the statistics no longer claim it. On a
-  10-bit film the box is thus what gives RTX Video HDR something to work on: untick it and the
-  HDR line loses it, tick it again and it comes straight back, with the film still playing;
+- **RTX Video HDR** goes on working, and on a 10-bit source it starts working. The box asks
+  for two things at once, and only one of them minds the depth: the HDR picture out of an SDR
+  source, which the renderer produces whatever comes in, and the driver's own tone mapping on
+  top, which it applies to an 8-bit picture (37.1) and to a 4:4:4 one (37.7) and not at all to
+  a 10-bit 4:2:0 frame (0.000). So on a 10-bit film this box is what gives the tone mapping
+  something to work on: untick it and the statistics say *RTX Video HDR (no tone mapping on
+  10-bit 4:2:0)*, tick it and the star comes back, with the film still playing. Measured
+  end to end through the filter, the same frame played as 4:2:0 and as 4:4:4: enabling RTX
+  Video HDR on the 8-bit source moves the displayed picture from 52.25 to 30.19 against the
+  SDR reference -- a tone-mapped picture -- and on the 10-bit one from 49.60 to 51.61, which
+  is not one; with the pre-pass it moves to 30.22, the same signature as 8-bit;
 - **Super Resolution** does nothing to a 4:4:4 picture (0.000, against 4.0 on 4:2:0), so it is
   not requested for the pictures this moves and the statistics do not claim it either. It is the
   one thing this box costs, and **Request Super Resolution** now greys while the box is ticked

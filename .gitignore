@@ -53,3 +53,6 @@ _nvngx.dll
 
 # Third-party upscaler shaders and the Khronos translation tools, fetched locally for --tupscale
 /tools/dlssnr_probe/upscalers/
+
+# The stock renderer, dropped in for comparing against; not ours to ship
+/tools/*.ax
