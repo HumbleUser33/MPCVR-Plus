@@ -499,6 +499,14 @@ actually doing: **Chroma upsampling** while the video processor converts, **Upsc
 on their own), and **Upscaling** while DLSS SR enlarges. A list that a Dolby Vision or YCgCo
 picture sends back to the shaders stays available.
 
+*Use for resizing* decides the resizing and nothing else -- the chroma is the business of the
+format boxes and of *Replace VP chroma upsampling*. What it also decides is whether
+**Request Super Resolution** can do anything at all: that extension lives inside the video
+processor and only acts while the processor is the one enlarging the picture, so it greys
+without it, greys while a DLSS pass has taken the enlarging back, and greys while the chroma
+pre-pass hands the processor a 4:4:4 picture it will not touch. Three reasons, one list, and
+the tooltip names the one that applies.
+
 **Replace VP chroma upsampling**, under the list, moves that one job to the shaders without
 taking the picture away from the processor. A compute shader reads the planes of a progressive
 4:2:0 or 4:2:2 frame, rebuilds Cb and Cr with the method above, and writes the result back in
@@ -542,7 +550,11 @@ the picture, in 8-bit levels):
   10-bit film the box is thus what gives RTX Video HDR something to work on: untick it and the
   HDR line loses it, tick it again and it comes straight back, with the film still playing;
 - **Super Resolution** does nothing to a 4:4:4 picture (0.000, against 4.0 on 4:2:0), so it is
-  not requested for the pictures this moves and the statistics do not claim it either;
+  not requested for the pictures this moves and the statistics do not claim it either. It is the
+  one thing this box costs, and **Request Super Resolution** now greys while the box is ticked
+  rather than being accepted and quietly ignored: the two cannot both apply to one picture, and
+  unticking this is how you get it back. RTX Video HDR is the opposite case -- it *does* work on
+  4:4:4 -- so the two extensions behave differently here and the page says which is which;
 - **deinterlacing** works on NV12 only on this driver, so interlaced video keeps the
   processor's own chroma; 4:4:4 and RGB sources have no chroma to rebuild and are left alone;
 - **HDR passthrough** is unaffected: the processor answers that it converts a PQ picture in
@@ -669,7 +681,7 @@ And under the Chroma upsampling list:
 
 | Setting | Default | Notes |
 |---|---|---|
-| Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so RTX Video HDR goes on working and starts working on 10-bit sources. Interlaced video keeps the processor's chroma, and Super Resolution does not apply to 4:4:4. Needs Direct3D 11 |
+| Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so RTX Video HDR goes on working and starts working on 10-bit sources. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Request Super Resolution* greys while this is on, and untick it to have that back. Needs Direct3D 11 |
 
 **Default** on the DLSS page resets the tuning, from Style to Disable temporal history, motion
 settings and the DLSS SR preset; it leaves Enable, Use DLSS SR, the key, both DLL paths and

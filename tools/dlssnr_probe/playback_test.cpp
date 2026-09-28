@@ -836,8 +836,52 @@ static bool CaptureWindow(HWND hwnd, std::vector<BYTE>& bgra, int& w, int& h)
 
 // --dlsspage N, --mainpage N: one of the filter's property pages in the window for N
 // seconds, to look at -- the greying and the layout without going through a player.
+// Which of the controls that grey each other are live, and how the two scaling lists
+// were built. A picture of the page says nothing about either, and a control that is
+// accepted but does nothing is exactly the fault worth catching.
+static void DumpPageState(HWND hwnd, const char* when)
+{
+    const HWND hDlg = GetWindow(hwnd, GW_CHILD);
+    if (!hDlg) {
+        return;
+    }
+    printf("\n-- the page %s\n", when);
+    for (const auto& c : { std::pair{ 1025, "Use for resizing" },
+                           std::pair{ 1048, "Request Super Resolution" },
+                           std::pair{ 1249, "Replace VP chroma upsampling" },
+                           std::pair{ 1045, "Chroma upsampling list" },
+                           std::pair{ 1042, "Upscaling list" },
+                           std::pair{ 1043, "Downscaling list" } }) {
+        const HWND h = GetDlgItem(hDlg, c.first);
+        if (!h) {
+            printf("  %-30s (not on this page)\n", c.second);
+            continue;
+        }
+        const bool bCheck = (SendMessageW(h, WM_GETDLGCODE, 0, 0) & DLGC_BUTTON) != 0;
+        printf("  %-30s %-7s%s\n", c.second, IsWindowEnabled(h) ? "live" : "GREYED",
+            bCheck ? (IsDlgButtonChecked(hDlg, c.first) == BST_CHECKED ? ", ticked" : ", unticked") : "");
+    }
+    for (const auto& list : { std::pair{ 1045, "Chroma upsampling" }, std::pair{ 1042, "Upscaling" } }) {
+        const HWND hCombo = GetDlgItem(hDlg, list.first);
+        if (!hCombo) {
+            continue;
+        }
+        const LRESULT count = SendMessageW(hCombo, CB_GETCOUNT, 0, 0);
+        const LRESULT current = SendMessageW(hCombo, CB_GETCURSEL, 0, 0);
+        printf("%s, best first:\n", list.second);
+        for (LRESULT i = 0; i < count; i++) {
+            wchar_t text[64] = {};
+            SendMessageW(hCombo, CB_GETLBTEXT, i, (LPARAM)text);
+            wprintf(L"  %2d  %-20s value %2d%s\n", (int)i, text,
+                (int)SendMessageW(hCombo, CB_GETITEMDATA, i, 0), i == current ? L"   <- selected" : L"");
+        }
+    }
+    fflush(stdout);
+}
+
 // Its picture is saved next to the program as proppage.bmp.
-static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID clsidPage, int clickId = 0)
+static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID clsidPage,
+	const std::vector<int>& clicks = {})
 {
 	using PFN_DllGetClassObject = HRESULT(STDAPICALLTYPE*)(REFCLSID, REFIID, LPVOID*);
 	const auto pfnGetClassObject = (PFN_DllGetClassObject)GetProcAddress(hFilter, "DllGetClassObject");
@@ -885,30 +929,13 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 	};
 	Shoot(L"proppage.bmp");
 
-	// The two scaling lists as the page really built them: what each entry is called,
-	// the number it carries (what gets saved) and which one is selected. A picture of
-	// the page says nothing about that, and the order is the point of them.
-	if (const HWND hDlg = GetWindow(hwnd, GW_CHILD)) {
-		for (const auto& list : { std::pair{ 1045, "Chroma upsampling" }, std::pair{ 1042, "Upscaling" } }) {
-			const HWND hCombo = GetDlgItem(hDlg, list.first);
-			if (!hCombo) {
-				continue;
-			}
-			const LRESULT count = SendMessageW(hCombo, CB_GETCOUNT, 0, 0);
-			const LRESULT current = SendMessageW(hCombo, CB_GETCURSEL, 0, 0);
-			printf("%s, best first:\n", list.second);
-			for (LRESULT i = 0; i < count; i++) {
-				wchar_t text[64] = {};
-				SendMessageW(hCombo, CB_GETLBTEXT, i, (LPARAM)text);
-				wprintf(L"  %2d  %-20s value %2d%s\n", (int)i, text,
-					(int)SendMessageW(hCombo, CB_GETITEMDATA, i, 0), i == current ? L"   <- selected" : L"");
-			}
-		}
-		fflush(stdout);
-	}
+	DumpPageState(hwnd, "as it opens");
 
 	// Tick a box and take the page again: how the greying answers, without a player.
-	if (clickId) {
+	// Several boxes in turn, since a greying rule usually takes more than one of them
+	// to show itself: --click 1025 --click 1249 ticks the resizing box, then the chroma
+	// one, and the page is read out after each.
+	for (const int clickId : clicks) {
 		const HWND hDlg = GetWindow(hwnd, GW_CHILD);
 		const HWND hControl = hDlg ? GetDlgItem(hDlg, clickId) : nullptr;
 		if (hControl) {
@@ -917,6 +944,9 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 			SendMessageW(hDlg, WM_COMMAND, MAKEWPARAM(clickId, BN_CLICKED), (LPARAM)hControl);
 			Pump(300);
 			Shoot(L"proppage_clicked.bmp");
+			char what[64] = {};
+			sprintf_s(what, "after clicking %d", clickId);
+			DumpPageState(hwnd, what);
 		} else {
 			printf("control %d not found\n", clickId);
 		}
@@ -999,7 +1029,7 @@ int wmain(int argc, wchar_t* argv[])
 	int only = -1;
 	int pageSeconds = 0;
 	bool bMainPage = false;
-	int clickControl = 0; // --click N: a control to tick once the page is up
+	std::vector<int> clickControls; // --click N, repeatable: boxes to tick once the page is up
 	const wchar_t* chromaFile = nullptr; // --chroma <file>: the picture to measure on
 	const wchar_t* filterFile = nullptr; // --filter <path>: another build of the x64 filter, to compare with
 	SIZE source = { 800, 450 };
@@ -1018,7 +1048,7 @@ int wmain(int argc, wchar_t* argv[])
 		} else if (!wcscmp(argv[i], L"--dlsspage")) {
 			pageSeconds = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--click")) {
-			clickControl = _wtoi(argv[i + 1]);
+			clickControls.push_back(_wtoi(argv[i + 1]));
 		} else if (!wcscmp(argv[i], L"--filter")) {
 			filterFile = argv[i + 1];
 		} else if (!wcscmp(argv[i], L"--file")) {
@@ -1113,7 +1143,7 @@ int wmain(int argc, wchar_t* argv[])
 	if (pageSeconds > 0) {
 		static const CLSID CLSID_DlssPage = { 0xE3A1C5D7, 0x6B2F, 0x4F19, { 0xA8, 0xD4, 0x5C, 0x0B, 0x9E, 0x7F, 0x21, 0x36 } };
 		static const CLSID CLSID_MainPage = { 0xDA46D181, 0x07D6, 0x441D, { 0xB3, 0x14, 0x01, 0x9A, 0xEB, 0x10, 0x14, 0x8A } };
-		const int rc = ShowPropertyPage(hFilter, hwnd, pageSeconds, bMainPage ? CLSID_MainPage : CLSID_DlssPage, clickControl);
+		const int rc = ShowPropertyPage(hFilter, hwnd, pageSeconds, bMainPage ? CLSID_MainPage : CLSID_DlssPage, clickControls);
 		DestroyWindow(hwnd);
 		CoUninitialize();
 		return rc;

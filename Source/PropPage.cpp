@@ -159,8 +159,8 @@ void CVRMainPPage::EnableControls()
 		GetDlgItem(IDC_COMBO7).EnableWindow(bEnable);
 		GetDlgItem(IDC_STATIC6).EnableWindow(bEnable);
 		GetDlgItem(IDC_SLIDER1).EnableWindow(bEnable);
-		GetDlgItem(IDC_STATIC7).EnableWindow(bEnable && m_SetsPP.bVPScaling);
-		GetDlgItem(IDC_COMBO8).EnableWindow(bEnable && m_SetsPP.bVPScaling);
+		// Super Resolution is settled below, with the rest of what the processor is
+		// really doing: asking for it is not enough to make it happen.
 #ifdef _WIN64
 		GetDlgItem(IDC_CHECK19).EnableWindow(bEnable && m_SetsPP.bHdrPassthrough);
 #endif
@@ -209,6 +209,25 @@ void CVRMainPPage::EnableControls()
 	GetDlgItem(IDC_STATIC41).EnableWindow(bDownscalingList);
 	GetDlgItem(IDC_COMBO3).EnableWindow(bDownscalingList);
 	GetDlgItem(IDC_CHECK6).EnableWindow(bUpscalingList || bDownscalingList);
+
+	// RTX Video Super Resolution lives inside the processor and only does something
+	// while the processor is the one enlarging the picture -- which is what "Use for
+	// resizing" gives it, and what a DLSS pass takes away. It also wants a subsampled
+	// picture: the driver leaves a 4:4:4 one untouched, measured here at 0.000 against
+	// 4.0 on 4:2:0 (tools/dlssnr_probe, vp444_probe), so it is out of reach while
+	// "Replace VP chroma upsampling" hands one over. RTX Video HDR is the other way
+	// round and works on 4:4:4, which is why that box helps it and not this one.
+	// Greyed rather than accepted and ignored, so the hint can say which box to untick.
+#ifdef _WIN64
+	const bool bChromaReplacedNow = bChromaToShaders
+		&& (!m_bRendererActive || !(m_uVPUse & VPUSE_Converting));
+	const BOOL bSuperRes = m_SetsPP.bUseD3D11 && IsWindows10OrGreater()
+		&& bVPResizes && !bChromaReplacedNow;
+#else
+	const BOOL bSuperRes = FALSE; // the extension is x64 only
+#endif
+	GetDlgItem(IDC_STATIC7).EnableWindow(bSuperRes);
+	GetDlgItem(IDC_COMBO8).EnableWindow(bSuperRes);
 
 	// Render ahead and the chroma replacement belong to the Direct3D 11 processor.
 	GetDlgItem(IDC_CHECK26).EnableWindow(m_SetsPP.bUseD3D11);
@@ -363,15 +382,27 @@ HRESULT CVRMainPPage::OnActivate()
 		L"It works fast, but it's not always good.\n"
 		"Disable it if you want to use shaders for resizing.\n"
 		"It only covers the formats ticked above, and DLSS takes\n"
-		"the resizing back from it while it runs.");
+		"the resizing back from it while it runs.\n"
+		"It decides the resizing and nothing else: the chroma is\n"
+		"the business of the formats above and of \"Replace VP\n"
+		"chroma upsampling\".\n"
+		"It is also what gives \"Request Super Resolution\" something\n"
+		"to work on, since the processor can only enhance a picture\n"
+		"it is enlarging itself.");
 	AddHint(IDC_COMBO8,
 		L"Available for Direct3D 11.\n"
 		"Requires hardware and driver support:\n"
 		"- Intel Graphics UHD 610 or later\n"
 		"- Nvidia RTX (x64 only)\n"
-		"The driver leaves a 4:4:4 picture untouched, so it is not\n"
-		"asked for while \"Replace VP chroma upsampling\" hands one\n"
-		"over, and the statistics then do not claim it.");
+		"Greyed unless the processor is the one enlarging the\n"
+		"picture: tick \"Use for resizing\" above. DLSS takes the\n"
+		"enlarging back while it runs, and greys this too.\n"
+		"Greyed as well while \"Replace VP chroma upsampling\" is on:\n"
+		"the driver leaves a 4:4:4 picture untouched, measured here\n"
+		"at 0.000 against 4.0 on 4:2:0, so it would do nothing at\n"
+		"all. Untick that box to get it back -- one picture cannot\n"
+		"have both. RTX Video HDR is the opposite case: it does work\n"
+		"on 4:4:4, which is why that box helps it.");
 	AddHint(IDC_CHECK19,
 		L"Available for Direct3D 11.\n"
 		"Requires hardware and driver support:\n"
@@ -411,8 +442,11 @@ HRESULT CVRMainPPage::OnActivate()
 		"film and 0.6 dB on an 8-bit one.\n"
 		"Interlaced video keeps the processor's chroma, since it alone\n"
 		"deinterlaces, and so do 4:4:4 and RGB, which have no chroma\n"
-		"to rebuild. Super Resolution does not apply to a 4:4:4\n"
-		"picture and is not requested for the ones this moves.");
+		"to rebuild.\n"
+		"What it costs: RTX Video Super Resolution. The driver leaves\n"
+		"a 4:4:4 picture untouched (0.000 against 4.0 on 4:2:0,\n"
+		"measured here), so it greys while this is on. The two cannot\n"
+		"both apply to one picture; untick this to go back to it.");
 	AddHint(IDC_COMBO2,
 		L"Used to increase image size when the\n"
 		"DVXA2/D3D11 Video Processor is not used for resizing.\n"
