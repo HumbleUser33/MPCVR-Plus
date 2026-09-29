@@ -212,12 +212,18 @@ void CVRMainPPage::EnableControls()
 
 	// RTX Video Super Resolution lives inside the processor and only does something
 	// while the processor is the one enlarging the picture -- which is what "Use for
-	// resizing" gives it, and what a DLSS pass takes away. Ticking "Replace VP chroma
-	// upsampling" leaves the driver nothing to do, since it does not touch a 4:4:4
-	// picture, but that is the driver's answer and not ours to give: the box stays the
-	// user's, and the statistics say which of the two is happening.
+	// resizing" gives it, and what a DLSS pass takes away. It also needs a subsampled
+	// picture: the driver leaves a 4:4:4 one untouched, so it can do nothing while
+	// "Replace VP chroma upsampling" is really handing one over. Nothing is taken from
+	// the driver over it -- it is asked for exactly as upstream asks -- but the line
+	// greys, because a control that cannot change the picture should say so rather
+	// than look available. An interlaced source keeps the processor's own chroma, so
+	// there the pre-pass stands aside and this stays live.
 #ifdef _WIN64
-	const BOOL bSuperRes = m_SetsPP.bUseD3D11 && IsWindows10OrGreater() && bVPResizes;
+	const bool bChromaReplacedNow = bChromaToShaders
+		&& (!m_bRendererActive || !(m_uVPUse & VPUSE_Converting));
+	const BOOL bSuperRes = m_SetsPP.bUseD3D11 && IsWindows10OrGreater()
+		&& bVPResizes && !bChromaReplacedNow;
 #else
 	const BOOL bSuperRes = FALSE; // the extension is x64 only
 #endif
@@ -386,8 +392,9 @@ HRESULT CVRMainPPage::OnActivate()
 		"The processor sharpens as it enlarges.\n"
 		"Greyed unless it is the one enlarging: tick \"Use for\n"
 		"resizing\". DLSS takes the enlarging back while it runs.\n"
-		"With \"Replace VP chroma upsampling\" on, the driver leaves\n"
-		"the 4:4:4 picture untouched and the statistics say so.");
+		"Greyed too while \"Replace VP chroma upsampling\" hands it a\n"
+		"4:4:4 picture, which the driver will not touch. Untick that\n"
+		"to have this back.");
 	AddHint(IDC_CHECK19,
 		L"Direct3D 11. Nvidia RTX (x64).\n"
 		"An HDR picture out of an SDR source, tone mapped by the\n"

@@ -503,9 +503,11 @@ picture sends back to the shaders stays available.
 format boxes and of *Replace VP chroma upsampling*. What it also decides is whether
 **Request Super Resolution** can do anything at all: that extension lives inside the video
 processor and only acts while the processor is the one enlarging the picture, so it greys
-without it, and greys while a DLSS pass has taken the enlarging back. The chroma pre-pass
-does not grey it: it leaves the driver nothing to do, which is the driver's answer and not
-ours to give, and the statistics say which of the two is happening.
+without it, greys while a DLSS pass has taken the enlarging back, and greys while the chroma
+pre-pass is really handing the processor a 4:4:4 picture it will not touch. The driver is
+still asked for it exactly as upstream asks -- nothing is taken away from it here -- but a
+control that cannot change the picture should say so rather than look available, and the
+statistics read `D3D11 (No Super Resolution when chroma by shaders)`.
 
 **Replace VP chroma upsampling**, under the list, moves that one job to the shaders without
 taking the picture away from the processor. A compute shader reads the planes of a progressive
@@ -681,7 +683,7 @@ And under the Chroma upsampling list:
 
 | Setting | Default | Notes |
 |---|---|---|
-| Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture; the box stays yours to set and the statistics say so. Needs Direct3D 11 |
+| Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Request Super Resolution* greys while this is in service, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
 
 **Default** on the DLSS page resets the tuning, from Style to Disable temporal history, motion
 settings and the DLSS SR preset; it leaves Enable, Use DLSS SR, the key, both DLL paths and

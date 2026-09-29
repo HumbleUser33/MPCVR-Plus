@@ -5733,10 +5733,16 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		// resize after DLSS reads as no scaling at all.
 		if (m_D3D11VP.IsReady() && m_bVPScaling && !m_bVPScalingUseShaders && !m_bDlssSRActive) {
 			str.append(L" D3D11");
-			if (m_bVPUseSuperRes && m_srcRectWidth < dstW && m_srcRectHeight < dstH) {
-				str.append(m_bChromaReplacedVP
-					? L" SuperResolution (nothing to do on a 4:4:4 picture)"
-					: L" SuperResolution*");
+			if (m_srcRectWidth < dstW && m_srcRectHeight < dstH) {
+				// The driver is asked for it exactly as upstream asks, and answers
+				// that it will; on a 4:4:4 picture it then leaves the picture alone,
+				// so the line says which of the two happened rather than starring
+				// work nobody did.
+				if (m_bChromaReplacedVP && m_iVPSuperRes != SUPERRES_Disable) {
+					str.append(L" (No Super Resolution when chroma by shaders)");
+				} else if (m_bVPUseSuperRes) {
+					str.append(L" SuperResolution*");
+				}
 			}
 		} else {
 			str += L' ';
