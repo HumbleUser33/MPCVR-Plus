@@ -2167,16 +2167,7 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 
 	m_TexSrcVideo.Release();
 
-	// Ticking RTX Video HDR asks for two things at once, and only one of them depends
-	// on the picture's depth. The HDR output -- the processor, the swap chain and the
-	// display carrying an HDR signal, with the renderer converting the SDR source into
-	// it -- works whatever comes in, and that is what the box is really for. The
-	// driver's own tone mapping on top is the part that does not: it leaves a 10-bit
-	// 4:2:0 frame exactly as it found it (0.000, against 37.1 on 8-bit and 37.7 on the
-	// same frame rebuilt in 4:4:4 -- tools/dlssnr_probe vp444_probe). So the box is
-	// honoured either way, and only the statistics say which of the two is happening.
-	m_bRTXVideoHDRTonemaps = params.CDepth == 8 || m_bChromaReplacedVP;
-	const bool bHdrPassthrough = m_bHdrDisplayModeEnabled && (SourceIsHDR10orHLG() || m_bVPUseRTXVideoHDR);
+	const bool bHdrPassthrough = m_bHdrDisplayModeEnabled && (SourceIsHDR10orHLG() || (m_bVPUseRTXVideoHDR && params.CDepth == 8));
 	m_D3D11OutputFmt = m_InternalTexFmt;
 	const int deinterlacing = m_bInterlaced ? m_iVPDeinterlacing : DEINT_Disable;
 	HRESULT hr = m_D3D11VP.InitVideoProcessor(dxgiFormat, width, height, m_srcExFmt, deinterlacing, bHdrPassthrough, m_D3D11OutputFmt);
@@ -2194,22 +2185,20 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 	auto rtxHDR = m_bVPRTXVideoHDR && m_bHdrPassthroughSupport && m_bHdrPassthrough && m_iTexFormat != TEXFMT_8INT && !SourceIsHDR();
 	m_bVPUseRTXVideoHDR = (m_D3D11VP.SetRTXVideoHDR(rtxHDR) == S_OK);
 
-	// Super Resolution only works on a subsampled picture: on this driver a 4:4:4 one
-	// comes out of it unchanged, so it is not asked for and the statistics do not
-	// claim it (tools/dlssnr_probe vp444_probe). It reads what the driver answered about
-	// RTX Video HDR, which is why it comes after it.
-	auto superRes = (m_bVPScaling && !m_bChromaReplacedVP
+	// Asked for exactly as upstream asks for it. The 4:4:4 pre-pass used to switch it
+	// off here, which cost a capability the original has for an option of ours; the
+	// driver is left to answer for itself instead.
+	auto superRes = (m_bVPScaling
 		&& (m_InternalTexFmt == DXGI_FORMAT_B8G8R8A8_UNORM || m_bVPUseRTXVideoHDR)
 		&& (params.CDepth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
 	m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
 
 	// Turning the driver's tone mapping on or off changes what the swap chain has to
 	// be, and the swap chain is made before the media type: so the processor is set up
-	// again, once, with the two agreeing. Once is all it ever legitimately takes --
-	// measured: the picture is the same whether one retry is allowed or two. And it has
-	// to be bounded, because this calls back into itself through InitMediaType: a state
-	// the two cannot settle on recursed until the stack ran out, which is what asking
-	// the driver for RTX Video HDR on a 10-bit source used to do.
+	// again, once, with the two agreeing. Upstream leaves that unbounded, and a state
+	// the two cannot settle on then recurses through InitMediaType until the stack runs
+	// out -- 0xC00000FD, seen here for real. One retry is all it ever legitimately
+	// takes, measured: the picture is the same whether one is allowed or two.
 	if ((m_bVPUseRTXVideoHDR && !m_pDXGISwapChain4)
 			|| (!m_bVPUseRTXVideoHDR && m_pDXGISwapChain4 && !SourceIsHDR())) {
 		if (m_nHdrSwapChainRetry) {
@@ -5337,7 +5326,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	}
 
 	if (changeSuperRes) {
-		auto superRes = (m_bVPScaling && !m_bChromaReplacedVP && (m_srcParams.CDepth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
+		auto superRes = (m_bVPScaling && (m_srcParams.CDepth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
 		m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
 	}
 
@@ -5618,14 +5607,7 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 					m_strStatsHDR.append(std::format(L"\n Display Max Nits: {} nits", m_iHdrDisplayMaxNits));
 				}
 				if (m_bVPUseRTXVideoHDR) {
-					// The star means the driver's tone mapping is really doing the work.
-					// On a 10-bit 4:2:0 frame it takes the picture and does not tone map
-					// it, so the line says so instead of taking the credit; ticking
-					// "Replace VP chroma upsampling" hands it a 4:4:4 picture, which it
-					// does tone map.
-					m_strStatsHDR.append(m_bRTXVideoHDRTonemaps
-						? L", RTX Video HDR*"
-						: L", RTX Video HDR (no tone mapping on 10-bit 4:2:0)");
+					m_strStatsHDR.append(L", RTX Video HDR*");
 				}
 				if (m_bHdrLocalToneMapping && m_DoviExtensionMetadata.L1.present) {
 					m_strStatsHDR += std::format(L", {} nits", m_DoviExtensionMetadata.L1.max_pq);
@@ -5752,7 +5734,9 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		if (m_D3D11VP.IsReady() && m_bVPScaling && !m_bVPScalingUseShaders && !m_bDlssSRActive) {
 			str.append(L" D3D11");
 			if (m_bVPUseSuperRes && m_srcRectWidth < dstW && m_srcRectHeight < dstH) {
-				str.append(L" SuperResolution*");
+				str.append(m_bChromaReplacedVP
+					? L" SuperResolution (nothing to do on a 4:4:4 picture)"
+					: L" SuperResolution*");
 			}
 		} else {
 			str += L' ';

@@ -157,14 +157,6 @@ struct Settings_t {
 	bool bVPScaling;
 	int iVPSuperRes;
 	bool bVPRTXVideoHDR;
-	// The video processor's own chroma upsampling measures about bilinear, and on a
-	// 10-bit source the driver reads the studio range as 16/255..235/255 whatever the
-	// depth, which shifts the colour by about one 8-bit level. With this, the shaders
-	// rebuild the chroma of a progressive 4:2:0 or 4:2:2 picture with iChromaScaling
-	// and hand the processor a 4:4:4 one, so it keeps the picture and RTX Video HDR
-	// goes on working. Interlaced video keeps the processor's own chroma: it is the
-	// only deinterlacer there is, and it deinterlaces 4:2:0 only. Direct3D 11 only.
-	bool bVPReplaceChroma;
 	int  iChromaScaling;
 	int  iUpscaling;
 	int  iDownscaling;
@@ -219,6 +211,15 @@ struct Settings_t {
 	// Start the DLSS passes early by what they take, and hold each finished picture
 	// until its time, so DLSS does not make the video late (see CRenderAhead).
 	bool bDlssRenderAhead;
+
+	// Added after everything upstream has, and it stays there: the video processor's
+	// own chroma upsampling measures about bilinear, and on a 10-bit source the driver
+	// reads the studio range as 16/255..235/255 whatever the depth, which shifts the
+	// colour by about one 8-bit level. With this, the shaders rebuild the chroma of a
+	// progressive 4:2:0 or 4:2:2 picture with iChromaScaling and hand the processor a
+	// 4:4:4 one. Interlaced video keeps the processor's own chroma: it is the only
+	// deinterlacer there is, and it deinterlaces 4:2:0 only. Direct3D 11 only.
+	bool bVPReplaceChroma;
 
 	Settings_t() {
 		SetDefault();
@@ -335,10 +336,18 @@ interface __declspec(uuid("1AB00F10-5F55-42AC-B53F-38649F11BE3E"))
 IVideoRenderer : public IUnknown {
 	STDMETHOD(GetVideoProcessorInfo) (std::wstring& str) PURE;
 	STDMETHOD_(bool, GetActive()) PURE;
-	STDMETHOD_(unsigned, GetVideoProcessorUse()) PURE;
 
 	STDMETHOD_(void, GetSettings(Settings_t& setings)) PURE;
 	STDMETHOD_(void, SetSettings(const Settings_t& setings)) PURE;
 
 	STDMETHOD(SaveSettings()) PURE;
+
+	// Everything of ours goes after everything of upstream's, and stays there. The
+	// interface keeps upstream's identifier, so a caller built against upstream's
+	// header finds each method by its place in the table: one of ours put in the
+	// middle moves all of upstream's that follow it, and the caller then asks for
+	// the settings and saves them instead. Measured, when this was in the middle:
+	// setting the options on a stock build did nothing at all and wrote its defaults
+	// to the registry.
+	STDMETHOD_(unsigned, GetVideoProcessorUse()) PURE;
 };

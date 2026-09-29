@@ -212,17 +212,12 @@ void CVRMainPPage::EnableControls()
 
 	// RTX Video Super Resolution lives inside the processor and only does something
 	// while the processor is the one enlarging the picture -- which is what "Use for
-	// resizing" gives it, and what a DLSS pass takes away. It also wants a subsampled
-	// picture: the driver leaves a 4:4:4 one untouched, measured here at 0.000 against
-	// 4.0 on 4:2:0 (tools/dlssnr_probe, vp444_probe), so it is out of reach while
-	// "Replace VP chroma upsampling" hands one over. RTX Video HDR is the other way
-	// round and works on 4:4:4, which is why that box helps it and not this one.
-	// Greyed rather than accepted and ignored, so the hint can say which box to untick.
+	// resizing" gives it, and what a DLSS pass takes away. Ticking "Replace VP chroma
+	// upsampling" leaves the driver nothing to do, since it does not touch a 4:4:4
+	// picture, but that is the driver's answer and not ours to give: the box stays the
+	// user's, and the statistics say which of the two is happening.
 #ifdef _WIN64
-	const bool bChromaReplacedNow = bChromaToShaders
-		&& (!m_bRendererActive || !(m_uVPUse & VPUSE_Converting));
-	const BOOL bSuperRes = m_SetsPP.bUseD3D11 && IsWindows10OrGreater()
-		&& bVPResizes && !bChromaReplacedNow;
+	const BOOL bSuperRes = m_SetsPP.bUseD3D11 && IsWindows10OrGreater() && bVPResizes;
 #else
 	const BOOL bSuperRes = FALSE; // the extension is x64 only
 #endif
@@ -397,25 +392,22 @@ HRESULT CVRMainPPage::OnActivate()
 		"Greyed unless the processor is the one enlarging the\n"
 		"picture: tick \"Use for resizing\" above. DLSS takes the\n"
 		"enlarging back while it runs, and greys this too.\n"
-		"Greyed as well while \"Replace VP chroma upsampling\" is on:\n"
-		"the driver leaves a 4:4:4 picture untouched, measured here\n"
-		"at 0.000 against 4.0 on 4:2:0, so it would do nothing at\n"
-		"all. Untick that box to get it back -- one picture cannot\n"
-		"have both. RTX Video HDR is the opposite case: it does work\n"
-		"on 4:4:4, which is why that box helps it.");
+		"With \"Replace VP chroma upsampling\" on it stays yours to\n"
+		"set, but the driver leaves a 4:4:4 picture untouched --\n"
+		"measured here at 0.000 against 4.0 on 4:2:0 -- so nothing\n"
+		"happens, and the statistics say so rather than claiming it.\n"
+		"Untick that box to get it back. RTX Video HDR is the other\n"
+		"way round and works on 4:4:4 either way.");
 	AddHint(IDC_CHECK19,
 		L"Available for Direct3D 11.\n"
 		"Requires hardware and driver support:\n"
 		"- Nvidia RTX (x64 only)\n"
-		"It asks for two things: an HDR picture out of an SDR source,\n"
-		"which works whatever comes in, and the driver's own tone\n"
-		"mapping on top, which does not. Measured here, the driver\n"
-		"tone maps an 8-bit picture (37.1) and a 4:4:4 one (37.7) and\n"
-		"leaves a 10-bit 4:2:0 frame exactly as it found it (0.000).\n"
-		"So on a 10-bit source, tick \"Replace VP chroma upsampling\"\n"
-		"as well: it hands the processor a 4:4:4 picture and the tone\n"
-		"mapping then really happens. Without it the statistics say\n"
-		"so rather than claiming it.");
+		"An HDR picture out of an SDR source, with the driver's own\n"
+		"tone mapping on top. It works whatever the source's depth:\n"
+		"measured here, the driver tone maps an 8-bit picture (36.9),\n"
+		"a 10-bit 4:2:0 one (36.7) and a 4:4:4 one (37.7) alike.\n"
+		"Needs HDR passthrough and an HDR display; the statistics\n"
+		"carry a star when the driver is really doing it.");
 	AddHint(IDC_COMBO5,
 		L"Used for YUV 4:2:0/4:2:2 input formats when the video\n"
 		"processor does not convert them: it does its own chroma.\n"

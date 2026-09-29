@@ -27,6 +27,12 @@ pre-pass before the hardware video processor. `README-DLSS5.md` is the manual.
   order and carry their value as combo item data, so the display order can change without
   moving anybody's saved setting.
 
+- **`IVideoRenderer` and `Settings_t` are append-only, at the end.** The interface keeps
+  upstream's identifier, so a caller built against upstream's header finds methods by their
+  place in the table and fields by their offset. One of ours inserted in the middle moves
+  all of upstream's that follow, silently: `playback_test --file` prints a `settings kept:`
+  line for exactly this.
+
 - **A compute pass sets no render target.** If the caller has just drawn into a texture the
   pass reads, Direct3D drops that texture's shader resource view and the pass reads zeros
   (black for luma, green for chroma). Unbind the render targets before any dispatch placed

@@ -324,7 +324,7 @@ struct RunResult {
 
 // One processor, fed the frames in turn, the output of the last one read back.
 static RunResult Run(Gpu& g, DXGI_FORMAT fmt, const std::vector<Picture>& frames, bool interlaced, int outW, int outH,
-	int superRes, bool trueHdr, bool hdrOutput)
+	int superRes, bool trueHdr, bool hdrOutput, int passthrough = -1)
 {
 	RunResult r;
 	CD3D11VP vp;
@@ -334,7 +334,8 @@ static RunResult Run(Gpu& g, DXGI_FORMAT fmt, const std::vector<Picture>& frames
 	}
 	const int w = frames[0].w, h = frames[0].h;
 	DXGI_FORMAT out = hdrOutput ? DXGI_FORMAT_R10G10B10A2_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM;
-	r.hr = vp.InitVideoProcessor(fmt, w, h, Bt709(interlaced), interlaced ? DEINT_Enable : DEINT_Disable, hdrOutput, out);
+	const bool bPassthrough = (passthrough < 0) ? hdrOutput : (passthrough != 0);
+	r.hr = vp.InitVideoProcessor(fmt, w, h, Bt709(interlaced), interlaced ? DEINT_Enable : DEINT_Disable, bPassthrough, out);
 	if (FAILED(r.hr)) {
 		return r;
 	}
@@ -1243,6 +1244,38 @@ int wmain(int argc, wchar_t* argv[])
 			continue;
 		}
 		printf("  %-22s extension 0x%08X, changes the picture by %.3f\n", Name(f), (unsigned)on.hrTrueHDR, Diff(on.out, off.out));
+	}
+
+	// The same extension, in the arrangement the renderer really uses: an HDR10 output
+	// with the processor left in G22/P709, which is what upstream switched to so that a
+	// 10-bit SDR source would work (bbc6d1d). If the driver tone maps here where it did
+	// not above, the depth was never the reason -- the passthrough was.
+	printf("\nRTX Video HDR, HDR10 out but no PQ passthrough (what enabling it changes):\n");
+	for (const DXGI_FORMAT f : formats) {
+		RunResult off = Run(g, f, { a, a, a }, false, 960, 540, SUPERRES_Disable, false, true, 0);
+		RunResult on = Run(g, f, { a, a, a }, false, 960, 540, SUPERRES_Disable, true, true, 0);
+		if (FAILED(off.hr) || FAILED(on.hr)) {
+			printf("  %-22s failed 0x%08X / 0x%08X\n", Name(f), (unsigned)off.hr, (unsigned)on.hr);
+			continue;
+		}
+		printf("  %-22s extension 0x%08X, changes the picture by %.3f\n", Name(f), (unsigned)on.hrTrueHDR, Diff(on.out, off.out));
+	}
+
+	// And Super Resolution beside it, in the same arrangement: 960x540 enlarged to
+	// 1920x1080, with and without. This is the pair the user asks to have together.
+	printf("\nRTX Video Super Resolution, 960x540 -> 1920x1080 (what enabling it changes):\n");
+	for (const DXGI_FORMAT f : formats) {
+		for (const int hdr : { 0, 1 }) {
+			RunResult off = Run(g, f, { a, a, a }, false, 1920, 1080, SUPERRES_Disable, hdr != 0, hdr != 0, 0);
+			RunResult on = Run(g, f, { a, a, a }, false, 1920, 1080, SUPERRES_1080p, hdr != 0, hdr != 0, 0);
+			if (FAILED(off.hr) || FAILED(on.hr)) {
+				printf("  %-22s %-16s failed 0x%08X / 0x%08X\n", Name(f), hdr ? "with RTX HDR" : "on its own",
+					(unsigned)off.hr, (unsigned)on.hr);
+				continue;
+			}
+			printf("  %-22s %-16s extension 0x%08X, changes the picture by %.3f\n", Name(f),
+				hdr ? "with RTX HDR" : "on its own", (unsigned)on.hrSuperRes, Diff(on.out, off.out));
+		}
 	}
 
 	// Deinterlacing: fields from two pictures 6 pixels apart. Woven, the rows comb;

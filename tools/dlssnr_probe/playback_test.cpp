@@ -42,6 +42,7 @@
 #include <cstdio>
 #include <format>
 #include <string>
+#include <vector>
 #include <atomic>
 #include <thread>
 #include <vector>
@@ -76,6 +77,21 @@ static bool g_bToggleHdr = false;      // --toggle --hdr: with HDR passthrough, 
 static bool g_bToggleThread = false;   // --toggle --thread: applied from another thread, as the player's page does
 static bool g_bToggleSwitch = false;   // --toggle --switch: the processor's extras as the chroma moves to the shaders and back
 static const wchar_t* g_filmFile = nullptr;  // --file <path>: a real film, split and decoded as the player does
+// What to ask of the processor on the film path. Sent through SetSettings rather than
+// left to the registry, so the same request reaches any build of the filter: the one
+// MPC-HC ships does not read the registry at all, and Settings_t now carries upstream's
+// fields first and this fork's after them, so the layout it reads is the one it expects.
+static int g_filmRtxHdr = -1;     // --rtxhdr 0|1
+static int g_filmSuperRes = -1;   // --superres 0..4
+static int g_filmPrepass = -1;    // --prepass 0|1
+static int g_filmHdrOut = -1;     // --hdrout 0|1
+static int g_filmVPScale = -1;    // --vpscale 0|1
+static int g_filmStats = -1;      // --stats 0|1
+// --asis: leave the settings exactly as the registry has them. The only way to drive a
+// renderer this bench did not build: Settings_t has grown fields since, so SetSettings
+// on the stock filter writes a layout it does not know and it ignores the lot. Both
+// renderers read the same key, so the registry is the common ground.
+static bool g_bAsIs = false;
 static bool g_bToggleGpu = false;      // --toggle --gpu: the pictures arrive as D3D11 textures, as from a hardware decoder
 static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
 // The picture is fed as NV12 wherever the hardware video processor has to be able
@@ -468,6 +484,8 @@ static std::wstring StatsLine(const std::wstring& text, const wchar_t* label)
 	return text.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
 }
 
+#include "screen_watch.inl"
+
 struct Config {
 	const char* name;
 	bool bNR;
@@ -484,6 +502,12 @@ struct Config {
 
 struct Result {
 	bool bRan = false;
+	std::wstring screenLine;   // what the desktop itself held, read past the renderer
+	std::vector<BYTE> screenCrop;  // and the picture that reading was taken from
+	std::string screenWhere;       // where on the desktop it was taken
+	std::vector<BYTE> windowShot;  // the window with everything the renderer drew on it
+	int windowShotW = 0, windowShotH = 0;
+	int screenCropW = 0, screenCropH = 0;
 	std::vector<int> syncs;
 	int skippedAtStart = -1;
 	int skippedAtEnd = -1;
@@ -584,6 +608,43 @@ static bool LoadPicture(const wchar_t* path, int w, int h, std::string& error)
 	return true;
 }
 
+static bool PrintWindowToBgra(HWND hwnd, std::vector<BYTE>& bgra, int& w, int& h)
+{
+	RECT rc = {};
+	GetClientRect(hwnd, &rc);
+	w = rc.right;
+	h = rc.bottom;
+	if (w < 8 || h < 8) {
+		return false;
+	}
+	HDC screen = GetDC(nullptr);
+	HDC mem = CreateCompatibleDC(screen);
+	BITMAPINFO bi = {};
+	bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
+	bi.bmiHeader.biWidth = w;
+	bi.bmiHeader.biHeight = -h;   // top-down
+	bi.bmiHeader.biPlanes = 1;
+	bi.bmiHeader.biBitCount = 32;
+	bi.bmiHeader.biCompression = BI_RGB;
+	void* bits = nullptr;
+	HBITMAP bmp = CreateDIBSection(mem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+	bool ok = false;
+	if (bmp && bits) {
+		HGDIOBJ old = SelectObject(mem, bmp);
+		ok = PrintWindow(hwnd, mem, 2 /* PW_RENDERFULLCONTENT */) != FALSE;
+		if (ok) {
+			bgra.assign((const BYTE*)bits, (const BYTE*)bits + (size_t)w * h * 4);
+		}
+		SelectObject(mem, old);
+	}
+	if (bmp) {
+		DeleteObject(bmp);
+	}
+	DeleteDC(mem);
+	ReleaseDC(nullptr, screen);
+	return ok;
+}
+
 static bool SaveBmp(const std::wstring& path, const std::vector<BYTE>& bgra, int w, int h)
 {
 	FILE* f = nullptr;
@@ -623,6 +684,8 @@ static int ParseLate(const std::wstring& text)
 	return pos == std::wstring::npos ? 0 : _wtoi(line.c_str() + pos + 5);
 }
 
+#include "file_graph.inl"
+
 static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE source, SIZE window, int seconds)
 {
 	Result result;
@@ -650,6 +713,10 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	// This run's settings, handed over without saving them.
 	CComQIPtr<IVideoRenderer> pVR(pRenderer.p);
 	Settings_t sets;
+	if (g_bAsIs) {
+		// Nothing is written: what plays is what the registry says, for either filter.
+		pVR->GetSettings(sets);
+	} else {
 	pVR->GetSettings(sets);
 	sets.bUseD3D11 = true;
 	sets.bShowStats = true;
@@ -687,6 +754,30 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 			sets.bVPRTXVideoHDR = config.iRtxHdr != 0;
 		}
 	}
+	if (g_filmFile) {
+		// The film runs with the hardware processor taking every format, since that is
+		// the path both extensions live on, and with whatever the command line asked
+		// for. Only what was asked for is touched.
+		sets.VPFmts = { true, true, true, true };
+		if (g_filmVPScale >= 0) {
+			sets.bVPScaling = g_filmVPScale != 0;
+		}
+		if (g_filmHdrOut >= 0) {
+			sets.bHdrPassthrough = g_filmHdrOut != 0;
+		}
+		if (g_filmRtxHdr >= 0) {
+			sets.bVPRTXVideoHDR = g_filmRtxHdr != 0;
+		}
+		if (g_filmSuperRes >= 0) {
+			sets.iVPSuperRes = g_filmSuperRes;
+		}
+		if (g_filmPrepass >= 0) {
+			sets.bVPReplaceChroma = g_filmPrepass != 0;
+		}
+		if (g_filmStats >= 0) {
+			sets.bShowStats = g_filmStats != 0;
+		}
+	}
 	if (g_bScalers && !g_bHardwareVP) {
 		// The shader video processor converts and scales, not the hardware one.
 		sets.VPFmts = { false, false, false, false };
@@ -694,13 +785,34 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		sets.iTexFormat = TEXFMT_AUTOINT;
 	}
 	pVR->SetSettings(sets);
+	if (g_filmFile) {
+		// Read back what the filter kept. A build the bench did not compile against
+		// shares the interface but not necessarily the structure behind it, and this
+		// is the one place that would show it.
+		Settings_t back;
+		pVR->GetSettings(back);
+		printf("   settings kept: stats %d, rtxhdr %d, superres %d, prepass %d, hdrout %d, vpscale %d\n",
+			(int)back.bShowStats, (int)back.bVPRTXVideoHDR, back.iVPSuperRes,
+			(int)back.bVPReplaceChroma, (int)back.bHdrPassthrough, (int)back.bVPScaling);
+	}
+	}
 
-	pGraph->AddFilter(pSource, L"Film source");
-	pGraph->AddFilter(pRenderer, L"MPC Video Renderer");
-	hr = pGraph->ConnectDirect(GetPin(pSource, PINDIR_OUTPUT), GetPin(pRenderer, PINDIR_INPUT), nullptr);
-	if (FAILED(hr)) {
-		result.error = "connection failed";
-		return result;
+	if (g_filmFile) {
+		// The real file, split and decoded as the player does it: that is the only way
+		// a decoded video surface ever reaches the processor.
+		const std::string bad = BuildFileGraph(pGraph, g_filmFile, pRenderer);
+		if (!bad.empty()) {
+			result.error = bad;
+			return result;
+		}
+	} else {
+		pGraph->AddFilter(pSource, L"Film source");
+		pGraph->AddFilter(pRenderer, L"MPC Video Renderer");
+		hr = pGraph->ConnectDirect(GetPin(pSource, PINDIR_OUTPUT), GetPin(pRenderer, PINDIR_INPUT), nullptr);
+		if (FAILED(hr)) {
+			result.error = "connection failed";
+			return result;
+		}
 	}
 
 	CComQIPtr<IVideoWindow> pVW(pRenderer.p);
@@ -711,11 +823,26 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	pBV->SetDestinationPosition(0, 0, window.cx, window.cy);
 
 	CComQIPtr<IMediaControl> pMC(pGraph.p);
+	if (g_filmFile && g_filmSeek > 0) {
+		SeekTo(pGraph, g_filmSeek);
+	}
 	pMC->Run();
 	result.bRan = true;
 
 	// Sessions, features and Optical Flow settle first.
 	Pump(5000);
+	// The desktop as Windows composes it, which is the only place the video
+	// processor's own extensions can be seen at all.
+	CScreenWatch watch;
+	if (g_filmFile) {
+		const std::string bad = watch.Start(hwnd);
+		if (!bad.empty()) {
+			printf("   screen watch: %s\n", bad.c_str());
+		} else {
+			printf("   screen watch: half floats asked for, 0x%08X\n", (unsigned)watch.HdrAttempt());
+		}
+	}
+
 	std::wstring text = StatsText(pRenderer);
 	ParseSkipped(text, result.framesAtStart, result.skippedAtStart);
 	result.lateAtStart = ParseLate(text);
@@ -729,6 +856,30 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 			result.syncs.push_back(value);
 		}
 	}
+	if (g_filmFile && watch.Ready()) {
+		// The desktop shows whatever is in front: a window left behind another one
+		// is not what the duplication composes, and the reading would be of the
+		// wrong picture entirely.
+		SetForegroundWindow(hwnd);
+		BringWindowToTop(hwnd);
+		Pump(600);
+		const CScreenWatch::Reading s = watch.Measure(hwnd);
+		const RECT w = watch.LastRect();
+		result.screenWhere = std::format("{},{} to {},{}", w.left, w.top, w.right, w.bottom);
+		// And the window as the window manager draws it, which carries whatever the
+		// renderer wrote over its own picture -- the only thing a build without
+		// statsText will tell the bench.
+		PrintWindowToBgra(hwnd, result.windowShot, result.windowShotW, result.windowShotH);
+		result.screenCrop = s.crop;
+		result.screenCropW = s.cropW;
+		result.screenCropH = s.cropH;
+		result.screenLine = s.ok
+			? std::format(L"{}, mean {:.4f}, p99 {:.4f}, peak {:.3f}, colour {:.4f}, past SDR white {:.2f}%, detail {:.5f}",
+				watch.Format() == DXGI_FORMAT_R16G16B16A16_FLOAT ? L"HDR desktop (scRGB half floats)" : L"SDR desktop (8-bit)",
+				s.mean, s.p99, s.peak, s.colour, s.aboveWhite, s.detail)
+			: L"could not be read";
+	}
+
 	ParseSkipped(text, result.framesAtEnd, result.skippedAtEnd);
 	result.lateAtEnd = ParseLate(text);
 	result.nrLine = StatsLine(text, L"DLSS 5 NR     : ");
@@ -739,14 +890,27 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	result.statsAll = text;
 	result.scalingLine = StatsLine(text, L"Scaling       : ");
 	result.prescaleTimes = StatsLine(text, L"Prescale (ms) : ");
-	if (g_bScalers || g_bChroma) {
+	if (g_filmFile) {
+		// Two renderers can only be compared on the same picture, and playback never
+		// stops on the same frame twice. Paused and seeked again, the frame shown is
+		// the one at that position and nothing else.
+		pMC->Pause();
+		Pump(500);
+		SeekTo(pGraph, g_filmSeek);
+		Pump(2500);
+	}
+	if (g_bScalers || g_bChroma || g_filmFile) {
 		// One picture with the statistics over it, for the look of the box.
 		GrabDisplayed(pRenderer, result.statsPicture, result.pictureW, result.pictureH);
 		// Then one without, which is what the configurations are compared on. The
 		// back buffer of a flip-discard swap chain is not always the picture just
 		// presented, so the same picture has to come back twice before it is taken.
-		sets.bShowStats = false;
-		pVR->SetSettings(sets);
+		// With --asis nothing may be written to the filter, so whether the statistics
+		// are drawn is the registry's business and both pictures are the same one.
+		if (!g_bAsIs) {
+			sets.bShowStats = false;
+			pVR->SetSettings(sets);
+		}
 		Pump(800);
 		std::vector<BYTE> previous;
 		for (int attempt = 0; attempt < 8; attempt++) {
@@ -1027,13 +1191,20 @@ static ChromaMetrics ScoreChroma(const std::vector<BYTE>& test, const std::vecto
 	return m;
 }
 
-#include "screen_watch.inl"
-#include "file_graph.inl"
 #include "d3d11_source.inl"
 #include "toggle_suite.inl"
 
 int wmain(int argc, wchar_t* argv[])
 {
+	// Declared before any window exists, because that is the only time it counts --
+	// and without it the desktop duplication will not hand over anything but 8 bits,
+	// which on an HDR desktop is a tone-mapped copy and not what is on the screen.
+	if (HMODULE user32 = GetModuleHandleW(L"user32.dll")) {
+		using PFN = HANDLE (WINAPI*)(HANDLE);
+		if (auto set = (PFN)GetProcAddress(user32, "SetProcessDpiAwarenessContext")) {
+			set((HANDLE)-4);  // per-monitor aware, v2
+		}
+	}
 	setvbuf(stdout, nullptr, _IONBF, 0); // so a crash keeps what was already reported
 
 	int seconds = 20;
@@ -1066,6 +1237,18 @@ int wmain(int argc, wchar_t* argv[])
 			g_filmFile = argv[i + 1];
 		} else if (!wcscmp(argv[i], L"--seek")) {
 			g_filmSeek = _wtof(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--rtxhdr")) {
+			g_filmRtxHdr = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--superres")) {
+			g_filmSuperRes = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--prepass")) {
+			g_filmPrepass = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--hdrout")) {
+			g_filmHdrOut = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--vpscale")) {
+			g_filmVPScale = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--stats")) {
+			g_filmStats = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--chroma") || !wcscmp(argv[i], L"--chroma10")) {
 			g_bChroma = true;
 			g_bChroma10 = !wcscmp(argv[i], L"--chroma10");
@@ -1094,6 +1277,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bToggleGpu = true;
 		} else if (!wcscmp(argv[i], L"--thread")) {
 			g_bToggleThread = true;
+		} else if (!wcscmp(argv[i], L"--asis")) {
+			g_bAsIs = true;
 		} else if (!wcscmp(argv[i], L"--toggle")) {
 			g_bToggle = true;
 			source.cx &= ~1; // NV12
@@ -1267,6 +1452,39 @@ int wmain(int argc, wchar_t* argv[])
 					m.psnrChroma, m.psnrEdges, m.psnrRgb, m.offsetCb, m.offsetCr);
 			}
 			continue;
+		}
+		if (g_filmFile && !r.screenCrop.empty()) {
+			// The desktop's own picture, saved so it can be looked at and compared
+			// between two renderers -- which the filter's snapshot cannot be.
+			const std::wstring path = exeDir + L"\\screen_" + std::to_wstring(c) + L".bmp";
+			SaveBmp(path, r.screenCrop, r.screenCropW, r.screenCropH);
+			wprintf(L"   screen shot  : %s (%dx%d)\n", path.c_str(), r.screenCropW, r.screenCropH);
+			printf("   screen area  : %s\n", r.screenWhere.c_str());
+		}
+		if (g_filmFile && !r.windowShot.empty()) {
+			const std::wstring path = exeDir + L"\\window_" + std::to_wstring(c) + L".bmp";
+			SaveBmp(path, r.windowShot, r.windowShotW, r.windowShotH);
+			wprintf(L"   window shot  : %s (%dx%d)\n", path.c_str(), r.windowShotW, r.windowShotH);
+		}
+		if (g_filmFile) {
+			// What Windows really composed. The filter's own snapshot cannot answer
+			// this: it renders into an 8-bit target and, when the output is HDR, puts
+			// a PQ-to-SDR correction in front on purpose so the picture is viewable.
+			// Tone mapping and Super Resolution are both invisible to it.
+			wprintf(L"   screen       : %s\n", r.screenLine.c_str());
+		}
+		if ((g_bAsIs || g_filmFile) && !r.statsAll.empty()) {
+			// Whatever this renderer says about itself: the only way to read a filter
+			// the bench did not build, since it cannot be asked anything else.
+			wprintf(L"--- statistics as the filter reports them ---\n%s\n", r.statsAll.c_str());
+		}
+		if (g_filmFile && !r.picture.empty()) {
+			const std::wstring path = exeDir + L"\\film_" + std::to_wstring(c) + L".bmp";
+			SaveBmp(path, r.picture, r.pictureW, r.pictureH);
+			wprintf(L"   picture      : %s (%dx%d)\n", path.c_str(), r.pictureW, r.pictureH);
+			if (!r.statsPicture.empty()) {
+				SaveBmp(exeDir + L"\\film_" + std::to_wstring(c) + L"_stats.bmp", r.statsPicture, r.pictureW, r.pictureH);
+			}
 		}
 		if (g_bScalers) {
 			wprintf(L"   processor    : %s\n", r.vprocLine.c_str());

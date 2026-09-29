@@ -185,6 +185,16 @@ notice its absence.
   `Source/VideoRenderer.cpp`. The enum values in `Settings_t` are append-only for the same
   reason, and the two scaling lists carry their value as combo item data so their order can
   change without moving anybody's setting.
+- **`IVideoRenderer` and `Settings_t` are upstream's, plus ours at the end.** The interface
+  keeps upstream's identifier, so anything built against upstream's header finds each method
+  by its place in the table and each field by its offset. A method or a field of ours put in
+  the middle moves every one of upstream's that follows it, and nothing says a word: it
+  compiles, it links, `QueryInterface` succeeds. Measured, when `GetVideoProcessorUse()` sat
+  in the middle of the interface: setting any option on a stock build did nothing at all,
+  because the call landed one slot along -- our `SetSettings` reached upstream's
+  `SaveSettings`, which wrote its own defaults to the registry. Append, always, and if the
+  `settings kept:` line of `playback_test --file` ever disagrees with what was asked for,
+  this is why.
 - **Two known conflict points**, both already met: the order of `superRes` and `rtxHDR` in
   `InitializeD3D11VP` (upstream moved it; keep their order, keep our condition), and
   `SetDirty()` in `PropPage.h` (upstream added a guard; keep it and keep our
