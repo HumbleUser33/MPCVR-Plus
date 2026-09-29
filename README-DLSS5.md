@@ -553,10 +553,10 @@ the picture, in 8-bit levels):
   never the reason. The renderer does not use that arrangement on a 10-bit source, and must
   not: see *Following upstream* for what happens when it does;
 - **Super Resolution** does nothing to a 4:4:4 picture (0.000, against 4.0 on 4:2:0, with or
-  without RTX Video HDR), so this box costs it. The box is still yours to set -- an option of
-  ours never takes one of the renderer's own away -- and the statistics say which of the two
-  is happening: *SuperResolution\** when the driver is enlarging the picture, *SuperResolution
-  (nothing to do on a 4:4:4 picture)* when this pre-pass has left it nothing to enlarge;
+  without RTX Video HDR), so this box costs it. The driver is still asked for it exactly as
+  upstream asks -- nothing is taken away from it here -- but *Request Super Resolution* greys
+  while this pre-pass is in service, and the scaling line reads `D3D11 (No Super Resolution
+  when chroma by shaders)` instead of starring work nobody did;
 - **deinterlacing** works on NV12 only on this driver, so interlaced video keeps the
   processor's own chroma; 4:4:4 and RGB sources have no chroma to rebuild and are left alone;
 - **HDR passthrough** is unaffected: the processor answers that it converts a PQ picture in
@@ -878,6 +878,26 @@ playback_test.exe --toggle --gpu --hdr --switch   as a hardware decoder feeds it
 playback_test.exe --toggle --file <mkv> --seek 1740   a real film, split and decoded
 playback_test.exe --filter <ax>   any of the above with another build of the x64 filter
 ```
+
+---
+
+## Corrections
+
+Earlier releases of this fork said things about the video processor that later measurements
+disproved. They are listed here rather than quietly removed, because the tooltips and this
+manual carried them for two versions and someone may remember them.
+
+| It used to say | What is true |
+|---|---|
+| *RTX Video HDR (no tone mapping on 10-bit 4:2:0)* in the statistics, and the same claim in the tooltip and here | The driver tone maps a 10-bit 4:2:0 picture as well as any other: **36.7**, against 36.9 on 8-bit and 37.7 on 4:4:4. The 0.000 that started it was measured with the processor already told its input and output were PQ BT.2020, the one arrangement in which the extension does nothing. The statistic is gone and the star is unconditional |
+| "tick *Replace VP chroma upsampling* as well and RTX Video HDR starts working on a 10-bit source" | It never needed the pre-pass. What it needed was for the renderer to keep the processor out of PQ passthrough on a 10-bit source, which is what upstream does and what 1.45 had undone |
+| 8-bit 52.25 → 30.19, 10-bit 49.60 → 51.61, pre-pass → 30.22, given as the picture moving end to end | Void. They came from a bench whose `--file` never built the film's graph: every "film" run played its own 800x450 RGB32 pattern, which the renderer converts with shaders and which never brings the hardware processor in at all. Measured again on a real 10-bit film, the same configuration now moves 51.61 → **30.38**, the 8-bit signature |
+| Super Resolution "is not requested" while the pre-pass is on | It is requested exactly as upstream requests it. The driver answers that it will and then leaves the 4:4:4 picture alone; the page greys the control and the scaling line says so, but nothing is taken away from the driver |
+
+Two structural faults found with them, both this fork's own and both now fixed: a method of
+ours sat in the middle of `IVideoRenderer` and a field of ours in the middle of `Settings_t`,
+while the interface kept upstream's identifier -- so any caller built against upstream's
+header reached `SetSettings` when it asked for `GetSettings`. See *Following upstream*.
 
 ---
 
