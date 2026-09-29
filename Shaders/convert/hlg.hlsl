@@ -7,14 +7,14 @@ inline float3 inverse_HLG(float3 rgb)
     rgb = (rgb <= 0.5)
         ? rgb * rgb * B67_inv_r2
         : exp((rgb - B67_c) / B67_a) + B67_b;
-    return rgb;
+    return rgb / 12.0f;
 }
 
 inline float3 HLGtoLinear(float3 rgb)
 {
     rgb = inverse_HLG(rgb);
     float3 ootf_2020 = float3(0.2627, 0.6780, 0.0593);
-    float ootf_ys = 2000.0f * dot(ootf_2020, rgb);
-    rgb *= pow(ootf_ys, 0.2f);
+    float ootf_ys = dot(ootf_2020, rgb);
+    rgb *= 1000.0f * pow(ootf_ys, 0.2f);
     return rgb;
 }

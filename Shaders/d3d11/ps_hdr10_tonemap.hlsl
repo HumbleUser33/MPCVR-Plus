@@ -260,6 +260,8 @@ float4 DolbyVisionTrims(float4 color)
 
 	color = pow((color * TrimSlope) + TrimOffset, TrimPower);
 
+	color.rgb = max(color.rgb, 0.00001);
+
 	float Y = 0.2627f * color.r + 0.6780f * color.g + 0.0593f * color.b;
 
 	color = color * pow((1.0 + ChromaWeight) * color / Y, SaturationGain);

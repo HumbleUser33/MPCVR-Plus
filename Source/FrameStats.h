@@ -1,5 +1,5 @@
 /*
-* (C) 2018-2025 see Authors.txt
+* (C) 2018-2026 see Authors.txt
 *
 * This file is part of MPC-BE.
 *
@@ -32,11 +32,11 @@ protected:
 	const unsigned intervals = count - 1;
 	unsigned m_index = intervals;
 
-	inline unsigned GetNextIndex(unsigned idx) {
+	inline unsigned GetNextIndex(unsigned idx) const {
 		return (idx >= intervals) ? 0 : idx + 1;
 	}
 
-	inline unsigned GetPrevIndex(unsigned idx) {
+	inline unsigned GetPrevIndex(unsigned idx) const {
 		return (idx == 0) ? intervals : idx - 1;
 	}
 
@@ -53,15 +53,15 @@ public:
 		m_frames++;
 	}
 
-	REFERENCE_TIME GeTimestamp() {
+	REFERENCE_TIME GeTimestamp() const {
 		return m_timestamps[m_index];
 	}
 
-	unsigned GetFrames() {
+	unsigned GetFrames() const {
 		return m_frames;
 	}
 
-	virtual T GetAverageFrameDuration() {
+	virtual T GetAverageFrameDuration() const {
 		if (m_frames > intervals) {
 			unsigned first_index = GetNextIndex(m_index);
 			return (m_timestamps[m_index] - m_timestamps[first_index]) / intervals;
@@ -81,7 +81,7 @@ class CFrameStats : public CFrameTimestamps<REFERENCE_TIME, 301>
 private:
 	REFERENCE_TIME m_startFrameDuration = 400000;
 
-	inline unsigned GetPrev10Index(unsigned idx) {
+	inline unsigned GetPrev10Index(unsigned idx) const {
 		if (idx < 10) {
 			idx += std::size(m_timestamps);
 		}
@@ -90,7 +90,7 @@ private:
 	}
 
 public:
-	REFERENCE_TIME GetAverageFrameDuration() override {
+	REFERENCE_TIME GetAverageFrameDuration() const override {
 		REFERENCE_TIME frame_duration;
 		if (m_frames > intervals) {
 			unsigned first_index = GetNextIndex(m_index);
@@ -113,7 +113,7 @@ public:
 		return frame_duration > 0 ? frame_duration : m_startFrameDuration;
 	}
 
-	double GetAverageFps() {
+	double GetAverageFps() const {
 		//return (double)UNITS / GetAverageFrameDuration(); // this is the correct code, do not delete it!
 		// temporary hacked output
 		const auto averageFrameDuration = GetAverageFrameDuration();
@@ -137,7 +137,7 @@ public:
 		m_dropped = 0;
 	};
 
-	double GetAverageFps() {
+	double GetAverageFps() const {
 		return GetPreciseTicksPerSecond() / GetAverageFrameDuration();
 	}
 };
@@ -196,16 +196,16 @@ public:
 		}
 	}
 
-	T Last() {
+	T Last() const {
 		return fifo[lastIndex];
 	}
 
-	T Average() {
+	T Average() const {
 		return sum / fifo.size();
 	}
 
-	std::pair<T, T> MinMax() {
-		const auto [min_e, max_e] = minmax_element(fifo.begin(), fifo.end());
+	std::pair<T, T> MinMax() const {
+		const auto [min_e, max_e] = minmax_element(fifo.cbegin(), fifo.cend());
 		return { *min_e, *max_e };
 	}
 
@@ -213,11 +213,11 @@ public:
 		return fifo.data();
 	}
 
-	unsigned Size() {
+	unsigned Size() const {
 		return fifo.size();
 	}
 
-	unsigned OldestIndex() {
+	unsigned OldestIndex() const {
 		return oldestIndex;
 	}
 };

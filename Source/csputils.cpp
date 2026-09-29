@@ -434,6 +434,7 @@ void mp_get_csp_matrix(struct mp_csp_params *params, struct mp_cmat *m)
         };
         break;
     }
+    case MP_CSP_FCC_: luma_coeffs(m, 0.300, 0.590, 0.110); break;
     default:
         abort();
     };
@@ -442,7 +443,7 @@ void mp_get_csp_matrix(struct mp_csp_params *params, struct mp_cmat *m)
         levels_in = (mp_csp_levels)-1;
 
     if ((colorspace == MP_CSP_BT_601 || colorspace == MP_CSP_BT_709 ||
-         colorspace == MP_CSP_SMPTE_240M || colorspace == MP_CSP_BT_2020_NC))
+         colorspace == MP_CSP_SMPTE_240M || colorspace == MP_CSP_BT_2020_NC || colorspace == MP_CSP_FCC_))
     {
         // Hue is equivalent to rotating input [U, V] subvector around the origin.
         // Saturation scales [U, V].

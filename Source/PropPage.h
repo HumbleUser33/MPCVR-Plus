@@ -1,5 +1,5 @@
 /*
- * (C) 2018-2025 see Authors.txt
+ * (C) 2018-2026 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -37,6 +37,7 @@ class __declspec(uuid("DA46D181-07D6-441D-B314-019AEB10148A"))
 
 	int m_oldSDRDisplayNits = SDR_NITS_DEF;
 
+	bool m_bActivated = false;
 	HWND m_hHint = nullptr;
 
 public:
@@ -51,11 +52,12 @@ private:
 	HRESULT OnDisconnect() override;
 	HRESULT OnActivate() override;
 	HRESULT OnDeactivate() override;
-	void SetDirty()
-	{
-		m_bDirty = TRUE;
-		if (m_pPageSite) {
-			m_pPageSite->OnStatusChange(PROPPAGESTATUS_DIRTY);
+	void SetDirty() {
+		if (m_bActivated && !m_bDirty) {
+			m_bDirty = TRUE;
+			if (m_pPageSite) {
+				m_pPageSite->OnStatusChange(PROPPAGESTATUS_DIRTY);
+			}
 		}
 	}
 	INT_PTR OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) override;

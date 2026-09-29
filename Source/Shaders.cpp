@@ -929,6 +929,7 @@ HRESULT GetShaderConvertColor(
 				"float4 DolbyVisionTrims(float4 color)\n"
 				"{\n"
 				"    color = pow((color * TrimSlope) + TrimOffset, TrimPower);\n"
+				"    color.rgb = max(color.rgb, 0.00001);\n"
 				"    float Y = 0.2627f * color.r + 0.6780f * color.g + 0.0593f * color.b;\n"
 				"    color = color * pow((1.0 + ChromaWeight) * color / Y, SaturationGain);\n"
 				"    return color;\n"
@@ -1003,7 +1004,7 @@ HRESULT GetShaderConvertColor(
 			code.append(
 				"color = saturate(color);\n"
 				"color.rgb = HLGtoLinear(color.rgb);\n"
-				"color = LinearToST2084(color, 1000.0);\n"
+				"color = LinearToST2084(color, 10000.0);\n"
 			);
 		}
 
@@ -1026,7 +1027,7 @@ HRESULT GetShaderConvertColor(
 		code.append(
 			"color = saturate(color);\n"
 			"color.rgb = HLGtoLinear(color.rgb);\n"
-			"color = LinearToST2084(color, 1000.0);\n"
+			"color = LinearToST2084(color, 10000.0);\n"
 		);
 	}
 	else if (bBT2020Primaries) {

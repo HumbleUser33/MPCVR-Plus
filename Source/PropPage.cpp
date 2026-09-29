@@ -488,6 +488,10 @@ HRESULT CVRMainPPage::OnActivate()
 	// not always send WM_SHOWWINDOW when the tab comes back either.
 	SetTimer(kRefreshTimer, 500);
 
+	// From here on an edit is the user's: SetDirty does nothing before this, so filling
+	// the controls in above does not light the Apply button.
+	m_bActivated = true;
+
 	return S_OK;
 }
 
@@ -803,22 +807,17 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 
 HRESULT CVRMainPPage::OnApplyChanges()
 {
-	wchar_t data[32] = {};
-	GetDlgItemTextW(IDC_EDIT_DISPLAYMAX, data, 32);
-	int displayMaxNits;
-	try {
-		displayMaxNits = std::stoi(data);
-	} catch (const std::exception&) {
+	BOOL translated = FALSE;
+	int displayMaxNits = GetDlgItemInt(IDC_EDIT_DISPLAYMAX, &translated, FALSE);
+	if (!translated) {
 		MessageBoxW(L"Invalid HDR Brightness. Please enter a valid number from 100 to 10000.", L"Error", MB_OK | MB_ICONERROR);
-		return S_FALSE;
 	}
-
-	if (displayMaxNits <= HDR_NITS_MIN || displayMaxNits > HDR_NITS_MAX) {
+	else if (displayMaxNits <= HDR_NITS_MIN || displayMaxNits > HDR_NITS_MAX) {
 		MessageBoxW(L"Invalid HDR Brightness. Please enter a valid number from 100 to 10000.", L"Error", MB_OK | MB_ICONERROR);
-		return S_FALSE;
 	}
-	// if not error then set to m_setsPP
-	m_SetsPP.iHdrDisplayMaxNits = displayMaxNits;
+	else {
+		m_SetsPP.iHdrDisplayMaxNits = displayMaxNits;
+	}
 
 	// The DLSS settings live on their own page, and the toggle key changes them
 	// while this one is open: keep what the renderer holds for them.

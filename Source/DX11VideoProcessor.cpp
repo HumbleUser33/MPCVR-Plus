@@ -23,6 +23,7 @@
 #include <Mferror.h>
 #include <Mfidl.h>
 #include <optional>
+#include <limits>
 #include "Helper.h"
 #include "Times.h"
 #include "resource.h"
@@ -2092,7 +2093,7 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 					m_strCorrection = L"Fix BT.2020";
 				}
 			}
-			else if (bTransFunc22 && m_srcExFmt.VideoPrimaries == MFVideoPrimaries_BT2020) {
+			else if ((bTransFunc22 || !m_bHdrPassthroughSupport) && m_srcExFmt.VideoPrimaries == MFVideoPrimaries_BT2020) {
 				resId = IDF_PS_11_FIX_BT2020;
 				m_strCorrection = L"Fix BT.2020";
 			}
@@ -2190,14 +2191,17 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 		return hr;
 	}
 
-	// Super Resolution only works on a subsampled picture: on this driver a 4:4:4 one
-	// comes out of it unchanged, so it is not asked for and the statistics do not
-	// claim it (tools/dlssnr_probe vp444_probe).
-	auto superRes = (m_bVPScaling && !m_bChromaReplacedVP && (params.CDepth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
-	m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
-
 	auto rtxHDR = m_bVPRTXVideoHDR && m_bHdrPassthroughSupport && m_bHdrPassthrough && m_iTexFormat != TEXFMT_8INT && !SourceIsHDR();
 	m_bVPUseRTXVideoHDR = (m_D3D11VP.SetRTXVideoHDR(rtxHDR) == S_OK);
+
+	// Super Resolution only works on a subsampled picture: on this driver a 4:4:4 one
+	// comes out of it unchanged, so it is not asked for and the statistics do not
+	// claim it (tools/dlssnr_probe vp444_probe). It reads what the driver answered about
+	// RTX Video HDR, which is why it comes after it.
+	auto superRes = (m_bVPScaling && !m_bChromaReplacedVP
+		&& (m_InternalTexFmt == DXGI_FORMAT_B8G8R8A8_UNORM || m_bVPUseRTXVideoHDR)
+		&& (params.CDepth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
+	m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
 
 	// Turning the driver's tone mapping on or off changes what the swap chain has to
 	// be, and the swap chain is made before the media type: so the processor is set up
@@ -2688,24 +2692,33 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				int lower_index = -1, upper_index = -1;
 				float closest_lower_dist = 1.0f, closest_upper_dist = 1.0f;
 				bool level2Present = false;
+				uint16_t max_target_max_pq = std::numeric_limits<uint16_t>::max();
 
 				for (uint32_t i = 0; i < LAV_DOVI_MAX_EXTENSIONS; ++i) {
 					if (pDOVIMetadata->Extensions[i].level == 2) {
 						level2Present = true;
 
 						auto& Level2 = pDOVIMetadata->Extensions[i].Level2;
-						float target_pq = Level2.target_max_pq / 4095.0f;
-						if (target_pq <= display_pq) {
-							float dist = display_pq - target_pq;
-							if (dist < closest_lower_dist) {
-								closest_lower_dist = dist;
-								lower_index = i;
+
+						if (!m_bHdrPassthroughSupport) {
+							if (Level2.target_max_pq < max_target_max_pq) {
+								max_target_max_pq = Level2.target_max_pq;
+								upper_index = i;
 							}
 						} else {
-							float dist = target_pq - display_pq;
-							if (dist < closest_upper_dist) {
-								closest_upper_dist = dist;
-								upper_index = i;
+							float target_pq = Level2.target_max_pq / 4095.0f;
+							if (target_pq <= display_pq) {
+								float dist = display_pq - target_pq;
+								if (dist < closest_lower_dist) {
+									closest_lower_dist = dist;
+									lower_index = i;
+								}
+							} else {
+								float dist = target_pq - display_pq;
+								if (dist < closest_upper_dist) {
+									closest_upper_dist = dist;
+									upper_index = i;
+								}
 							}
 						}
 					}
@@ -3025,10 +3038,10 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 							m_lastHdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance ? m_DoviMaxMasteringLuminance : 1000; // 1000 nits
 							m_lastHdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance ? m_DoviMinMasteringLuminance : 50;   // 0.005 nits
 							if (m_DoviMaxContentLightLevel) {
-								m_hdr10.hdr10.MaxContentLightLevel = m_DoviMaxContentLightLevel;
+								m_lastHdr10.hdr10.MaxContentLightLevel = m_DoviMaxContentLightLevel;
 							}
 							if (m_DoviMaxFrameAverageLightLevel) {
-								m_hdr10.hdr10.MaxFrameAverageLightLevel = m_DoviMaxFrameAverageLightLevel;
+								m_lastHdr10.hdr10.MaxFrameAverageLightLevel = m_DoviMaxFrameAverageLightLevel;
 							}
 
 							if (m_bHdrPassthrough) {
@@ -5726,8 +5739,8 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	}
 	str.append(m_strStatsVProc);
 
-	const int dstW = m_videoRect.Width();
-	const int dstH = m_videoRect.Height();
+	const UINT dstW = m_videoRect.Width();
+	const UINT dstH = m_videoRect.Height();
 	if (m_iRotation) {
 		str += std::format(L"\nScaling       : {}x{} r{}\u00B0> {}x{}", m_srcRectWidth, m_srcRectHeight, m_iRotation, dstW, dstH);
 	} else {
@@ -5738,7 +5751,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		// resize after DLSS reads as no scaling at all.
 		if (m_D3D11VP.IsReady() && m_bVPScaling && !m_bVPScalingUseShaders && !m_bDlssSRActive) {
 			str.append(L" D3D11");
-			if (m_bVPUseSuperRes) {
+			if (m_bVPUseSuperRes && m_srcRectWidth < dstW && m_srcRectHeight < dstH) {
 				str.append(L" SuperResolution*");
 			}
 		} else {

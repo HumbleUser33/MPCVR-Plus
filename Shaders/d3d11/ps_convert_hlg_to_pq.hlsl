@@ -16,7 +16,7 @@ float4 main(PS_INPUT input) : SV_Target
 
     color = saturate(color); // use saturate(), because pow() can not take negative values
     color.rgb = HLGtoLinear(color.rgb);
-    color = LinearToST2084(color, 1000.0);
+    color = LinearToST2084(color, 10000.0);
 
     return color;
 }

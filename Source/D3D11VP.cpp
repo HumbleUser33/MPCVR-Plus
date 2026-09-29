@@ -682,7 +682,7 @@ HRESULT CD3D11VP::CheckColorSpaceNew(
 				outputFormat, cstype_output,
 				&m_bConvSupportedG2084);
 		}
-		else if (exFmt.VideoTransferMatrix == DXVA2_VideoTransferMatrix_BT601) {
+		else if (exFmt.VideoTransferMatrix == DXVA2_VideoTransferMatrix_BT601 || exFmt.VideoTransferMatrix == VIDEOTRANSFERMATRIX_FCC) {
 			cstype_input = fullrange
 				? DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601
 				: DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601;
@@ -700,7 +700,7 @@ HRESULT CD3D11VP::CheckColorSpaceNew(
 	}
 
 	if (isG2084 && (FAILED(hr) || !m_bConvSupportedG2084)) {
-		if (exFmt.VideoTransferMatrix == DXVA2_VideoTransferMatrix_BT601) {
+		if (exFmt.VideoTransferMatrix == DXVA2_VideoTransferMatrix_BT601 || exFmt.VideoTransferMatrix == VIDEOTRANSFERMATRIX_FCC) {
 			cstype_input = fullrange
 				? DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601
 				: DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601;
@@ -761,7 +761,7 @@ void CD3D11VP::SetColorSpaceOld(const DXVA2_ExtendedFormat exFmt)
 	D3D11_VIDEO_PROCESSOR_COLOR_SPACE colorSpace = {};
 	if (exFmt.value) {
 		colorSpace.RGB_Range = 0; // output RGB always full range (0-255)
-		colorSpace.YCbCr_Matrix = (exFmt.VideoTransferMatrix == DXVA2_VideoTransferMatrix_BT601)
+		colorSpace.YCbCr_Matrix = (exFmt.VideoTransferMatrix == DXVA2_VideoTransferMatrix_BT601 || exFmt.VideoTransferMatrix == VIDEOTRANSFERMATRIX_FCC)
 			? 0  // ITU-R BT.601
 			: 1; // ITU-R BT.709
 		colorSpace.Nominal_Range = (exFmt.NominalRange == DXVA2_NominalRange_0_255)

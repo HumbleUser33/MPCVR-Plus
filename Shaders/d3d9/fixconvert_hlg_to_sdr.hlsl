@@ -21,7 +21,7 @@ float4 main(float2 tex : TEXCOORD0) : COLOR
     // HLG to PQ
     color = saturate(color);
     color.rgb = HLGtoLinear(color.rgb);
-    color = LinearToST2084(color, 1000.0);
+    color = LinearToST2084(color, 10000.0);
 
     // PQ to Linear
     color = saturate(color);

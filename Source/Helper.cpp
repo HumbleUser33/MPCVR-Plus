@@ -968,6 +968,7 @@ void set_colorspace(const DXVA2_ExtendedFormat extfmt, mp_colorspace& colorspace
 	case DXVA2_VideoTransferMatrix_BT601:     colorspace.space = MP_CSP_BT_601;     break;
 	case DXVA2_VideoTransferMatrix_SMPTE240M: colorspace.space = MP_CSP_SMPTE_240M; break;
 	case MFVideoTransferMatrix_BT2020_10:     colorspace.space = MP_CSP_BT_2020_NC; break;
+	case VIDEOTRANSFERMATRIX_FCC:             colorspace.space = MP_CSP_FCC_;       break;
 	case VIDEOTRANSFERMATRIX_YCgCo:           colorspace.space = MP_CSP_YCGCO;      break;
 	default:
 		colorspace.space = MP_CSP_AUTO;
@@ -1214,7 +1215,7 @@ void GetExtendedFormatString(LPCSTR (&strs)[6], const DXVA2_ExtendedFormat exFor
 {
 	static LPCSTR chromalocation[] = { "unknown", "Center(MPEG-1)", nullptr, nullptr, nullptr, "Left(MPEG-2)", "TopLeft(PAL DV)", "TopLeft(Co-sited)" };
 	static LPCSTR nominalrange[] = { "unknown", "0-255", "16-235", "48-208" };
-	static LPCSTR transfermatrix[] = { "unknown", "BT.709", "BT.601", "SMPTE 240M", "BT.2020", nullptr, nullptr, "YCgCo" };
+	static LPCSTR transfermatrix[] = { "unknown", "BT.709", "BT.601", "SMPTE 240M", "BT.2020", nullptr, "FCC", "YCgCo" };
 	static LPCSTR lighting[] = { "unknown", "bright", "office", "dim", "dark" };
 	static LPCSTR primaries[] = { "unknown", "Reserved", "BT.709", "BT.470-4 System M", "BT.470-4 System B,G",
 		"SMPTE 170M", "SMPTE 240M", "EBU Tech. 3213", "SMPTE C", "BT.2020" };
