@@ -374,107 +374,67 @@ HRESULT CVRMainPPage::OnActivate()
 	SetCursor(m_hWnd, IDC_COMBO1, IDC_HAND);
 
 	AddHint(IDC_CHECK5,
-		L"It works fast, but it's not always good.\n"
-		"Disable it if you want to use shaders for resizing.\n"
-		"It only covers the formats ticked above, and DLSS takes\n"
-		"the resizing back from it while it runs.\n"
-		"It decides the resizing and nothing else: the chroma is\n"
-		"the business of the formats above and of \"Replace VP\n"
-		"chroma upsampling\".\n"
-		"It is also what gives \"Request Super Resolution\" something\n"
-		"to work on, since the processor can only enhance a picture\n"
-		"it is enlarging itself.");
+		L"Fast, not always good. Untick it to resize with shaders.\n"
+		"It decides the resizing and nothing else: the chroma is the\n"
+		"business of the formats above and of \"Replace VP chroma\n"
+		"upsampling\".\n"
+		"\"Request Super Resolution\" needs it -- the processor can\n"
+		"only enhance a picture it is enlarging itself. DLSS takes\n"
+		"the resizing back while it runs.");
 	AddHint(IDC_COMBO8,
-		L"Available for Direct3D 11.\n"
-		"Requires hardware and driver support:\n"
-		"- Intel Graphics UHD 610 or later\n"
-		"- Nvidia RTX (x64 only)\n"
-		"Greyed unless the processor is the one enlarging the\n"
-		"picture: tick \"Use for resizing\" above. DLSS takes the\n"
-		"enlarging back while it runs, and greys this too.\n"
-		"With \"Replace VP chroma upsampling\" on it stays yours to\n"
-		"set, but the driver leaves a 4:4:4 picture untouched --\n"
-		"measured here at 0.000 against 4.0 on 4:2:0 -- so nothing\n"
-		"happens, and the statistics say so rather than claiming it.\n"
-		"Untick that box to get it back. RTX Video HDR is the other\n"
-		"way round and works on 4:4:4 either way.");
+		L"Direct3D 11. Nvidia RTX (x64) or Intel UHD 610 and later.\n"
+		"The processor sharpens as it enlarges.\n"
+		"Greyed unless it is the one enlarging: tick \"Use for\n"
+		"resizing\". DLSS takes the enlarging back while it runs.\n"
+		"With \"Replace VP chroma upsampling\" on, the driver leaves\n"
+		"the 4:4:4 picture untouched and the statistics say so.");
 	AddHint(IDC_CHECK19,
-		L"Available for Direct3D 11.\n"
-		"Requires hardware and driver support:\n"
-		"- Nvidia RTX (x64 only)\n"
-		"An HDR picture out of an SDR source, with the driver's own\n"
-		"tone mapping on top. It works whatever the source's depth:\n"
-		"measured here, the driver tone maps an 8-bit picture (36.9),\n"
-		"a 10-bit 4:2:0 one (36.7) and a 4:4:4 one (37.7) alike.\n"
-		"Needs HDR passthrough and an HDR display; the statistics\n"
-		"carry a star when the driver is really doing it.");
+		L"Direct3D 11. Nvidia RTX (x64).\n"
+		"An HDR picture out of an SDR source, tone mapped by the\n"
+		"driver. It works at any depth: measured here, 8-bit 36.9,\n"
+		"10-bit 4:2:0 36.7, 4:4:4 37.7.\n"
+		"Needs HDR passthrough and an HDR display. The statistics\n"
+		"carry a star while the driver is really doing it.");
 	AddHint(IDC_COMBO5,
-		L"Used for YUV 4:2:0/4:2:2 input formats when the video\n"
-		"processor does not convert them: it does its own chroma.\n"
-		"Greyed while the video processor is converting what plays,\n"
-		"and when every format above is ticked and the box below is\n"
-		"not; it still stands in for what the video processor refuses\n"
-		"(Dolby Vision, YCgCo, RGB on Nvidia).\n"
-		"Listed best first, as measured on 1080p film.\n"
-		"Jinc (EWA): the polar kernel madVR calls Jinc, radius\n"
-		"3.2383. The best of them on film, +0.6 dB on the colour\n"
-		"along luma edges against Catmull-Rom, and it stays inside\n"
-		"the conversion shader: about 32 texels a pixel against 16.\n"
-		"RAVU-zoom and FSRCNNX 8 AR put Cb and Cr through an mpv\n"
-		"prescaler instead, for a few milliseconds: RAVU gains 0.5 dB,\n"
-		"FSRCNNX loses 0.2 on film but is the best of the four on\n"
-		"drawn lines, where it gains 2.3.\n"
-		"All three want Direct3D 11 and 4:2:0 in planes;\n"
-		"Catmull-Rom is used elsewhere.");
+		L"For YUV 4:2:0/4:2:2 when the video processor does not\n"
+		"convert them; greyed while it does, but still used for what\n"
+		"it refuses (Dolby Vision, YCgCo, RGB on Nvidia).\n"
+		"Listed best first, measured on 1080p film. Jinc (EWA) is\n"
+		"the best and costs nothing extra; RAVU-zoom (+0.5 dB) and\n"
+		"FSRCNNX 8 AR (-0.2 dB on film, +2.3 on drawn lines) cost a\n"
+		"few milliseconds. Direct3D 11 and 4:2:0 in planes.");
 	AddHint(IDC_CHECK27,
-		L"Available for Direct3D 11.\n"
-		"The shaders rebuild the chroma of a progressive YUV\n"
-		"4:2:0/4:2:2 picture with the method above and hand the video\n"
-		"processor a 4:4:4 one, so the processor stays in the chain:\n"
-		"RTX Video HDR goes on working, and on a 10-bit source it\n"
-		"starts working, the driver leaving 10-bit 4:2:0 untouched.\n"
-		"The processor's own chroma comes out about bilinear, and on\n"
-		"a 10-bit source it also shifts the colour by about one level;\n"
-		"measured here, this gains 5.6 dB on the colour of a 10-bit\n"
-		"film and 0.6 dB on an 8-bit one.\n"
-		"Interlaced video keeps the processor's chroma, since it alone\n"
-		"deinterlaces, and so do 4:4:4 and RGB, which have no chroma\n"
-		"to rebuild.\n"
-		"What it costs: RTX Video Super Resolution. The driver leaves\n"
-		"a 4:4:4 picture untouched (0.000 against 4.0 on 4:2:0,\n"
-		"measured here), so it greys while this is on. The two cannot\n"
-		"both apply to one picture; untick this to go back to it.");
+		L"Direct3D 11.\n"
+		"The shaders rebuild the chroma with the method above and\n"
+		"hand the processor a 4:4:4 picture, so it stays in the\n"
+		"chain. Its own chroma is about bilinear and shifts the\n"
+		"colour on 10-bit: this gains 5.6 dB there, 0.6 dB on 8-bit.\n"
+		"It costs RTX Video Super Resolution, which does nothing to\n"
+		"a 4:4:4 picture. RTX Video HDR is unaffected.\n"
+		"Progressive YUV only: interlaced keeps the processor\'s\n"
+		"chroma, and 4:4:4 and RGB have none to rebuild.");
 	AddHint(IDC_COMBO2,
-		L"Used to increase image size when the\n"
-		"DVXA2/D3D11 Video Processor is not used for resizing.\n"
-		"Listed best first, as measured on film brought to 4K.\n"
-		"FSRCNNX 8/16 and ArtCNN double the luma through a small\n"
-		"network, RAVU-zoom enlarges it to any size; the colour comes\n"
-		"from Catmull-Rom, which also covers the rest of the scale.\n"
-		"ArtCNN C4F16 DS is the best of them on grain and on\n"
-		"compression -- it cleans them as it enlarges -- and the\n"
-		"dearest, about 13 ms for 1080p to 4K on an RTX 3050.\n"
-		"AR holds what the network invented to the range the source\n"
-		"really covers: FSRCNNX rings without it, and RAVU-zoom\n"
-		"carries its own.\n"
-		"They need Direct3D 11; Catmull-Rom stands in elsewhere.\n"
-		"Greyed while the video processor is resizing what plays, or\n"
-		"while DLSS Super Resolution handles upscaling (DLSS page);\n"
-		"it then only stands in where they cannot run.");
+		L"Used to enlarge when the video processor does not resize;\n"
+		"greyed while it does, or while DLSS Super Resolution runs.\n"
+		"Listed best first, measured on film brought to 4K. FSRCNNX\n"
+		"and ArtCNN double the luma through a small network,\n"
+		"RAVU-zoom enlarges to any size; the colour is Catmull-Rom.\n"
+		"ArtCNN C4F16 DS is the best on grain and compression and\n"
+		"the dearest: about 13 ms, 1080p to 4K, on an RTX 3050.\n"
+		"AR keeps what the network invented inside the source\'s own\n"
+		"range; FSRCNNX rings without it. Direct3D 11.");
 	AddHint(IDC_COMBO3,
-		L"Used to reduce image size when the video processor does\n"
-		"not resize. Greyed while it is resizing what plays; DLSS\n"
-		"hands the resizing back to these shaders.");
+		L"Used to reduce when the video processor does not resize;\n"
+		"greyed while it does. DLSS hands the resizing back here.");
 	AddHint(IDC_COMBO4,
-		L"'Flip' is more efficient, but 'Discard' may work\n"
+		L"\'Flip\' is more efficient, but \'Discard\' may work\n"
 		"more correctly in some rare situations.");
 	AddHint(IDC_CHECK26,
-		L"Available for Direct3D 11.\n"
+		L"Direct3D 11.\n"
 		"Starts each picture earlier by the time the heavy passes\n"
-		"take -- DLSS 5 NR, DLSS Super Resolution, FSRCNNX and\n"
-		"RAVU-zoom -- and holds it until its own time, so they do\n"
-		"not make the video late against the audio.\n"
-		"It does nothing while none of them runs.");
+		"take -- DLSS, FSRCNNX, RAVU-zoom -- and holds it until its\n"
+		"own time, so they do not make the video late against the\n"
+		"audio. Does nothing while none of them runs.");
 
 	// The frame never tells this page that another one applied something, and it does
 	// not always send WM_SHOWWINDOW when the tab comes back either.
