@@ -8,16 +8,43 @@ only what actually moved.
 
 A suite prints the same method name once per reference and per case, so rows are
 matched by step, name and rank -- the third "Catmull-Rom" of a step against the third
-of the other report. Times are ignored: a number followed by "ms" says more about the
-machine's mood than about the code. A row that exists on one side only is reported as
-well, since a check that stopped running is the worst kind of pass.
+of the other report.
+
+Times are left out wherever they can be recognised: an "ms" suffix, a CPU or GPU
+column, "(ms)" in the label. A couple of tables print bare triples of milliseconds
+with nothing to recognise them by, so if something does show up as moved, look at
+whether it is a time before looking for a cause. Rows that describe the run rather
+than the code -- frames shown, sync offset, and the suites that answer yes or no --
+are left out as well, though their verdicts are still compared.
+
+A row that exists on one side only is reported too: a check that stopped running is
+the worst kind of pass.
 """
 
 import io
 import re
 import sys
 
-ROW = re.compile(r"^\s{2,}(\S.*?)\s\s+((?:-?\d+\.?\d*\s+)*-?\d+\.?\d*)(\s+\d+\.?\d*\s*ms)?\s*$")
+# A row is an indented label, two or more spaces, then its numbers -- which some
+# suites lay out as "CPU 0.01 / 0.01 / 0.02  GPU 0.70 / 1.07 / 1.33". So the label is
+# everything up to the first double space, and the values are every number after it
+# that is not a time: a figure followed by "ms" says more about the machine's mood
+# than about the code, and would make every comparison noisy.
+ROW = re.compile(r"^\s{2,}(\S(?:[^ ]|(?<! ) (?! ))*)\s\s+(\S.*)$")
+NUMBER = re.compile(r"(?<![\w.])(-?\d+\.?\d*)(?![\w])(\s*ms)?")
+
+# Rows that describe the run rather than the code, and differ every time whatever
+# happens: how many frames a few seconds of playback showed, where the presentation
+# landed against the clock, what the rebuild test read back while it was mid-rebuild.
+# Comparing them would bury the rows that mean something.
+NOISE = ("frames", "sync offset", "state changes", "Render ahead", "centre pixel")
+
+# Whole steps that answer yes or no rather than with a number: they change a setting
+# while the film plays and check the screen keeps moving. Their verdicts are compared
+# like everyone else's -- it is only their rows, which describe what the picture went
+# through, that have nothing to measure.
+NOISE_STEPS = ("settings changed while playing", "the processor's extras, both ways",
+               "pictures from a decoder's device")
 STEP = re.compile(r"^\[STEP\] (.+?)(?: -- exit code \d+)?$")
 VERDICT = re.compile(r"(\d+) (?:failure\(s\)|check\(s\) failed)")
 
@@ -37,10 +64,15 @@ def read(path):
             continue
         m = ROW.match(line)
         if m:
-            numbers = [float(v) for v in m.group(2).split()]
+            numbers = [float(v) for v, ms in NUMBER.findall(m.group(2)) if not ms]
             if not numbers:
                 continue
             name = m.group(1).strip()
+            # A row of CPU and GPU times, or one that says so in its label, measures the
+            # machine and not the code: those tables print their figures bare, with no
+            # "ms" to recognise them by.
+            if name.startswith(NOISE) or step.startswith(NOISE_STEPS)                     or "(ms)" in name or " CPU " in m.group(2) or " GPU " in m.group(2):
+                continue
             rank = seen[(step, name)] = seen.get((step, name), 0) + 1
             rows[(step, name, rank)] = numbers
     return rows, verdicts
