@@ -301,6 +301,75 @@ static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, 
 		}
 	}
 
+	// The double click: paused, the window changes, playback resumes. What the
+	// player really does is pause, go full screen and run again within a few
+	// milliseconds of each other, and the report says it freezes there -- on a
+	// display at 25 Hz, and not at 60. So the same three things, in that order,
+	// as fast as the renderer will take them.
+	if (g_bToggleWindow) {
+		RECT rcMon = { 0, 0, 1920, 1080 };
+		if (HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)) {
+			MONITORINFO mi = { sizeof(mi) };
+			if (GetMonitorInfoW(hMon, &mi)) {
+				rcMon = mi.rcMonitor;
+			}
+		}
+		const long fsW = rcMon.right - rcMon.left, fsH = rcMon.bottom - rcMon.top;
+		printf("\n  the double click: pause, the window changes, run -- %ldx%ld <-> %ldx%ld\n\n",
+			window.cx, window.cy, fsW, fsH);
+		printf("  %-38s %8s %7s %8s\n", "step", "took s", "fps", "screen");
+
+		for (int pass = 0; pass < 6; pass++) {
+			const bool bBig = (pass % 2) == 0;
+			const long w = bBig ? fsW : window.cx;
+			const long h = bBig ? fsH : window.cy;
+			char name[64] = {};
+			sprintf_s(name, "pass %d, to %ldx%ld", pass + 1, w, h);
+
+			const ULONGLONG t0 = GetTickCount64();
+			{
+				Watchdog watchdog(name, seconds);
+				pMC->Pause();
+				Pump(80);
+				// Both interleavings: the window change just before the resume, and
+				// just after it. The player's second click does the two at once and
+				// which of them the renderer sees first is not ours to choose.
+				if (pass % 2) {
+					pVW->SetWindowPosition(0, 0, w, h);
+					pBV->SetDestinationPosition(0, 0, w, h);
+					pMC->Run();
+				} else {
+					pMC->Run();
+					Pump(10);
+					pVW->SetWindowPosition(0, 0, w, h);
+					pBV->SetDestinationPosition(0, 0, w, h);
+				}
+			}
+			const double took = (GetTickCount64() - t0) / 1000.0;
+
+			Pump(1500);
+			int framesA = 0, framesB = 0, skipped = 0;
+			ParseSkipped(StatsText(pRenderer), framesA, skipped);
+			Pump(1500);
+			ParseSkipped(StatsText(pRenderer), framesB, skipped);
+			const double fps = (framesB - framesA) / 1.5;
+
+			bool bScreenMoves = !watch.Ready();
+			uint64_t before = watch.Signature(hwnd);
+			for (int look = 0; look < 3 && !bScreenMoves; look++) {
+				Pump(400);
+				const uint64_t now = watch.Signature(hwnd);
+				bScreenMoves = (now != before);
+				before = now;
+			}
+			printf("  %-38s %8.2f %7.1f %8s%s\n", name, took, fps,
+				bScreenMoves ? "moving" : "FROZEN", (fps > 1.0 && bScreenMoves) ? "" : "   FAIL");
+			if (fps <= 1.0 || !bScreenMoves) {
+				failures++;
+			}
+		}
+	}
+
 	pMC->Stop();
 	pGraph->RemoveFilter(pRenderer);
 	if (pSource) {

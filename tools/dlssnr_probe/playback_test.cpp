@@ -93,6 +93,7 @@ static int g_filmStats = -1;      // --stats 0|1
 // renderers read the same key, so the registry is the common ground.
 static bool g_bAsIs = false;
 static bool g_bToggleGpu = false;      // --toggle --gpu: the pictures arrive as D3D11 textures, as from a hardware decoder
+static bool g_bToggleWindow = false;   // --toggle --fswitch: paused, the window changes, playback resumes -- the double click
 static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
 // The picture is fed as NV12 wherever the hardware video processor has to be able
 // to take it; elsewhere RGB32 keeps the film exact.
@@ -1279,6 +1280,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bToggleGpu = true;
 		} else if (!wcscmp(argv[i], L"--thread")) {
 			g_bToggleThread = true;
+		} else if (!wcscmp(argv[i], L"--fswitch")) {
+			g_bToggleWindow = true;
 		} else if (!wcscmp(argv[i], L"--asis")) {
 			g_bAsIs = true;
 		} else if (!wcscmp(argv[i], L"--toggle")) {
