@@ -586,6 +586,82 @@ exactly, to the last half float, and that the chroma siting is applied.
 
 ---
 
+## Sharpening
+
+A sharpener restores nothing: it exaggerates. The whole question is *where it is allowed to*,
+and the two offered here answer it differently. The pass runs after the resize and before the
+dither, so it works whatever enlarged the picture -- the hardware processor, a prescaler, or
+nothing at all on a film already at the screen's size, which is the case nothing else in this
+filter can reach. Subtitles are drawn after it and are never sharpened.
+
+**Adaptive-Sharpen** is bacondither's mpv shader (version 2021-10-17, BSD 2-clause), ported to
+HLSL. It weighs each of 25 neighbours by how active its own area is, sharpens the blurred edges
+most and the flat ones least, and limits the result with a tanh against the nearer local
+extreme.
+
+**Unsharp + Clamp** is a plain unsharp mask pulled back into the range its own 3x3 neighbourhood
+really covers -- the principle of AviSynth's LimitedSharpenFaster, and the same clamp the
+prescalers already use against the networks. At an edge that range spans the whole step, so the
+step still gets steeper; what it cannot do any more is shoot past it, which is the halo.
+
+### What each one is worth
+
+Ten 4K film frames halved, degraded the way a source is, enlarged again, then sharpened and
+scored against the reference none of them saw (`dlssnr_harness --tsharpen`). Every method is
+read **at the strength that brings it to the same edge gradient**, because comparing each at
+its own best compares six different amounts of sharpening and says nothing about the
+sharpeners. `halo` is the mean overshoot past the range the reference really covers along its
+edges, x1000; `grain` is the fine detail left in flat areas, output over reference.
+
+| Method | psnr-d | halo | grain | grain source | compressed source | time, 4K |
+|---|---|---|---|---|---|---|
+| *no sharpening* | 43.93 | 0.048 | 3.698 | 39.53 | 37.97 | — |
+| **Adaptive-Sharpen** | 44.93 | 0.076 | **3.597** | **39.37** | **37.92** | 3.05 ms |
+| **Unsharp + Clamp** | 44.91 | **0.051** | 3.926 | 39.15 | 37.81 | 0.57 ms |
+| unsharp, no clamp | 44.94 | 0.098 | 4.705 | 39.10 | 37.79 | 0.57 ms |
+| CAS | 44.86 | 0.055 | 3.842 | 38.64 | 37.62 | 0.64 ms |
+| CAS + the same clamp | 44.75 | 0.052 | 3.824 | 38.77 | 37.64 | 0.83 ms |
+| RCAS (FSR 1) | 44.73 | 0.055 | 3.901 | 38.63 | 37.62 | 0.51 ms |
+
+The two that ship are the two ends of one trade. **Adaptive-Sharpen is the only one that does
+not amplify the grain** -- on a clean master it leaves *less* fine detail in flat areas than
+doing nothing at all -- and on the two sources that matter, grain and compression, it is the
+only one that costs almost nothing: 0.16 dB and 0.05 dB, where the next best costs 0.38 and
+0.16. It is also five times the cost and rings half again as much on a clean picture.
+**Unsharp + Clamp** has the lowest ringing of all, at the level of the unsharpened picture
+itself, and is second everywhere for a fifth of the time.
+
+Sharpening the colour as well as the luma was measured and dropped: it moves the result by less
+than 0.3 dB and the sign turns with the source -- it helps a little on a clean master and hurts
+on a compressed one. Both passes move the luma only, by adding one number to R, G and B alike,
+which leaves B - Y and R - Y exactly as they were.
+
+### The five levels
+
+A level means the same amount of sharpening whichever method is chosen. The two are not on the
+same scale -- and neither is on the scale the comparison above was made on, since a picture
+halved and enlarged again is far softer than anything this renderer produces, and
+Adaptive-Sharpen holds back where the edges are already steep. So the levels are calibrated
+through the filter itself, on a 1080p film enlarged to 3200x1334, as the gain in mean gradient
+each one really buys:
+
+| Level | gain in detail | Adaptive-Sharpen | Unsharp + Clamp |
+|---|---|---|---|
+| 1 | +4 % | 0.22 | 0.45 |
+| 2 | +8 % | 0.33 | 0.62 |
+| **3** (default) | **+13 %** | **0.46** | **0.83** |
+| 4 | +20 % | 0.68 | 1.17 |
+| 5 | +28 % | 0.99 | 1.49 |
+
+Measured back through the filter, level 1 gives +3.7 % and +2.8 %, level 3 +13.2 % and +13.0 %,
+level 5 +28.3 % and +27.9 %. Level 3 is the +13 the quality measurements settle on; 4 and 5 are
+past it, for a taste rather than for fidelity.
+
+It adds to RTX Video Super Resolution and to DLSS, which sharpen in their own way; nothing here
+prevents that, and the tooltip says so.
+
+---
+
 ## Render ahead
 
 The renderer wakes up 8 ms before a picture's time and only then processes it, so whatever
@@ -683,6 +759,8 @@ And under the Chroma upsampling list:
 
 | Setting | Default | Notes |
 |---|---|---|
+| Sharpening | Disabled | *Adaptive-Sharpen* or *Unsharp + Clamp*, run after the resize, so it also reaches a film already at the screen's size. See above for what each is worth. Needs Direct3D 11 |
+| Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Disabled |
 | Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Request Super Resolution* greys while this is in service, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
 
 **Default** on the DLSS page resets the tuning, from Style to Disable temporal history, motion
@@ -933,8 +1011,16 @@ The prescalers under `Shaders/mpv/` are translated from mpv user shaders and kee
 authors' notices: **FSRCNNX** is Copyright (C) 2017-2021 **igv**
 (`github.com/igv/FSRCNN-TensorFlow`) and **RAVU** is by **Bin Jin**
 (`github.com/bjin/mpv-prescalers`), both under the **GNU Lesser General Public License 3.0 or
-later**, whose text is in `Shaders/mpv/LICENSE.LGPL-3.0.txt`. Only the shaders are taken; the
-translation to HLSL and everything that runs them is part of this fork and GPLv3 like the rest.
+later**, whose text is in `Shaders/mpv/LICENSE.LGPL-3.0.txt`. **ArtCNN** is Copyright (c) 2024
+**João Chrisóstomo** (`github.com/Artoriuz/ArtCNN`) under the **MIT** licence, whose text is in
+`Shaders/mpv/LICENSE.MIT.txt`. Only the shaders are taken; the translation to HLSL and
+everything that runs them is part of this fork and GPLv3 like the rest.
+
+The **Adaptive-Sharpen** pass in `Shaders/d3d11/ps_sharpen.hlsl` is translated from
+**bacondither**'s mpv shader, version 2021-10-17 (`github.com/bacondither/Adaptive-sharpen`),
+Copyright (c) 2015-2021 bacondither, under the **BSD 2-clause** licence; its notice travels
+with the pass. The three-line contrast-adaptive kernel measured beside it comes from AMD's
+FidelityFX (MIT) and is not shipped.
 
 `Source/DLSS/NvOF/` holds the two interface headers of the NVIDIA Optical Flow SDK 5.0.7,
 copied unchanged. Each carries its own permission notice ("This copyright notice applies to

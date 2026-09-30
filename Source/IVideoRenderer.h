@@ -146,6 +146,24 @@ struct VPEnableFormats_t {
 	bool bOther;
 };
 
+// Sharpening, after the resize. Two methods, because they do not win on the same
+// ground: adaptive-sharpen is the only one that does not amplify grain, and the
+// unsharp mask held to what its neighbours cover is five times cheaper and rings
+// less on a clean picture (tools/dlssnr_probe --tsharpen).
+enum : int {
+    SHARPEN_Disabled = 0,
+    SHARPEN_Adaptive,
+    SHARPEN_UnsharpClamp,
+    SHARPEN_COUNT
+};
+
+// Five levels, and the same level means the same thing whichever method runs:
+// each one's strength was read off its own curve at the edge gradient the other
+// reaches there. Level 3 is where both peak against the reference.
+constexpr inline auto SHARPEN_LEVEL_MIN = 1;
+constexpr inline auto SHARPEN_LEVEL_MAX = 5;
+constexpr inline auto SHARPEN_LEVEL_DEF = 3;
+
 struct Settings_t {
 	bool bUseD3D11;
 	bool bShowStats;
@@ -221,6 +239,10 @@ struct Settings_t {
 	// deinterlacer there is, and it deinterlaces 4:2:0 only. Direct3D 11 only.
 	bool bVPReplaceChroma;
 
+	// Sharpening after the resize: SHARPEN_*, and which of the five levels.
+	int iSharpen;
+	int iSharpenLevel;
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -244,6 +266,8 @@ struct Settings_t {
 		iVPSuperRes                     = SUPERRES_Disable;
 		bVPRTXVideoHDR                  = false;
 		bVPReplaceChroma                = false;
+		iSharpen                        = SHARPEN_Disabled;
+		iSharpenLevel                   = SHARPEN_LEVEL_DEF;
 		iChromaScaling                  = CHROMA_CatmullRom;
 		iUpscaling                      = UPSCALE_Jinc2;
 		iDownscaling                    = DOWNSCALE_Hamming;

@@ -198,6 +198,13 @@ private:
 	// How deep the HDR swap-chain retry in InitializeD3D11VP has gone into itself.
 	int m_nHdrSwapChainRetry = 0;
 
+	// Sharpening, a step of the post-scale chain: the method, which of the five
+	// levels, and the shader that does it.
+	int m_iSharpen = SHARPEN_Disabled;
+	int m_iSharpenLevel = SHARPEN_LEVEL_DEF;
+	CComPtr<ID3D11PixelShader> m_pPSSharpen;
+	CComPtr<ID3D11Buffer> m_pSharpenConstants;
+
 	bool m_bVPReplaceChroma = false;    // the setting
 	bool m_bChromaReplacedVP = false;   // and the shaders rebuild this source's chroma
 	DXGI_FORMAT m_VPInputFmt = DXGI_FORMAT_UNKNOWN;   // what the processor reads: the source, or packed 4:4:4
@@ -373,6 +380,9 @@ private:
 	UINT GetPostScaleSteps();
 
 	HRESULT CreatePShaderFromResource(ID3D11PixelShader** ppPixelShader, UINT resid);
+	// Loads or drops the sharpening pass to match the setting, and fills its
+	// constants. Returns whether the number of post-scale steps changed.
+	bool UpdateSharpenShader();
 	void SetShaderConvertColorParams();
 	void SetShaderLuminanceParams();
 

@@ -1026,7 +1026,9 @@ static void DumpPageState(HWND hwnd, const char* when)
                            std::pair{ 1249, "Replace VP chroma upsampling" },
                            std::pair{ 1045, "Chroma upsampling list" },
                            std::pair{ 1042, "Upscaling list" },
-                           std::pair{ 1043, "Downscaling list" } }) {
+                           std::pair{ 1043, "Downscaling list" },
+                           std::pair{ 1251, "Sharpening list" },
+                           std::pair{ 1253, "Sharpening intensity" } }) {
         const HWND h = GetDlgItem(hDlg, c.first);
         if (!h) {
             printf("  %-30s (not on this page)\n", c.second);

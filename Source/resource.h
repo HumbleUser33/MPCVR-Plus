@@ -112,6 +112,8 @@
 #define IDF_CS_11_DLSS_GLOBAL_MOTION    1908
 #define IDF_PS_11_DLSS_STAB_BLOCKMOTION 1909
 #define IDF_PS_11_TEST                  900
+#define IDF_PS_11_SHARPEN_UNSHARP       1910
+#define IDF_PS_11_SHARPEN_ADAPTIVE      1911
 #define IDF_VS_11_MPV_HOOK              1950
 #define IDF_PS_11_MPV_LUMA              1951
 #define IDF_PS_11_MPV_COMBINE           1952
@@ -213,13 +215,19 @@
 #define IDC_STATIC40                    1247
 #define IDC_STATIC41                    1248
 #define IDC_CHECK27                     1249
+// Named rather than numbered: a number of ours cannot collide with upstream's,
+// but a name can, and IDC_COMBO11 and IDC_COMBO12 were already taken here.
+#define IDC_STATIC_SHARPEN              1250
+#define IDC_SHARPEN                     1251
+#define IDC_STATIC_SHARPEN_LEVEL        1252
+#define IDC_SHARPEN_LEVEL               1253
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        4011
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1250
+#define _APS_NEXT_CONTROL_VALUE         1254
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

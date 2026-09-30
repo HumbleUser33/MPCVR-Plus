@@ -49,6 +49,8 @@
 #define OPT_VPSuperResolution              L"VPSuperResolution"
 #define OPT_VPRTXVideoHDR                  L"VPRTXVideoHDR"
 #define OPT_VPReplaceChroma                L"VPReplaceChroma"
+#define OPT_Sharpen                        L"Sharpen"
+#define OPT_SharpenLevel                   L"SharpenLevel"
 #define OPT_ChromaUpsampling               L"ChromaUpsampling"
 #define OPT_Upscaling                      L"Upscaling"
 #define OPT_Downscaling                    L"Downscaling"
@@ -257,6 +259,12 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 #endif
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPReplaceChroma, dw)) {
 			m_Sets.bVPReplaceChroma = !!dw;
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Sharpen, dw)) {
+			m_Sets.iSharpen = discard<int>(dw, SHARPEN_Disabled, 0, SHARPEN_COUNT - 1);
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SharpenLevel, dw)) {
+			m_Sets.iSharpenLevel = discard<int>(dw, SHARPEN_LEVEL_DEF, SHARPEN_LEVEL_MIN, SHARPEN_LEVEL_MAX);
 		}
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ChromaUpsampling, dw)) {
 			m_Sets.iChromaScaling = discard<int>(dw, CHROMA_CatmullRom, 0, CHROMA_COUNT-1);
@@ -1515,6 +1523,8 @@ STDMETHODIMP CMpcVideoRenderer::SaveSettings()
 		key.SetDWORDValue(OPT_VPRTXVideoHDR,       m_Sets.bVPRTXVideoHDR);
 #endif
 		key.SetDWORDValue(OPT_VPReplaceChroma,     m_Sets.bVPReplaceChroma);
+		key.SetDWORDValue(OPT_Sharpen,             m_Sets.iSharpen);
+		key.SetDWORDValue(OPT_SharpenLevel,        m_Sets.iSharpenLevel);
 		key.SetDWORDValue(OPT_ChromaUpsampling,    m_Sets.iChromaScaling);
 		key.SetDWORDValue(OPT_Upscaling,           m_Sets.iUpscaling);
 		key.SetDWORDValue(OPT_Downscaling,         m_Sets.iDownscaling);

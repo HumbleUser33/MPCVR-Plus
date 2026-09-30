@@ -116,6 +116,8 @@ void CVRMainPPage::SetControls()
 	GetDlgItem(IDC_EDIT1).SetWindowTextW(std::to_wstring(m_SetsPP.iSDRDisplayNits).c_str());
 
 	CheckDlgButton(IDC_CHECK27, m_SetsPP.bVPReplaceChroma     ? BST_CHECKED : BST_UNCHECKED);
+	ComboBox_SetCurSel(GetDlgItem(IDC_SHARPEN), m_SetsPP.iSharpen);
+	SendDlgItemMessageW(IDC_SHARPEN_LEVEL, TBM_SETPOS, 1, m_SetsPP.iSharpenLevel);
 	CheckDlgButton(IDC_CHECK6, m_SetsPP.bInterpolateAt50pct   ? BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(IDC_CHECK10, m_SetsPP.bUseDither           ? BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(IDC_CHECK17, m_SetsPP.bDeintBlend          ? BST_CHECKED : BST_UNCHECKED);
@@ -229,6 +231,14 @@ void CVRMainPPage::EnableControls()
 #endif
 	GetDlgItem(IDC_STATIC7).EnableWindow(bSuperRes);
 	GetDlgItem(IDC_COMBO8).EnableWindow(bSuperRes);
+
+	// The sharpening pass is a Direct3D 11 one, and its intensity says nothing
+	// while no method is chosen.
+	GetDlgItem(IDC_STATIC_SHARPEN).EnableWindow(m_SetsPP.bUseD3D11);
+	GetDlgItem(IDC_SHARPEN).EnableWindow(m_SetsPP.bUseD3D11);
+	const BOOL bSharpLevel = m_SetsPP.bUseD3D11 && m_SetsPP.iSharpen != SHARPEN_Disabled;
+	GetDlgItem(IDC_STATIC_SHARPEN_LEVEL).EnableWindow(bSharpLevel);
+	GetDlgItem(IDC_SHARPEN_LEVEL).EnableWindow(bSharpLevel);
 
 	// Render ahead and the chroma replacement belong to the Direct3D 11 processor.
 	GetDlgItem(IDC_CHECK26).EnableWindow(m_SetsPP.bUseD3D11);
@@ -356,6 +366,17 @@ HRESULT CVRMainPPage::OnActivate()
 	SendDlgItemMessageW(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Discard");
 	SendDlgItemMessageW(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Flip");
 
+	// In the order of the enum, so the position is the value.
+	SendDlgItemMessageW(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Disabled");
+	SendDlgItemMessageW(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Adaptive-Sharpen");
+	SendDlgItemMessageW(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Unsharp + Clamp");
+
+	// Five levels, and one of them under the pointer at every tick.
+	SendDlgItemMessageW(IDC_SHARPEN_LEVEL, TBM_SETRANGE, 0, MAKELONG(SHARPEN_LEVEL_MIN, SHARPEN_LEVEL_MAX));
+	SendDlgItemMessageW(IDC_SHARPEN_LEVEL, TBM_SETTIC, 0, 1);
+	SendDlgItemMessageW(IDC_SHARPEN_LEVEL, TBM_SETLINESIZE, 0, 1);
+	SendDlgItemMessageW(IDC_SHARPEN_LEVEL, TBM_SETPAGESIZE, 0, 1);
+
 	SendDlgItemMessageW(IDC_SLIDER1, TBM_SETRANGE, 0, MAKELONG(0, 2));
 	SendDlgItemMessageW(IDC_SLIDER1, TBM_SETTIC, 0, 1);
 
@@ -410,6 +431,26 @@ HRESULT CVRMainPPage::OnActivate()
 		"the best and costs nothing extra; RAVU-zoom (+0.5 dB) and\n"
 		"FSRCNNX 8 AR (-0.2 dB on film, +2.3 on drawn lines) cost a\n"
 		"few milliseconds. Direct3D 11 and 4:2:0 in planes.");
+	AddHint(IDC_SHARPEN,
+		L"Direct3D 11. Sharpens after the resize, so it works whatever\n"
+		"enlarged the picture -- and on a film already at the screen's\n"
+		"size, where nothing else can.\n"
+		"Adaptive-Sharpen sharpens the blurred edges most and the flat\n"
+		"areas least: measured here, the only one that does not amplify\n"
+		"the grain, and the one that costs least on a compressed film.\n"
+		"It is also the dearest, about 3 ms for a 4K frame.\n"
+		"Unsharp + Clamp is a plain unsharp mask held to the range its\n"
+		"neighbours really cover, which is what stops the halo. Five\n"
+		"times cheaper and the lowest ringing of all on a clean source.\n"
+		"It adds to RTX Video Super Resolution and to DLSS, which\n"
+		"sharpen as well -- nothing here prevents it.");
+	AddHint(IDC_SHARPEN_LEVEL,
+		L"Five levels, and a level means the same amount of sharpening\n"
+		"whichever method is chosen: each one's setting was read off its\n"
+		"own curve at the same five edge gradients.\n"
+		"3 is where both come closest to the truth, measured on ten 4K\n"
+		"frames; 4 and 5 are past that, for a taste rather than for\n"
+		"fidelity.");
 	AddHint(IDC_CHECK27,
 		L"Direct3D 11.\n"
 		"The shaders rebuild the chroma with the method above and\n"
@@ -666,6 +707,15 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				}
 				return (LRESULT)1;
 			}
+			if (nID == IDC_SHARPEN) {
+				lValue = SendDlgItemMessageW(IDC_SHARPEN, CB_GETCURSEL, 0, 0);
+				if (lValue != m_SetsPP.iSharpen) {
+					m_SetsPP.iSharpen = lValue;
+					SetDirty();
+					EnableControls(); // the intensity comes and goes with it
+				}
+				return (LRESULT)1;
+			}
 			if (nID == IDC_COMBO3) {
 				lValue = SendDlgItemMessageW(IDC_COMBO3, CB_GETCURSEL, 0, 0);
 				if (lValue != m_SetsPP.iDownscaling) {
@@ -733,6 +783,14 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 		}
 	}
 	else if (uMsg == WM_HSCROLL) {
+		if ((HWND)lParam == GetDlgItem(IDC_SHARPEN_LEVEL)) {
+			LRESULT lValue = SendDlgItemMessageW(IDC_SHARPEN_LEVEL, TBM_GETPOS, 0, 0);
+			if (lValue != m_SetsPP.iSharpenLevel) {
+				m_SetsPP.iSharpenLevel = lValue;
+				SetDirty();
+			}
+			return (LRESULT)1;
+		}
 		if ((HWND)lParam == GetDlgItem(IDC_SLIDER1)) {
 			LRESULT lValue = SendDlgItemMessageW(IDC_SLIDER1, TBM_GETPOS, 0, 0);
 			if (lValue != m_SetsPP.iHdrOsdBrightness) {

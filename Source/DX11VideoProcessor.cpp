@@ -463,6 +463,8 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_iVPSuperRes          = config.iVPSuperRes;
 	m_bVPRTXVideoHDR       = config.bVPRTXVideoHDR;
 	m_bVPReplaceChroma     = config.bVPReplaceChroma;
+	m_iSharpen             = config.iSharpen;
+	m_iSharpenLevel        = config.iSharpenLevel;
 	m_iChromaScaling       = config.iChromaScaling;
 	m_iUpscaling           = config.iUpscaling;
 	m_iDownscaling         = config.iDownscaling;
@@ -819,6 +821,8 @@ void CDX11VideoProcessor::ReleaseDevice()
 	m_pPSConvertColorDeint.Release();
 
 	m_pPSHDR10ToneMapping.Release();
+	m_pPSSharpen.Release();
+	m_pSharpenConstants.Release();
 
 	m_pShaderUpscaleX.Release();
 	m_pShaderUpscaleY.Release();
@@ -911,6 +915,9 @@ UINT CDX11VideoProcessor::GetPostScaleSteps()
 	if (m_pPSHDR10ToneMapping) {
 		nSteps++;
 	}
+	if (m_pPSSharpen) {
+		nSteps++;
+	}
 	if (m_pPSHalfOUtoInterlace) {
 		nSteps++;
 	}
@@ -919,6 +926,25 @@ UINT CDX11VideoProcessor::GetPostScaleSteps()
 	}
 	return nSteps;
 }
+
+// What level 1 to 5 is worth to each method. The two are not on the same scale,
+// and neither of them is on the scale the bench measured them on: a picture the
+// bench had blurred by halving it and enlarging it again is far softer than
+// anything this renderer produces, and adaptive-sharpen -- which holds back where
+// the edges are already steep -- then does almost nothing. So the levels are
+// calibrated here instead, on a 1080p film enlarged to 3200x1334 through the
+// filter itself, as the gain in mean gradient each strength really buys:
+// +4, +8, +13, +20 and +28 per cent. Level 3 is the +13 the bench's own quality
+// measurements settle on (tools/dlssnr_probe --tsharpen).
+static const float s_SharpenStrength[SHARPEN_COUNT][SHARPEN_LEVEL_MAX] = {
+	{ 0.00f, 0.00f, 0.00f, 0.00f, 0.00f },   // SHARPEN_Disabled
+	{ 0.22f, 0.33f, 0.46f, 0.68f, 0.99f },   // SHARPEN_Adaptive
+	{ 0.45f, 0.62f, 0.83f, 1.17f, 1.49f },   // SHARPEN_UnsharpClamp
+};
+
+// How far the unsharp mask may be pulled back into the range its neighbours
+// cover: libplacebo's own figure, the one the prescalers' anti-ringing uses.
+static const float s_SharpenClamp = 0.8f;
 
 HRESULT CDX11VideoProcessor::CreatePShaderFromResource(ID3D11PixelShader** ppPixelShader, UINT resid)
 {
@@ -1010,6 +1036,39 @@ void CDX11VideoProcessor::SetShaderConvertColorParams()
 		D3D11_SUBRESOURCE_DATA InitData = { &cbuffer, 0, 0 };
 		EXECUTE_ASSERT(S_OK == m_pDevice->CreateBuffer(&BufferDesc, &InitData, &m_PSConvColorData.pConstants));
 	}
+}
+
+// The sharpening pass, loaded to match the setting. Answers whether the number of
+// post-scale steps changed, because the textures they run in are made for that
+// number and the last step is the one that reaches the screen.
+bool CDX11VideoProcessor::UpdateSharpenShader()
+{
+	const bool bWanted = (m_iSharpen != SHARPEN_Disabled) && m_pDevice;
+	const bool bChanged = (bWanted != (m_pPSSharpen != nullptr));
+
+	m_pPSSharpen.Release();
+	if (!bWanted) {
+		m_pSharpenConstants.Release();
+		return bChanged;
+	}
+
+	const UINT resid = (m_iSharpen == SHARPEN_Adaptive) ? IDF_PS_11_SHARPEN_ADAPTIVE : IDF_PS_11_SHARPEN_UNSHARP;
+	if (FAILED(CreatePShaderFromResource(&m_pPSSharpen, resid))) {
+		DLog(L"CDX11VideoProcessor::UpdateSharpenShader() : the sharpening shader would not load");
+		m_pSharpenConstants.Release();
+		return bChanged;
+	}
+
+	if (!m_pSharpenConstants) {
+		const D3D11_BUFFER_DESC desc = {
+			.ByteWidth = sizeof(FLOAT) * 8,
+			.Usage = D3D11_USAGE_DYNAMIC,
+			.BindFlags = D3D11_BIND_CONSTANT_BUFFER,
+			.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE,
+		};
+		EXECUTE_ASSERT(S_OK == m_pDevice->CreateBuffer(&desc, nullptr, &m_pSharpenConstants));
+	}
+	return bChanged;
 }
 
 void CDX11VideoProcessor::SetShaderLuminanceParams()
@@ -1503,6 +1562,10 @@ HRESULT CDX11VideoProcessor::SetDevice(ID3D11Device *pDevice, ID3D11DeviceContex
 	EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pPSMpvChromaPlane, IDF_PS_11_MPV_CHROMA_PLANE));
 	EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pPSMpvCombineAR, IDF_PS_11_MPV_COMBINE_AR));
 	EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pPSMpvChromaAR, IDF_PS_11_MPV_CHROMA_AR));
+
+	// The sharpening pass only exists while it is asked for: it is a step of
+	// the post-scale chain, and the chain's length is counted from it.
+	UpdateSharpenShader();
 
 #if TEST_SHADER
 	EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pPS_TEST, IDF_PS_11_TEST));
@@ -4526,6 +4589,31 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 			hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPSHDR10ToneMapping, m_pHDR10ToneMappingConstants, 0, false);
 		}
 
+		if (m_pPSSharpen) {
+			// The picture is the size it will be shown at and already carries the
+			// values the display is given: that is where a sharpener belongs, and
+			// it is also the only place a film already at the screen's resolution
+			// can be reached at all. The block is the resize shaders' own, so the
+			// neighbouring texels can be worked out from the texel size -- the
+			// sampler on this path is a point one and samples nothing by itself.
+			const int method = std::clamp(m_iSharpen, 0, SHARPEN_COUNT - 1);
+			const int level = std::clamp(m_iSharpenLevel, SHARPEN_LEVEL_MIN, SHARPEN_LEVEL_MAX);
+			const FLOAT constants[8] = {
+				(float)pTex->desc.Width, (float)pTex->desc.Height,
+				1.0f / pTex->desc.Width, 1.0f / pTex->desc.Height,
+				1.0f, 1.0f,
+				s_SharpenStrength[method][level - 1], s_SharpenClamp
+			};
+			D3D11_MAPPED_SUBRESOURCE mr = {};
+			if (SUCCEEDED(m_pDeviceContext->Map(m_pSharpenConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr))) {
+				memcpy(mr.pData, constants, sizeof(constants));
+				m_pDeviceContext->Unmap(m_pSharpenConstants, 0);
+			}
+
+			StepSetting();
+			hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPSSharpen, m_pSharpenConstants, 0, false);
+		}
+
 		if (m_pPostScaleShaders.size()) {
 			static __int64 counter = 0;
 			static long start = GetTickCount();
@@ -5122,6 +5210,14 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		changeTextures = true;
 		changeVP = true; // temporary solution
 	}
+
+	if (config.iSharpen != m_iSharpen) {
+		m_iSharpen = config.iSharpen;
+		// Switching it on or off adds or removes a step; changing the method does
+		// not, and only swaps the shader.
+		changeNumTextures = UpdateSharpenShader() || changeNumTextures;
+	}
+	m_iSharpenLevel = config.iSharpenLevel;   // read afresh with every picture
 
 	if (config.bVPReplaceChroma != m_bVPReplaceChroma) {
 		m_bVPReplaceChroma = config.bVPReplaceChroma;
