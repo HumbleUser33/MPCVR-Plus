@@ -301,6 +301,68 @@ static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, 
 		}
 	}
 
+	// The freeze as it was finally pinned down: pause and play tapped faster than
+	// one displayed picture, and nothing else -- no full screen, no setting. The
+	// report is that a slower tap is harmless, so the gap between the two is what
+	// is swept here, and each one is tried several times because a race does not
+	// have to lose every round.
+	if (g_bToggleTap) {
+		static const int gaps[] = { 0, 2, 5, 10, 20, 40, 80, 150 };
+		printf("\n  pause and play tapped, nothing else -- the gap between the two is swept.\n\n");
+		printf("  %-38s %8s %7s %8s\n", "gap between pause and play", "took s", "fps", "screen");
+
+		for (const int gap : gaps) {
+			for (int round = 0; round < 3; round++) {
+				char name[64] = {};
+				sprintf_s(name, "%d ms, round %d", gap, round + 1);
+
+				const ULONGLONG t0 = GetTickCount64();
+				{
+					Watchdog watchdog(name, seconds);
+					pMC->Pause();
+					if (gap) {
+						Pump(gap);
+					}
+					pMC->Run();
+				}
+				const double took = (GetTickCount64() - t0) / 1000.0;
+
+				Pump(1200);
+				int framesA = 0, framesB = 0, skipped = 0;
+				ParseSkipped(StatsText(pRenderer), framesA, skipped);
+				Pump(1200);
+				ParseSkipped(StatsText(pRenderer), framesB, skipped);
+				const double fps = (framesB - framesA) / 1.2;
+
+				bool bScreenMoves = !watch.Ready();
+				uint64_t before = watch.Signature(hwnd);
+				for (int look = 0; look < 3 && !bScreenMoves; look++) {
+					Pump(400);
+					const uint64_t now = watch.Signature(hwnd);
+					bScreenMoves = (now != before);
+					before = now;
+				}
+				printf("  %-38s %8.2f %7.1f %8s%s\n", name, took, fps,
+					bScreenMoves ? "moving" : "FROZEN", (fps > 1.0 && bScreenMoves) ? "" : "   FAIL");
+				if (fps <= 1.0 || !bScreenMoves) {
+					failures++;
+					// Once it is caught, say whether a tap of its own clears it, as
+					// the report says it does.
+					pMC->Pause();
+					Pump(200);
+					pMC->Run();
+					Pump(1200);
+					int f2 = 0;
+					ParseSkipped(StatsText(pRenderer), f2, skipped);
+					Pump(1200);
+					int f3 = 0;
+					ParseSkipped(StatsText(pRenderer), f3, skipped);
+					printf("      a slower tap afterwards: %.1f fps\n", (f3 - f2) / 1.2);
+				}
+			}
+		}
+	}
+
 	// The double click: paused, the window changes, playback resumes. What the
 	// player really does is pause, go full screen and run again within a few
 	// milliseconds of each other, and the report says it freezes there -- on a
