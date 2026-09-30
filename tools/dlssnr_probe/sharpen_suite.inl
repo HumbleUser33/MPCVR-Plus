@@ -28,7 +28,13 @@ struct SharpenMethod {
 
 // The one knob, the same for all of them: 1.00 is the method as its author
 // wrote it, below that a part of its answer, above that more than it meant.
-static const float kSweep[] = { 0.25f, 0.50f, 0.75f, 1.00f, 1.50f, 2.00f, 3.00f };
+static const float kSweep[] = { 0.10f, 0.15f, 0.25f, 0.40f, 0.50f, 0.75f, 1.00f, 1.50f, 2.00f, 3.00f };
+
+// Comparing each method at its own best strength compares six different amounts
+// of sharpening, which says nothing about the sharpeners. So the tables below
+// are read at the strength that brings every one of them to the same edge
+// gradient -- and then halo, grain and PSNR are answers to one question.
+static const double kTargetSharp = 0.91;
 
 static std::vector<SharpenMethod> SharpenMethods()
 {
@@ -38,6 +44,7 @@ static std::vector<SharpenMethod> SharpenMethods()
 		{ "CAS",           L"..\\..\\Shaders\\d3d11\\ps_sharpen.hlsl", 3, false, false, 0.0f },
 		{ "CAS+clamp",     L"..\\..\\Shaders\\d3d11\\ps_sharpen.hlsl", 4, false, false, 0.8f },
 		{ "RCAS",          L"upscalers\\ps_fsr_rcas.hlsl",             0, true,  true,  0.0f },
+		{ "adaptive-sharpen", L"..\\..\\Shaders\\d3d11\\ps_sharpen.hlsl", 5, false, true, 0.0f },
 	};
 }
 
@@ -330,6 +337,11 @@ static int RunSharpen(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs =
 				continue;
 			}
 			for (int rgb = 0; rgb < 2; rgb++) {
+				// adaptive-sharpen adds one number to the three channels itself:
+				// the luma-only form is the only one it has.
+				if (methods[i].pass == 5 && rgb) {
+					continue;
+				}
 				SharpenShader s;
 				s.rgb = rgb != 0;
 				if (!CompileSharpen(dev, methods[i], s.rgb, s.ps, error)) {
@@ -407,12 +419,20 @@ static int RunSharpen(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs =
 			PrintSharpenRow("no sharpening", "-", none.Mean());
 		}
 
-		std::vector<float> best(methods.size(), 0.0f);
+		std::vector<float> best(methods.size(), 0.0f);    // where it peaked in psnr-d
+		std::vector<float> equal(methods.size(), 0.0f);   // where it reaches kTargetSharp
 		for (size_t i = 0; i < methods.size(); i++) {
 			if (shaders[i].empty()) {
 				continue;
 			}
 			double bestScore = -1e9;
+			float lastS = 0.0f;
+			double lastSharp = 0.0;   // no sharpening at all is the curve's start
+			for (size_t r = 0; r < refs.size(); r++) {
+				lastSharp += Measure(soft[0][r], refs[r].rgba, refs[r].W, refs[r].H).sharp;
+			}
+			lastSharp /= refs.size();
+			bool found = false;
 			for (const float s : kSweep) {
 				SharpenRow row;
 				for (size_t r = 0; r < refs.size(); r++) {
@@ -431,12 +451,25 @@ static int RunSharpen(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs =
 					bestScore = mean.psnrDetail;
 					best[i] = s;
 				}
+				if (!found && mean.sharp >= kTargetSharp) {
+					const double span = mean.sharp - lastSharp;
+					const double t = span > 1e-9 ? (kTargetSharp - lastSharp) / span : 0.0;
+					equal[i] = (float)(lastS + t * (s - lastS));
+					found = true;
+				}
+				lastS = s;
+				lastSharp = mean.sharp;
 			}
-			Out("\n");
+			if (!found) {
+				equal[i] = kSweep[std::size(kSweep) - 1];
+			}
+			Out("  %-24s peaks at %.2f, reaches %.3f of the reference's edges at %.2f\n\n",
+				methods[i].name, best[i], kTargetSharp, equal[i]);
 		}
 
 		// ---- the comparison: each at its best strength, both ways, all three sources.
-		Out("Each at the strength that peaked above, luma against colour, on three sources:\n");
+		Out("Each brought to the same edge gradient (sharp = %.3f), luma against colour,\n", kTargetSharp);
+		Out("on three sources -- so that halo, grain and PSNR answer one question:\n");
 		for (size_t d = 0; d < std::size(degradations); d++) {
 			Out("\n  --- %s ---\n", degradations[d].name);
 			PrintSharpenHead();
@@ -452,7 +485,7 @@ static int RunSharpen(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs =
 					SharpenRow row;
 					for (size_t r = 0; r < refs.size(); r++) {
 						std::vector<float> out;
-						if (SharpenOnGpu(dev, ctx, passes, sh.ps, cb, best[i], methods[i].param2,
+						if (SharpenOnGpu(dev, ctx, passes, sh.ps, cb, equal[i], methods[i].param2,
 								soft[d][r], refs[r].W, refs[r].H, out)) {
 							row.Add(Measure(out, refs[r].rgba, refs[r].W, refs[r].H),
 							ChromaPsnr(out, refs[r].rgba, refs[r].rgba.size()));
@@ -461,7 +494,7 @@ static int RunSharpen(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs =
 					char name[64] = {};
 					sprintf_s(name, "%s %s", methods[i].name, sh.rgb ? "(colour too)" : "(luma)");
 					char label[32] = {};
-					sprintf_s(label, "%.2f", best[i]);
+					sprintf_s(label, "%.2f", equal[i]);
 					PrintSharpenRow(name, label, row.Mean());
 				}
 			}
@@ -472,7 +505,7 @@ static int RunSharpen(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs =
 		for (size_t i = 0; i < methods.size(); i++) {
 			if (!shaders[i].empty()) {
 				Out("  %-24s %6.2f ms\n", methods[i].name,
-					SharpenCost(dev, ctx, passes, shaders[i][0].ps, cb, best[i], methods[i].param2));
+					SharpenCost(dev, ctx, passes, shaders[i][0].ps, cb, equal[i], methods[i].param2));
 			}
 		}
 
@@ -510,7 +543,7 @@ static int RunSharpen(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs =
 					// Each at the strength that peaked, and the plain unsharp mask
 					// once more at nearly three times it, which is what a slider
 					// pushed too far looks like.
-					const float amounts[2] = { best[i], (i == 0) ? 2.0f : -1.0f };
+					const float amounts[2] = { equal[i], (i == 0) ? 2.0f : -1.0f };
 					for (const float a : amounts) {
 						if (a < 0) {
 							continue;
