@@ -314,35 +314,80 @@ static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, 
 				rcMon = mi.rcMonitor;
 			}
 		}
-		const long fsW = rcMon.right - rcMon.left, fsH = rcMon.bottom - rcMon.top;
-		printf("\n  the double click: pause, the window changes, run -- %ldx%ld <-> %ldx%ld\n\n",
-			window.cx, window.cy, fsW, fsH);
+		RECT rcWindowed = {};
+		GetWindowRect(hwnd, &rcWindowed);
+		const LONG_PTR styleWindowed = GetWindowLongPtrW(hwnd, GWL_STYLE);
+		bool bFull = false;
+
+		// A real switch, not a resize: the player takes the frame off the window and
+		// lays it over the whole monitor, which is what Alt-Enter does and what the
+		// renderer reads as full screen.
+		const auto GoFullScreen = [&](bool set) {
+			bFull = set;
+			if (set) {
+				SetWindowLongPtrW(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN);
+				SetWindowPos(hwnd, HWND_TOP, rcMon.left, rcMon.top,
+					rcMon.right - rcMon.left, rcMon.bottom - rcMon.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+			} else {
+				SetWindowLongPtrW(hwnd, GWL_STYLE, styleWindowed);
+				SetWindowPos(hwnd, HWND_TOP, rcWindowed.left, rcWindowed.top,
+					rcWindowed.right - rcWindowed.left, rcWindowed.bottom - rcWindowed.top,
+					SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+			}
+			RECT rc = {};
+			GetClientRect(hwnd, &rc);
+			pVW->SetWindowPosition(0, 0, rc.right, rc.bottom);
+			pBV->SetDestinationPosition(0, 0, rc.right, rc.bottom);
+		};
+
+		// Pause and run back to back, with nothing between them: the report is that
+		// the two have to land inside one displayed frame, which at 25 Hz is 40 ms
+		// and at 60 is 17 -- and that it freezes at the low end only.
+		enum Order { PauseRunThenSwitch, PauseSwitchRun, SwitchPauseRun, PauseRunAroundSwitch };
+		static const char* const orderName[] = {
+			"pause+run, then full screen",
+			"pause, full screen, run",
+			"full screen, pause+run",
+			"pause, run, full screen at once",
+		};
+
+		printf("\n  the double click: pause and run inside one frame, with a real full-screen\n");
+		printf("  switch between %ldx%ld and %ldx%ld\n\n", window.cx, window.cy,
+			rcMon.right - rcMon.left, rcMon.bottom - rcMon.top);
 		printf("  %-38s %8s %7s %8s\n", "step", "took s", "fps", "screen");
 
-		for (int pass = 0; pass < 6; pass++) {
-			const bool bBig = (pass % 2) == 0;
-			const long w = bBig ? fsW : window.cx;
-			const long h = bBig ? fsH : window.cy;
+		for (int pass = 0; pass < 8; pass++) {
+			const Order order = (Order)(pass % 4);
+			const bool bTo = !bFull;
 			char name[64] = {};
-			sprintf_s(name, "pass %d, to %ldx%ld", pass + 1, w, h);
+			sprintf_s(name, "%s, to %s", orderName[order], bTo ? "full screen" : "window");
 
 			const ULONGLONG t0 = GetTickCount64();
 			{
 				Watchdog watchdog(name, seconds);
-				pMC->Pause();
-				Pump(80);
-				// Both interleavings: the window change just before the resume, and
-				// just after it. The player's second click does the two at once and
-				// which of them the renderer sees first is not ours to choose.
-				if (pass % 2) {
-					pVW->SetWindowPosition(0, 0, w, h);
-					pBV->SetDestinationPosition(0, 0, w, h);
+				switch (order) {
+				case PauseRunThenSwitch:
+					pMC->Pause();
 					pMC->Run();
-				} else {
+					GoFullScreen(bTo);
+					break;
+				case PauseSwitchRun:
+					pMC->Pause();
+					GoFullScreen(bTo);
 					pMC->Run();
-					Pump(10);
-					pVW->SetWindowPosition(0, 0, w, h);
-					pBV->SetDestinationPosition(0, 0, w, h);
+					break;
+				case SwitchPauseRun:
+					GoFullScreen(bTo);
+					pMC->Pause();
+					pMC->Run();
+					break;
+				default:
+					pMC->Pause();
+					pMC->Run();
+					GoFullScreen(bTo);
+					pMC->Pause();
+					pMC->Run();
+					break;
 				}
 			}
 			const double took = (GetTickCount64() - t0) / 1000.0;
@@ -367,6 +412,9 @@ static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, 
 			if (fps <= 1.0 || !bScreenMoves) {
 				failures++;
 			}
+		}
+		if (bFull) {
+			GoFullScreen(false);
 		}
 	}
 

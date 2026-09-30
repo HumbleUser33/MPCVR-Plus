@@ -4696,6 +4696,18 @@ HRESULT CDX11VideoProcessor::SetWindowRect(const CRect& windowRect)
 
 	if (m_pDXGISwapChain1 && !m_bExclusiveScreen) {
 		hr = m_pDXGISwapChain1->ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, 0);
+		if (FAILED(hr)) {
+			// Nobody was reading this. A refused resize leaves the window one size
+			// and the swap chain another, and a flip model swap chain that does not
+			// match its window presents every picture without any of them reaching
+			// the screen -- which from inside the renderer looks like nothing at
+			// all: the frames are drawn, the times are right, and the picture is
+			// frozen. So it is built again instead of left disagreeing.
+			DLog(L"CDX11VideoProcessor::SetWindowRect() : ResizeBuffers({}x{}) failed with error {}, rebuilding",
+				w, h, HR2Str(hr));
+			m_nSwapChainResizeFailed++;
+			hr = InitSwapChain(false);
+		}
 	}
 
 	UpdateStatsByWindow();
@@ -5569,6 +5581,9 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 	DXGI_SWAP_CHAIN_DESC1 swapchain_desc;
 	if (m_pDXGISwapChain1 && S_OK == m_pDXGISwapChain1->GetDesc1(&swapchain_desc)) {
 		m_strStatsPresent.assign(L"\nPresentation  : ");
+		if (m_nSwapChainResizeFailed) {
+			m_strStatsPresent.append(std::format(L"rebuilt after {} refused resize(s), ", m_nSwapChainResizeFailed));
+		}
 		switch (swapchain_desc.SwapEffect) {
 		case DXGI_SWAP_EFFECT_DISCARD:
 			m_strStatsPresent.append(L"Discard");

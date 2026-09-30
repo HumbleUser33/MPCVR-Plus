@@ -197,6 +197,11 @@ private:
 	bool m_bVPUseRTXVideoHDR = false;
 	// How deep the HDR swap-chain retry in InitializeD3D11VP has gone into itself.
 	int m_nHdrSwapChainRetry = 0;
+	// How often resizing the swap chain to the window has failed and had to be
+	// answered by building it again. Nothing should ever raise this; the
+	// statistics carry it because a picture that stops reaching the screen looks
+	// like nothing at all from inside the renderer.
+	int m_nSwapChainResizeFailed = 0;
 
 	// Sharpening, a step of the post-scale chain: the method, which of the five
 	// levels, and the shader that does it.
