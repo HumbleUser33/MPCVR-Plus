@@ -5894,6 +5894,13 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 
 	str += std::format(L"\nFrames        : {:5}, skipped: {}/{}, failed: {}",
 		m_pFilter->m_FrameStats.GetFrames(), m_pFilter->m_DrawStats.m_dropped, m_RenderStats.dropped2, m_RenderStats.failed);
+	// A picture whose turn was taken away after it had been given one. Without the
+	// way out in WaitForRenderTime this is where the picture stopped for good, so
+	// the count is worth showing: it says the freeze was really there and was really
+	// caught.
+	if (m_pFilter->m_nRenderWaitsBroken) {
+		str += std::format(L", turns lost: {}", m_pFilter->m_nRenderWaitsBroken);
+	}
 
 	str += std::format(L"\nTimes(ms)     : Copy{:3}, Paint{:3}, Present{:3}",
 		m_RenderStats.copyticks    * 1000 / GetPreciseTicksPerSecondI(),

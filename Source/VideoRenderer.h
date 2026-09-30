@@ -100,6 +100,11 @@ private:
 	FILTER_STATE m_filterState = State_Stopped;
 	bool m_bFlushing = false;
 	bool m_bValidBuffer = false;
+	// How often a picture's turn was cancelled after it had been scheduled, leaving
+	// the streaming thread with nothing that could ever wake it. Nothing should ever
+	// raise this; the statistics carry it because that is the only place it can be
+	// seen from, and because it is the proof that the freeze it prevents was real.
+	int m_nRenderWaitsBroken = 0;
 
 	HWND m_hWnd           = nullptr;
 	// Thread-local keyboard hook for the DLSS toggle key. Scoped to the thread
@@ -159,6 +164,7 @@ public:
 	HRESULT SetMediaType(const CMediaType *pmt) override;
 	HRESULT DoRenderSample(IMediaSample* pSample) override;
 	HRESULT Receive(IMediaSample* pMediaSample) override;
+	HRESULT WaitForRenderTime() override;
 	int GetRenderAhead() override { return m_VideoProcessor ? m_VideoProcessor->GetRenderAhead() : 0; }
 
 	HRESULT BeginFlush() override;

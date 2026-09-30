@@ -714,6 +714,50 @@ HRESULT CMpcVideoRenderer::DoRenderSample(IMediaSample* pSample)
 	return hr;
 }
 
+// Waiting for this picture's turn, with a way out.
+//
+// A picture is given its turn in PrepareReceive: the clock is asked to signal an
+// event when its time comes, and the streaming thread then waits for that event
+// here. Pause cancels that advise and resets the event -- and it does so whether or
+// not the event has already been signalled, so a turn that came at the wrong moment
+// is simply lost. Play is supposed to give the picture a new turn, and usually does.
+// When it does not, the wait upstream waits ten seconds, finds nothing, and waits ten
+// seconds again, for ever: the graph goes on running, the sound with it, and the
+// picture never moves again until the player is paused and played once more. That is
+// the freeze reported on a display at 24 or 25 Hz, where the window between a
+// picture being scheduled and this wait being entered is a whole refresh wide.
+//
+// So the wait is bounded, and what it finds at the bound decides. A live advise means
+// the turn is still coming and the wait goes on. No advise means nothing will ever
+// wake us, and the picture is taken now rather than never.
+HRESULT CMpcVideoRenderer::WaitForRenderTime()
+{
+	HANDLE objects[2] = { m_ThreadSignal, m_RenderEvent };
+
+	for (;;) {
+		const DWORD result = WaitForMultipleObjects(2, objects, FALSE, 500);
+		if (result == WAIT_OBJECT_0) {
+			return VFW_E_STATE_CHANGED;
+		}
+		if (result == WAIT_OBJECT_0 + 1) {
+			SignalTimerFired();
+			return NOERROR;
+		}
+		if (result != WAIT_TIMEOUT) {
+			return VFW_E_STATE_CHANGED;
+		}
+		// Reaching this wait at all means the picture was scheduled, so no advise
+		// left means the advise it had was taken away after it was given. While the
+		// filter really is paused that is the normal state of things and waiting is
+		// right: only a filter that is meant to be playing has to be let out.
+		if (!m_dwAdvise && (m_bStreaming || m_State == State_Running)) {
+			m_nRenderWaitsBroken++;
+			DLog(L"CMpcVideoRenderer::WaitForRenderTime() : nothing left to wait for, taking the picture now ({} so far)", m_nRenderWaitsBroken);
+			return NOERROR;
+		}
+	}
+}
+
 HRESULT CMpcVideoRenderer::Receive(IMediaSample* pSample)
 {
 	// override CBaseRenderer::Receive() for the implementation of the search during the pause
