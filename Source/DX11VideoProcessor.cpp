@@ -2248,11 +2248,18 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 	auto rtxHDR = m_bVPRTXVideoHDR && m_bHdrPassthroughSupport && m_bHdrPassthrough && m_iTexFormat != TEXFMT_8INT && !SourceIsHDR();
 	m_bVPUseRTXVideoHDR = (m_D3D11VP.SetRTXVideoHDR(rtxHDR) == S_OK);
 
-	// Asked for exactly as upstream asks for it. The 4:4:4 pre-pass used to switch it
-	// off here, which cost a capability the original has for an option of ours; the
-	// driver is left to answer for itself instead.
+	// The 4:4:4 pre-pass used to switch it off here, which cost a capability the
+	// original has for an option of ours; the driver is left to answer for itself.
+	//
+	// Upstream also refuses it unless the picture is on its way to an 8-bit target
+	// or RTX Video HDR is making the HDR, which rules out every real HDR film and
+	// every 10-bit source -- while its own Configure() asks without that test, so
+	// re-picking the same value from the list turned it on and ticking "Use for
+	// resizing" did not. The two places ask the same question now, and it is the
+	// one the driver answers yes to: on a PQ BT.2020 source in P010 the extension
+	// changes the picture by 3.928, against 3.903 on the same frame in SDR
+	// (tools/dlssnr_probe vp444_probe).
 	auto superRes = (m_bVPScaling
-		&& (m_InternalTexFmt == DXGI_FORMAT_B8G8R8A8_UNORM || m_bVPUseRTXVideoHDR)
 		&& (params.CDepth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
 	m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
 

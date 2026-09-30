@@ -237,6 +237,21 @@ static DXVA2_ExtendedFormat Bt709(bool interlaced)
 	return fmt;
 }
 
+// A real HDR10 source: PQ, BT.2020, which is a different question from an SDR
+// source the driver is asked to tone map.
+static DXVA2_ExtendedFormat Pq2020()
+{
+	DXVA2_ExtendedFormat fmt = {};
+	fmt.SampleFormat           = DXVA2_SampleProgressiveFrame;
+	fmt.VideoChromaSubsampling = DXVA2_VideoChromaSubsampling_MPEG2;
+	fmt.NominalRange           = DXVA2_NominalRange_16_235;
+	fmt.VideoTransferMatrix    = (DXVA2_VideoTransferMatrix)MFVideoTransferMatrix_BT2020_10;
+	fmt.VideoLighting          = DXVA2_VideoLighting_dim;
+	fmt.VideoPrimaries         = (DXVA2_VideoPrimaries)MFVideoPrimaries_BT2020;
+	fmt.VideoTransferFunction  = (DXVA2_VideoTransferFunction)MFVideoTransFunc_2084;
+	return fmt;
+}
+
 // The output in 0..1 per channel, R, G, B.
 struct Output {
 	int w = 0, h = 0;
@@ -324,7 +339,7 @@ struct RunResult {
 
 // One processor, fed the frames in turn, the output of the last one read back.
 static RunResult Run(Gpu& g, DXGI_FORMAT fmt, const std::vector<Picture>& frames, bool interlaced, int outW, int outH,
-	int superRes, bool trueHdr, bool hdrOutput, int passthrough = -1)
+	int superRes, bool trueHdr, bool hdrOutput, int passthrough = -1, bool pqSource = false)
 {
 	RunResult r;
 	CD3D11VP vp;
@@ -335,7 +350,8 @@ static RunResult Run(Gpu& g, DXGI_FORMAT fmt, const std::vector<Picture>& frames
 	const int w = frames[0].w, h = frames[0].h;
 	DXGI_FORMAT out = hdrOutput ? DXGI_FORMAT_R10G10B10A2_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM;
 	const bool bPassthrough = (passthrough < 0) ? hdrOutput : (passthrough != 0);
-	r.hr = vp.InitVideoProcessor(fmt, w, h, Bt709(interlaced), interlaced ? DEINT_Enable : DEINT_Disable, bPassthrough, out);
+	const DXVA2_ExtendedFormat exFmt = pqSource ? Pq2020() : Bt709(interlaced);
+	r.hr = vp.InitVideoProcessor(fmt, w, h, exFmt, interlaced ? DEINT_Enable : DEINT_Disable, bPassthrough, out);
 	if (FAILED(r.hr)) {
 		return r;
 	}
@@ -1276,6 +1292,20 @@ int wmain(int argc, wchar_t* argv[])
 			printf("  %-22s %-16s extension 0x%08X, changes the picture by %.3f\n", Name(f),
 				hdr ? "with RTX HDR" : "on its own", (unsigned)on.hrSuperRes, Diff(on.out, off.out));
 		}
+	}
+
+	// Super Resolution on a real HDR10 source -- PQ in, PQ out, the arrangement a
+	// PQ film plays in. The renderer refuses to ask for it there unless RTX Video
+	// HDR is on, and this says whether that refusal costs anything.
+	printf("\nRTX Video Super Resolution on a PQ BT.2020 source, 960x540 -> 1920x1080:\n");
+	for (const DXGI_FORMAT f : formats) {
+		RunResult off = Run(g, f, { a, a, a }, false, 1920, 1080, SUPERRES_Disable, false, true, 1, true);
+		RunResult on  = Run(g, f, { a, a, a }, false, 1920, 1080, SUPERRES_1080p, false, true, 1, true);
+		if (FAILED(off.hr) || FAILED(on.hr)) {
+			printf("  %-22s failed 0x%08X / 0x%08X\n", Name(f), (unsigned)off.hr, (unsigned)on.hr);
+			continue;
+		}
+		printf("  %-22s extension 0x%08X, changes the picture by %.3f\n", Name(f), (unsigned)on.hrSuperRes, Diff(on.out, off.out));
 	}
 
 	// Deinterlacing: fields from two pictures 6 pixels apart. Woven, the rows comb;
