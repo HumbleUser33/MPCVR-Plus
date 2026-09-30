@@ -86,6 +86,16 @@ cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x
    /Fe:playback_test.exe /link "..\..\_bin\lib\Release_x64\BaseClasses.lib" dbghelp.lib d3d11.lib ^
    /MANIFEST:EMBED /MANIFESTINPUT:playback_test.manifest || EXIT /B 1
 
+ECHO Building the player tap (the reported freeze, against the installed player)...
+cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
+   /DUNICODE /D_UNICODE player_tap.cpp ^
+   /Fe:player_tap.exe /link dbghelp.lib d3d11.lib dxgi.lib || EXIT /B 1
+
+ECHO Building the freeze dump (what a frozen player is waiting for)...
+cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
+   /DUNICODE /D_UNICODE freeze_dump.cpp ^
+   /Fe:freeze_dump.exe /link dbghelp.lib || EXIT /B 1
+
 DEL /Q *.obj *.exp *.cso *.res 2>NUL
 
 ECHO.

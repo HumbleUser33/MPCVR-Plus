@@ -305,4 +305,84 @@ public:
 		m_pContext->Unmap(m_pStaging, 0);
 		return signature;
 	}
+
+	// The same sampling, kept rather than hashed. A signature says whether a single
+	// bit moved, which a dither pattern alone can do while the picture stands still;
+	// two of these can be compared with a tolerance, so "the picture is the same
+	// picture" can be asked instead of "the pixels are identical".
+	// A part of the window rather than all of it, given as fractions of it. With the
+	// renderer's statistics drawn in the corner, the corner and the picture can be
+	// asked separately: a counter that goes on climbing over a picture that stands
+	// still says the renderer is still drawing and still reaching the screen, which
+	// is a different fault from nothing reaching the screen at all.
+	std::vector<BYTE> Fingerprint(HWND hwnd, double fl, double ft, double fr, double fb,
+		int stepX = 23, int stepY = 17)
+	{
+		std::vector<BYTE> taken;
+		if (!m_pDuplication) {
+			return taken;
+		}
+		for (int i = 0; i < 8; i++) {
+			DXGI_OUTDUPL_FRAME_INFO info = {};
+			CComPtr<IDXGIResource> pResource;
+			const HRESULT hr = m_pDuplication->AcquireNextFrame(120, &info, &pResource);
+			if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+				break;
+			}
+			if (FAILED(hr)) {
+				return taken;
+			}
+			if (CComQIPtr<ID3D11Texture2D> pDesktop = pResource.p) {
+				if (Stage(pDesktop)) {
+					m_pContext->CopyResource(m_pStaging, pDesktop);
+				}
+			}
+			m_pDuplication->ReleaseFrame();
+		}
+
+		RECT rc = {};
+		GetClientRect(hwnd, &rc);
+		POINT topLeft = { 0, 0 };
+		ClientToScreen(hwnd, &topLeft);
+		const double sx = m_logicalW ? (double)m_width / m_logicalW : 1.0;
+		const double sy = m_logicalH ? (double)m_height / m_logicalH : 1.0;
+		const int x0 = std::clamp<int>((int)std::lround((topLeft.x + rc.right * fl - m_left) * sx), 0, (int)m_width - 1);
+		const int y0 = std::clamp<int>((int)std::lround((topLeft.y + rc.bottom * ft - m_top) * sy), 0, (int)m_height - 1);
+		const int x1 = std::clamp<int>((int)std::lround((topLeft.x + rc.right * fr - m_left) * sx), 0, (int)m_width);
+		const int y1 = std::clamp<int>((int)std::lround((topLeft.y + rc.bottom * fb - m_top) * sy), 0, (int)m_height);
+
+		D3D11_MAPPED_SUBRESOURCE mapped = {};
+		if (FAILED(m_pContext->Map(m_pStaging, 0, D3D11_MAP_READ, 0, &mapped))) {
+			return taken;
+		}
+		const bool bHalf = (m_format == DXGI_FORMAT_R16G16B16A16_FLOAT);
+		for (int y = y0; y < y1; y += stepY) {
+			const BYTE* row = (const BYTE*)mapped.pData + (size_t)y * mapped.RowPitch;
+			for (int x = x0; x < x1; x += stepX) {
+				// Half floats hold the green channel in the high byte of its word;
+				// eight and ten bit desktops are read straight.
+				taken.push_back(bHalf ? ((const BYTE*)row)[(size_t)x * 8 + 3] : row[(size_t)x * 4 + 1]);
+			}
+		}
+		m_pContext->Unmap(m_pStaging, 0);
+		return taken;
+	}
+
+	std::vector<BYTE> Fingerprint(HWND hwnd) { return Fingerprint(hwnd, 0.0, 0.0, 1.0, 1.0); }
+
+	// How much of the picture really changed, in per cent of the points sampled. A
+	// changed point is one that moved by more than a dither step.
+	static double Changed(const std::vector<BYTE>& a, const std::vector<BYTE>& b)
+	{
+		if (a.empty() || a.size() != b.size()) {
+			return 0.0;
+		}
+		size_t moved = 0;
+		for (size_t i = 0; i < a.size(); i++) {
+			if (std::abs((int)a[i] - (int)b[i]) > 3) {
+				moved++;
+			}
+		}
+		return 100.0 * moved / a.size();
+	}
 };

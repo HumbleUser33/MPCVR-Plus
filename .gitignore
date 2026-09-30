@@ -60,3 +60,8 @@ _nvngx.dll
 /tools/dlssnr_probe/sharpendiff_*.png
 /tools/dlssnr_probe/build_h.log
 /tools/dlssnr_probe/build_all.log
+/tools/dlssnr_probe/player_tap_freeze.txt
+/tools/dlssnr_probe/*.log
+/tools/dlssnr_probe/film_0*.bmp
+/tools/dlssnr_probe/screen_*.bmp
+/tools/dlssnr_probe/window_*.bmp
