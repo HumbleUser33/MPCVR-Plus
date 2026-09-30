@@ -117,7 +117,16 @@ static void FreezeStack(HANDLE process, DWORD threadId)
 			const char* moduleName = SymGetModuleInfo64(process, frame.AddrPC.Offset, &module) ? module.ModuleName : "?";
 
 			if (SymFromAddr(process, frame.AddrPC.Offset, &displacement, symbol)) {
-				FreezeSay("    %s!%s\n", moduleName, symbol->Name);
+				// A module with no pdb still has its exports, and dbghelp will happily
+				// name the nearest one however far away it is -- which reads as a real
+				// name and is not one. The distance says which it is, so it is printed
+				// whenever it is more than a function away.
+				if (displacement > 0x1000) {
+					FreezeSay("    %s + 0x%llX (past %s)\n", moduleName,
+						(unsigned long long)(frame.AddrPC.Offset - module.BaseOfImage), symbol->Name);
+				} else {
+					FreezeSay("    %s!%s + 0x%llX\n", moduleName, symbol->Name, (unsigned long long)displacement);
+				}
 			} else {
 				FreezeSay("    %s + 0x%llX\n", moduleName, (unsigned long long)(frame.AddrPC.Offset - module.BaseOfImage));
 			}

@@ -57,7 +57,8 @@ static std::atomic<int> g_playMode = -1;  // what the player last said it was do
 static std::atomic<HWND> g_playerApi = nullptr;  // the window it listens on
 static bool g_bTrace = false;
 static bool g_bDump = false;   // --dump: every thread of the player, the moment it freezes
-static bool g_bStats = false;  // --stats: the renderer's own counters drawn in the corner
+static bool g_bStats = false;
+static int g_waitAlone = 0;    // --wait <s>: on a catch, touch nothing and see if it comes back  // --stats: the renderer's own counters drawn in the corner
 
 static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -291,6 +292,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bDump = true;
 		} else if (!wcscmp(argv[i], L"--stats")) {
 			g_bStats = true;
+		} else if (!wcscmp(argv[i], L"--wait") && i + 1 < argc) {
+			g_waitAlone = _wtoi(argv[++i]);
 		} else if (!wcscmp(argv[i], L"--gaps") && i + 1 < argc) {
 			gaps.clear();
 			std::wstring list = argv[++i];
@@ -400,8 +403,10 @@ int wmain(int argc, wchar_t* argv[])
 	}
 
 	// Before anything is claimed about a picture that stopped, the reading has to be
-	// shown to tell a stopped picture from a running one at all.
-	{
+	// shown to tell a stopped picture from a running one at all. When it cannot --
+	// another window over the player, a picture that never started -- the run stops
+	// here rather than printing sixty rows that mean nothing. Twice it has.
+	for (int attempt = 0; ; attempt++) {
 		TapSpace(hwnd);
 		Pump(1500);
 		const bool bStillWhenPaused = !ScreenMoves(watch, video);
@@ -419,6 +424,22 @@ int wmain(int argc, wchar_t* argv[])
 			printf("reading check: the statistics corner moves %.2f%% while playing -- %s\n",
 				corner, corner > 0.05 ? "good" : "the counters cannot be read, so --stats says nothing");
 		}
+		if (bStillWhenPaused && bMovingWhenPlaying) {
+			break;
+		}
+		if (attempt >= 2) {
+			printf("\nthe picture cannot be read, so nothing below would mean anything. Stopping.\n"
+				   "Something is over the player's window, or the film is not playing.\n");
+			PostMessageW(hwnd, WM_CLOSE, 0, 0);
+			Pump(2000);
+			TerminateProcess(pi.hProcess, 0);
+			host.Stop();
+			return 1;
+		}
+		printf("trying again: putting the player back in front\n");
+		ShowWindow(hwnd, SW_MAXIMIZE);
+		SetForegroundWindow(hwnd);
+		Pump(2000);
 	}
 
 	printf("\n  the space bar twice, %d times for each gap. FROZEN means the player says it\n", rounds);
@@ -523,6 +544,21 @@ int wmain(int argc, wchar_t* argv[])
 				verdict = "one press took, not a freeze";
 			} else if (!bMoving) {
 				failures++;
+				// Left alone, does it come back? A pause and a play look like they
+				// clear it, but so would simply waiting: everything the program does
+				// after catching one takes seconds. Nothing is touched here until the
+				// picture moves again or the patience runs out, and the answer
+				// decides what kind of fault this is.
+				if (g_waitAlone) {
+					const ULONGLONG t0 = GetTickCount64();
+					bool bBack = false;
+					while (!bBack && (int)((GetTickCount64() - t0) / 1000) < g_waitAlone) {
+						bBack = ScreenMoves(watch, video);
+					}
+					printf("      left alone: %s after %.1f s\n",
+						bBack ? "it came back by itself" : "still frozen",
+						(GetTickCount64() - t0) / 1000.0);
+				}
 				if (g_bStats) {
 					const double corner = CornerMoved(watch, video);
 					printf("      the statistics corner moved %.2f%% while the picture stood still: %s\n",
