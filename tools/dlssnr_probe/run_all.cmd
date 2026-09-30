@@ -38,6 +38,7 @@ CALL :Run "the prescalers against the harness" "dlssnr_harness.exe --tmpvport --
 CALL :Run "the pipeline"                       "dlssnr_harness.exe --tpipeline --nonr --nomodels"
 CALL :Run "upscalers on film"                  "dlssnr_harness.exe --tupscale --nonr --nomodels"
 CALL :Run "chroma upsamplers on film"          "dlssnr_harness.exe --tchroma --nonr"
+CALL :Run "sharpeners on film"                 "dlssnr_harness.exe --tsharpen --nonr --nomodels"
 CALL :Run "video processor rebuild"            "vp_rebuild_test.exe"
 CALL :Run "the generated 4:4:4 chroma pass"    "shader444_test.exe"
 CALL :Run "playback, 10 s"                     "playback_test.exe --seconds 10"

@@ -1,7 +1,7 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 29 September 2026, on an
-RTX 3050, all seventeen steps green. It is the thing a merge from upstream is compared against, at
+`run_all_report.txt` here is what the whole battery measured on 30 September 2026, on an
+RTX 3050, all eighteen steps green. It is the thing a merge from upstream is compared against, at
 step 8 of [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
 ```

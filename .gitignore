@@ -59,3 +59,4 @@ _nvngx.dll
 /tools/dlssnr_probe/sharpen_*.png
 /tools/dlssnr_probe/sharpendiff_*.png
 /tools/dlssnr_probe/build_h.log
+/tools/dlssnr_probe/build_all.log
