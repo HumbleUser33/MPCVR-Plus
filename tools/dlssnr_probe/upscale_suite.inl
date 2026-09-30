@@ -598,6 +598,14 @@ public:
 	            ID3D11ShaderResourceView* src, UINT srcW, UINT srcH,
 	            ID3D11RenderTargetView* dst, UINT dstW, UINT dstH);
 
+	// One pixel shader over a target the size of its source, with its own
+	// constant block: a pass that does not resize, which is what a sharpener is.
+	void Apply(ID3D11DeviceContext* ctx, ID3D11PixelShader* ps, ID3D11ShaderResourceView* src,
+	           ID3D11RenderTargetView* dst, UINT w, UINT h, ID3D11Buffer* constants)
+	{
+		Draw(ctx, ps, src, dst, w, h, w, h, 1.0f, 1.0f, constants);
+	}
+
 private:
 	bool Compile(ID3D11Device* dev, const wchar_t* file, const D3D_SHADER_MACRO* defines, CComPtr<ID3D11PixelShader>& ps, std::string& error);
 	bool LoadCso(ID3D11Device* dev, const wchar_t* file, CComPtr<ID3D11PixelShader>& ps);
