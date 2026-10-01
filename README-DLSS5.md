@@ -711,6 +711,28 @@ frame rate, and a lighter DLSS SR preset gives it room. DLSS 5 NR is timed where
 waits for it, the other stages with GPU timestamps while the statistics are shown.
 *Times(ms): Present* includes the wait.
 
+### When the graph's clock stops
+
+Every picture is scheduled against the reference clock the graph gets from one of its filters,
+which is normally the audio renderer. The statistics name it:
+
+    Frames        :   101, skipped: 0/0, failed: 0, turns late: 27 (turn +254 ms, clock +636 ms, base +0 ms)
+    Clock         : MPC Audio Renderer
+
+A clock that stops while the sound goes on playing — seen with one third-party audio renderer
+after a very fast pause and play on a 24 Hz display — makes every picture look one frame
+further into the future than the one before it, and the picture slows to a crawl while
+everything else carries on. The renderer catches that and says so:
+
+    Clock         : SaneAR Audio Renderer, stopped -- pictures paced by the stream
+
+From then on it paces the pictures itself, one frame duration apart, until a picture's turn
+arrives again, which is a clock that runs. *turns late* counts the pictures taken that way,
+with how far away the turn still was, how far the clock moved since the last one, and how far
+the filter's own time base moved with it; *turns lost* counts the rarer case of a turn
+cancelled after it was given. All three stay at zero on a clock that keeps time, and the first
+thing to try when they do not is another audio renderer.
+
 ---
 
 ## Settings
