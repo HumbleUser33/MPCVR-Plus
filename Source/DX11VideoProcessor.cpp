@@ -3215,8 +3215,12 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 
 	// Render ahead: this picture was started early and waits for its time; a
 	// redraw has no time to keep.
+	// Render ahead holds the finished picture until its time on the reference clock,
+	// so a clock that has stopped turns that hold into its full ceiling on every
+	// picture -- a hundred milliseconds each, on top of a pacing that is already
+	// ours. While the clock is stopped the holding is simply not done.
 	const bool bHold = field && frameStartTime != INVALID_TIME && RenderAheadActive()
-		&& m_pFilter->m_filterState == State_Running;
+		&& m_pFilter->m_filterState == State_Running && !m_pFilter->m_bClockStalled;
 	if (bHold) {
 		MarkPictureSubmitted();
 	}

@@ -799,14 +799,31 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 		return hr;
 	};
 
+	// A stopped clock cannot be waited for, so while it is stopped this is where the
+	// time comes from: each picture is due one frame duration after the one before
+	// it, counted from when that one was taken and not from now, so that the time
+	// spent drawing and presenting is part of the frame rather than added to it.
+	// That is the difference between the film's own rate and a third of it.
+	const ULONGLONG frameMs = std::max<ULONGLONG>(10, m_FrameStats.GetAverageFrameDuration() / 10000);
+	if (m_bClockStalled && !m_tickPictureDue) {
+		m_tickPictureDue = GetTickCount64() + frameMs;
+	}
+
 	for (;;) {
-		const DWORD result = WaitForMultipleObjects(2, objects, FALSE, 500);
+		DWORD quantum = 500;
+		if (m_bClockStalled) {
+			const ULONGLONG now = GetTickCount64();
+			quantum = (DWORD)std::clamp<ULONGLONG>(m_tickPictureDue > now ? m_tickPictureDue - now : 0, 1, 500);
+		}
+		const DWORD result = WaitForMultipleObjects(2, objects, FALSE, quantum);
 		if (result == WAIT_OBJECT_0) {
 			return Leave(VFW_E_STATE_CHANGED);
 		}
 		if (result == WAIT_OBJECT_0 + 1) {
 			SignalTimerFired();
-			m_bClockStalled = false;   // a turn that arrives is a clock that runs
+			// A turn that arrives is a clock that runs.
+			m_bClockStalled = false;
+			m_tickPictureDue = 0;
 			return Leave(NOERROR);
 		}
 		if (result != WAIT_TIMEOUT) {
@@ -816,11 +833,21 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 			continue;   // paused for real
 		}
 
-		// A stopped clock cannot be waited for. Once it has been caught not moving,
-		// the pictures are paced by the stream's own frame duration instead: at least
-		// they keep coming at the rate they were filmed at, instead of one a second.
-		const ULONGLONG bound = m_bClockStalled
-			? std::max<ULONGLONG>(20, m_FrameStats.GetAverageFrameDuration() / 10000) : 1000;
+		if (m_bClockStalled) {
+			const ULONGLONG now = GetTickCount64();
+			if (now < m_tickPictureDue) {
+				continue;
+			}
+			// The next one is due a frame later. If this one has fallen a long way
+			// behind -- the machine was busy, or the stall is only starting -- the
+			// count starts again from here rather than chasing a debt it cannot pay.
+			m_tickPictureDue = (now - m_tickPictureDue > 4 * frameMs)
+				? now + frameMs : m_tickPictureDue + frameMs;
+			m_nRenderWaitsLate++;
+			return Leave(NOERROR);
+		}
+
+		const ULONGLONG bound = 1000;
 		const ULONGLONG waited = GetTickCount64() - waitStart;
 		if (!bSaidSo) {
 			// Half a second of waiting never happens while a film plays, so this

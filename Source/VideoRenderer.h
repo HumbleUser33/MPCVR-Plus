@@ -124,6 +124,10 @@ private:
 	// by the stream's own frame duration, because a stopped clock cannot be waited
 	// for and every picture after one looks further ahead than the last.
 	bool m_bClockStalled = false;
+	// When the next picture is due while the clock is stopped, in ticks. Kept from
+	// one picture to the next so the rate is the film's and not the film's minus
+	// whatever drawing cost.
+	ULONGLONG m_tickPictureDue = 0;
 	// Which filter gives the graph its clock, for the statistics: when that clock
 	// stops, the first thing worth knowing is whose it is. A fixed buffer because the
 	// statistics are drawn on another thread than the one that fills it.
