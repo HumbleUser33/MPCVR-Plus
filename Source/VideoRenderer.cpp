@@ -802,9 +802,27 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 			DLog(L"CMpcVideoRenderer::WaitForRenderTime() : the turn was taken away, taking the picture now ({} so far)", m_nRenderWaitsBroken);
 			return NOERROR;
 		}
-		if (waited >= 2000) {
+		if (waited >= 1000) {
 			m_nRenderWaitsLate++;
-			DLog(L"CMpcVideoRenderer::WaitForRenderTime() : {} ms waiting on a turn that is still not due, taking the picture now ({} so far)", waited, m_nRenderWaitsLate);
+			// How far away the turn was, and how far the clock moved since the last
+			// time one was this far away. A renderer and the pictures it is fed keep
+			// the same time or they do not: if the distance stays the same picture
+			// after picture while the clock runs normally, the two are simply not
+			// measuring from the same place, and no amount of waiting will bring them
+			// together. These two numbers are the difference between knowing that and
+			// guessing it, and they cost nothing until something has already gone
+			// wrong.
+			REFERENCE_TIME rtSample = 0, rtSampleEnd = 0;
+			CRefTime rtNow;
+			if (m_pMediaSample && SUCCEEDED(m_pMediaSample->GetTime(&rtSample, &rtSampleEnd))
+					&& SUCCEEDED(StreamTime(rtNow))) {
+				m_msLastTurnAhead = (int)((rtSample - (REFERENCE_TIME)rtNow) / 10000);
+				m_msClockSinceLastTurn = m_rtLastTurnStream
+					? (int)(((REFERENCE_TIME)rtNow - m_rtLastTurnStream) / 10000) : 0;
+				m_rtLastTurnStream = (REFERENCE_TIME)rtNow;
+			}
+			DLog(L"CMpcVideoRenderer::WaitForRenderTime() : {} ms waiting on a turn still {} ms away, taking the picture now ({} so far)",
+				waited, m_msLastTurnAhead, m_nRenderWaitsLate);
 			return NOERROR;
 		}
 	}

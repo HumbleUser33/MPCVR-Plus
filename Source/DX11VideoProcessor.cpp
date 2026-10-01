@@ -5902,7 +5902,8 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		str += std::format(L", turns lost: {}", m_pFilter->m_nRenderWaitsBroken);
 	}
 	if (m_pFilter->m_nRenderWaitsLate) {
-		str += std::format(L", turns late: {}", m_pFilter->m_nRenderWaitsLate);
+		str += std::format(L", turns late: {} ({} ms away, clock +{} ms)",
+			m_pFilter->m_nRenderWaitsLate, m_pFilter->m_msLastTurnAhead, m_pFilter->m_msClockSinceLastTurn);
 	}
 
 	str += std::format(L"\nTimes(ms)     : Copy{:3}, Paint{:3}, Present{:3}",

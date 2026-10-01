@@ -110,6 +110,13 @@ private:
 	// the clock is keeping. Counted apart from the one above because which of the two
 	// fires is what says where the fault is.
 	int m_nRenderWaitsLate = 0;
+	// What the last overdue turn looked like: how far away it still was, and how far
+	// the clock had moved since the one before it. A distance that stays the same
+	// while the clock runs normally means the renderer and the pictures it is fed are
+	// not measuring from the same place.
+	int m_msLastTurnAhead = 0;
+	int m_msClockSinceLastTurn = 0;
+	REFERENCE_TIME m_rtLastTurnStream = 0;
 
 	HWND m_hWnd           = nullptr;
 	// Thread-local keyboard hook for the DLSS toggle key. Scoped to the thread
