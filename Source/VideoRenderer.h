@@ -119,6 +119,16 @@ private:
 	int m_msBaseSinceLastTurn = 0;
 	REFERENCE_TIME m_rtLastTurnClock = 0;
 	REFERENCE_TIME m_rtLastTurnBase = 0;
+	// Set when the clock was caught not moving between two turns given up on, and
+	// cleared by the first turn that arrives. While it is set the pictures are paced
+	// by the stream's own frame duration, because a stopped clock cannot be waited
+	// for and every picture after one looks further ahead than the last.
+	bool m_bClockStalled = false;
+	// Which filter gives the graph its clock, for the statistics: when that clock
+	// stops, the first thing worth knowing is whose it is. A fixed buffer because the
+	// statistics are drawn on another thread than the one that fills it.
+	wchar_t m_szClockName[64] = {};
+	void NoteWhoKeepsTime();
 
 	HWND m_hWnd           = nullptr;
 	// Thread-local keyboard hook for the DLSS toggle key. Scoped to the thread

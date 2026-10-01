@@ -732,6 +732,29 @@ static void SayWhatThisThreadWaitsFor(const std::wstring& what)
 	}
 }
 
+// Who gives the graph its clock. The renderer schedules every picture against it, so
+// when it stops the first thing worth knowing is whose it is -- and a reference clock
+// that comes from the sound card stops when the sound does.
+void CMpcVideoRenderer::NoteWhoKeepsTime()
+{
+	wcscpy_s(m_szClockName, L"none");
+	if (!m_pClock) {
+		return;
+	}
+	wcscpy_s(m_szClockName, L"the system");
+	if (CComQIPtr<IBaseFilter> pClockFilter = m_pClock) {
+		FILTER_INFO info = {};
+		if (SUCCEEDED(pClockFilter->QueryFilterInfo(&info))) {
+			if (info.achName[0]) {
+				wcsncpy_s(m_szClockName, info.achName, _TRUNCATE);
+			}
+			if (info.pGraph) {
+				info.pGraph->Release();
+			}
+		}
+	}
+}
+
 // Waiting for this picture's turn, with a way out.
 //
 // A picture is given its turn in PrepareReceive: the clock is asked to signal an
@@ -783,6 +806,7 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 		}
 		if (result == WAIT_OBJECT_0 + 1) {
 			SignalTimerFired();
+			m_bClockStalled = false;   // a turn that arrives is a clock that runs
 			return Leave(NOERROR);
 		}
 		if (result != WAIT_TIMEOUT) {
@@ -792,6 +816,11 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 			continue;   // paused for real
 		}
 
+		// A stopped clock cannot be waited for. Once it has been caught not moving,
+		// the pictures are paced by the stream's own frame duration instead: at least
+		// they keep coming at the rate they were filmed at, instead of one a second.
+		const ULONGLONG bound = m_bClockStalled
+			? std::max<ULONGLONG>(20, m_FrameStats.GetAverageFrameDuration() / 10000) : 1000;
 		const ULONGLONG waited = GetTickCount64() - waitStart;
 		if (!bSaidSo) {
 			// Half a second of waiting never happens while a film plays, so this
@@ -807,7 +836,7 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 			DLog(L"CMpcVideoRenderer::WaitForRenderTime() : the turn was taken away, taking the picture now ({} so far)", m_nRenderWaitsBroken);
 			return Leave(NOERROR);
 		}
-		if (waited >= 1000) {
+		if (waited >= bound) {
 			m_nRenderWaitsLate++;
 			// How far away the turn was, and how far the clock moved since the last
 			// time one was this far away. A renderer and the pictures it is fed keep
@@ -833,6 +862,11 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 				m_msLastTurnAhead = (int)((rtSample - (REFERENCE_TIME)rtStream) / 10000);
 				m_msClockSinceLastTurn = m_rtLastTurnClock ? (int)((rtClockNow - m_rtLastTurnClock) / 10000) : 0;
 				m_msBaseSinceLastTurn = m_rtLastTurnBase ? (int)((rtBase - m_rtLastTurnBase) / 10000) : 0;
+				// Less than a millisecond of clock between two turns that were a
+				// bound apart is a clock that has stopped, whatever it says.
+				if (m_rtLastTurnClock && std::abs(m_msClockSinceLastTurn) < 1) {
+					m_bClockStalled = true;
+				}
 				m_rtLastTurnClock = rtClockNow;
 				m_rtLastTurnBase = rtBase;
 			}
@@ -1028,6 +1062,8 @@ STDMETHODIMP CMpcVideoRenderer::Run(REFERENCE_TIME rtStart)
 
 	CAutoLock cVideoLock(&m_InterfaceLock);
 	m_filterState = State_Running;
+	m_bClockStalled = false;
+	NoteWhoKeepsTime();
 
 	return CBaseVideoRenderer2::Run(rtStart);
 }

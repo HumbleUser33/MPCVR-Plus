@@ -5906,6 +5906,12 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 			m_pFilter->m_nRenderWaitsLate, m_pFilter->m_msLastTurnAhead,
 			m_pFilter->m_msClockSinceLastTurn, m_pFilter->m_msBaseSinceLastTurn);
 	}
+	// Every picture is scheduled against this clock, so when the pictures stop
+	// arriving on time the first thing worth knowing is whose clock it is.
+	if (m_pFilter->m_szClockName[0]) {
+		str += std::format(L"\nClock         : {}{}", m_pFilter->m_szClockName,
+			m_pFilter->m_bClockStalled ? L", stopped -- pictures paced by the stream" : L"");
+	}
 
 	str += std::format(L"\nTimes(ms)     : Copy{:3}, Paint{:3}, Present{:3}",
 		m_RenderStats.copyticks    * 1000 / GetPreciseTicksPerSecondI(),
