@@ -767,21 +767,26 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 	HANDLE objects[2] = { m_ThreadSignal, m_RenderEvent };
 	const ULONGLONG waitStart = GetTickCount64();
 	bool bSaidSo = false;
+	// Whatever way this is left, the note goes with it: a dump that reads a note
+	// from a wait that has already ended points at the wrong thing entirely.
+	const auto Leave = [&bSaidSo](HRESULT hr) {
+		if (bSaidSo) {
+			SayWhatThisThreadWaitsFor(L"MPCVR streaming");
+		}
+		return hr;
+	};
 
 	for (;;) {
 		const DWORD result = WaitForMultipleObjects(2, objects, FALSE, 500);
 		if (result == WAIT_OBJECT_0) {
-			return VFW_E_STATE_CHANGED;
+			return Leave(VFW_E_STATE_CHANGED);
 		}
 		if (result == WAIT_OBJECT_0 + 1) {
 			SignalTimerFired();
-			if (bSaidSo) {
-				SayWhatThisThreadWaitsFor(L"MPCVR streaming");
-			}
-			return NOERROR;
+			return Leave(NOERROR);
 		}
 		if (result != WAIT_TIMEOUT) {
-			return VFW_E_STATE_CHANGED;
+			return Leave(VFW_E_STATE_CHANGED);
 		}
 		if (!m_bStreaming && m_State != State_Running) {
 			continue;   // paused for real
@@ -800,7 +805,7 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 		if (!m_dwAdvise) {
 			m_nRenderWaitsBroken++;
 			DLog(L"CMpcVideoRenderer::WaitForRenderTime() : the turn was taken away, taking the picture now ({} so far)", m_nRenderWaitsBroken);
-			return NOERROR;
+			return Leave(NOERROR);
 		}
 		if (waited >= 1000) {
 			m_nRenderWaitsLate++;
@@ -812,18 +817,28 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 			// together. These two numbers are the difference between knowing that and
 			// guessing it, and they cost nothing until something has already gone
 			// wrong.
-			REFERENCE_TIME rtSample = 0, rtSampleEnd = 0;
-			CRefTime rtNow;
-			if (m_pMediaSample && SUCCEEDED(m_pMediaSample->GetTime(&rtSample, &rtSampleEnd))
-					&& SUCCEEDED(StreamTime(rtNow))) {
-				m_msLastTurnAhead = (int)((rtSample - (REFERENCE_TIME)rtNow) / 10000);
-				m_msClockSinceLastTurn = m_rtLastTurnStream
-					? (int)(((REFERENCE_TIME)rtNow - m_rtLastTurnStream) / 10000) : 0;
-				m_rtLastTurnStream = (REFERENCE_TIME)rtNow;
+			// Read out of values, never out of the pending sample: this thread does
+			// not hold the renderer lock while it waits, and the sample can be let go
+			// from under it by a flush. Reading it here cost an access violation in
+			// the bench before this was written down.
+			CRefTime rtStream;
+			if (SUCCEEDED(StreamTime(rtStream))) {
+				const REFERENCE_TIME rtBase = (REFERENCE_TIME)m_tStart;
+				const REFERENCE_TIME rtClockNow = (REFERENCE_TIME)rtStream + rtBase;
+				const REFERENCE_TIME rtSample = m_FrameStats.GeTimestamp();
+				// The three are kept apart on purpose. The distance to the turn says
+				// how far out of step the two are; the clock says whether time is
+				// passing at all; and the base is the only thing that moves between
+				// them, so a distance that holds while the clock runs is the base.
+				m_msLastTurnAhead = (int)((rtSample - (REFERENCE_TIME)rtStream) / 10000);
+				m_msClockSinceLastTurn = m_rtLastTurnClock ? (int)((rtClockNow - m_rtLastTurnClock) / 10000) : 0;
+				m_msBaseSinceLastTurn = m_rtLastTurnBase ? (int)((rtBase - m_rtLastTurnBase) / 10000) : 0;
+				m_rtLastTurnClock = rtClockNow;
+				m_rtLastTurnBase = rtBase;
 			}
 			DLog(L"CMpcVideoRenderer::WaitForRenderTime() : {} ms waiting on a turn still {} ms away, taking the picture now ({} so far)",
 				waited, m_msLastTurnAhead, m_nRenderWaitsLate);
-			return NOERROR;
+			return Leave(NOERROR);
 		}
 	}
 }

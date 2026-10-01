@@ -116,7 +116,9 @@ private:
 	// not measuring from the same place.
 	int m_msLastTurnAhead = 0;
 	int m_msClockSinceLastTurn = 0;
-	REFERENCE_TIME m_rtLastTurnStream = 0;
+	int m_msBaseSinceLastTurn = 0;
+	REFERENCE_TIME m_rtLastTurnClock = 0;
+	REFERENCE_TIME m_rtLastTurnBase = 0;
 
 	HWND m_hWnd           = nullptr;
 	// Thread-local keyboard hook for the DLSS toggle key. Scoped to the thread
