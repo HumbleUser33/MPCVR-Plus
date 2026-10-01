@@ -5901,6 +5901,9 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	if (m_pFilter->m_nRenderWaitsBroken) {
 		str += std::format(L", turns lost: {}", m_pFilter->m_nRenderWaitsBroken);
 	}
+	if (m_pFilter->m_nRenderWaitsLate) {
+		str += std::format(L", turns late: {}", m_pFilter->m_nRenderWaitsLate);
+	}
 
 	str += std::format(L"\nTimes(ms)     : Copy{:3}, Paint{:3}, Present{:3}",
 		m_RenderStats.copyticks    * 1000 / GetPreciseTicksPerSecondI(),

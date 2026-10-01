@@ -88,7 +88,26 @@ static void FreezeStack(HANDLE process, DWORD threadId)
 		FreezeSay("  thread %lu: cannot open (%lu)\n", threadId, GetLastError());
 		return;
 	}
-	FreezeSay("  thread %lu\n", threadId);
+	// What the thread says about itself, when it says anything. The renderer writes
+	// here what a long wait is waiting for, which a stack alone cannot tell apart.
+	{
+		using PFN_GetThreadDescription = HRESULT(WINAPI*)(HANDLE, PWSTR*);
+		static PFN_GetThreadDescription pfnGet = []() -> PFN_GetThreadDescription {
+			const HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+			return kernel ? (PFN_GetThreadDescription)GetProcAddress(kernel, "GetThreadDescription") : nullptr;
+		}();
+		PWSTR described = nullptr;
+		if (pfnGet && SUCCEEDED(pfnGet(thread, &described)) && described) {
+			if (*described) {
+				FreezeSay("  thread %lu -- %S\n", threadId, described);
+			} else {
+				FreezeSay("  thread %lu\n", threadId);
+			}
+			LocalFree(described);
+		} else {
+			FreezeSay("  thread %lu\n", threadId);
+		}
+	}
 	SuspendThread(thread);
 
 	CONTEXT context = {};

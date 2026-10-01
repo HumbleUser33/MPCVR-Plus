@@ -105,6 +105,11 @@ private:
 	// raise this; the statistics carry it because that is the only place it can be
 	// seen from, and because it is the proof that the freeze it prevents was real.
 	int m_nRenderWaitsBroken = 0;
+	// How often a picture's turn was still seconds away when the renderer had been
+	// handed only that one picture: the time it was scheduled against is not the time
+	// the clock is keeping. Counted apart from the one above because which of the two
+	// fires is what says where the fault is.
+	int m_nRenderWaitsLate = 0;
 
 	HWND m_hWnd           = nullptr;
 	// Thread-local keyboard hook for the DLSS toggle key. Scoped to the thread

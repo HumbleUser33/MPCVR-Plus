@@ -714,6 +714,24 @@ HRESULT CMpcVideoRenderer::DoRenderSample(IMediaSample* pSample)
 	return hr;
 }
 
+// A note on the thread itself, for whoever looks at a frozen player from outside.
+//
+// Windows keeps a description per thread and hands it out across processes, so a tool
+// that walks the stacks of a hung player can read it with no cooperation and no file
+// to leave behind. It is the only way to tell two waits apart that look identical in
+// a stack. Resolved at the first call because Windows 7 does not have it.
+static void SayWhatThisThreadWaitsFor(const std::wstring& what)
+{
+	using PFN_SetThreadDescription = HRESULT(WINAPI*)(HANDLE, PCWSTR);
+	static PFN_SetThreadDescription pfn = []() -> PFN_SetThreadDescription {
+		const HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+		return kernel ? (PFN_SetThreadDescription)GetProcAddress(kernel, "SetThreadDescription") : nullptr;
+	}();
+	if (pfn) {
+		pfn(GetCurrentThread(), what.c_str());
+	}
+}
+
 // Waiting for this picture's turn, with a way out.
 //
 // A picture is given its turn in PrepareReceive: the clock is asked to signal an
@@ -727,12 +745,28 @@ HRESULT CMpcVideoRenderer::DoRenderSample(IMediaSample* pSample)
 // the freeze reported on a display at 24 or 25 Hz, where the window between a
 // picture being scheduled and this wait being entered is a whole refresh wide.
 //
-// So the wait is bounded, and what it finds at the bound decides. A live advise means
-// the turn is still coming and the wait goes on. No advise means nothing will ever
-// wake us, and the picture is taken now rather than never.
+// So the wait is bounded, and what it finds at the bound decides. Two things can go
+// wrong and they are counted apart, because which one fires says what happened.
+//
+//   no advise left   the turn was taken away after it was given, and nothing will
+//                    ever wake this thread. Take the picture now rather than never.
+//   advise still set but seconds have passed. A renderer is handed one picture at a
+//                    time and waits at most a frame or two for it, so a turn that is
+//                    still seconds away means the time it was scheduled against is
+//                    not the time the clock is keeping. Take it too.
+//
+// A filter that really is paused is left alone: waiting there is right, and Play will
+// hand out the turn.
+//
+// While a wait goes long the thread says what it is waiting for in its own
+// description, which a dump of the frozen player reads straight out: the two cases
+// are indistinguishable from the outside otherwise, and both look like a thread
+// sitting in WaitForRenderTime.
 HRESULT CMpcVideoRenderer::WaitForRenderTime()
 {
 	HANDLE objects[2] = { m_ThreadSignal, m_RenderEvent };
+	const ULONGLONG waitStart = GetTickCount64();
+	bool bSaidSo = false;
 
 	for (;;) {
 		const DWORD result = WaitForMultipleObjects(2, objects, FALSE, 500);
@@ -741,18 +775,36 @@ HRESULT CMpcVideoRenderer::WaitForRenderTime()
 		}
 		if (result == WAIT_OBJECT_0 + 1) {
 			SignalTimerFired();
+			if (bSaidSo) {
+				SayWhatThisThreadWaitsFor(L"MPCVR streaming");
+			}
 			return NOERROR;
 		}
 		if (result != WAIT_TIMEOUT) {
 			return VFW_E_STATE_CHANGED;
 		}
-		// Reaching this wait at all means the picture was scheduled, so no advise
-		// left means the advise it had was taken away after it was given. While the
-		// filter really is paused that is the normal state of things and waiting is
-		// right: only a filter that is meant to be playing has to be let out.
-		if (!m_dwAdvise && (m_bStreaming || m_State == State_Running)) {
+		if (!m_bStreaming && m_State != State_Running) {
+			continue;   // paused for real
+		}
+
+		const ULONGLONG waited = GetTickCount64() - waitStart;
+		if (!bSaidSo) {
+			// Half a second of waiting never happens while a film plays, so this
+			// costs nothing in the ordinary case.
+			bSaidSo = true;
+			SayWhatThisThreadWaitsFor(std::format(
+				L"MPCVR waiting for a picture's turn: advise {}, streaming {}, state {}",
+				m_dwAdvise ? L"live" : L"gone", m_bStreaming ? 1 : 0, (int)m_State));
+		}
+
+		if (!m_dwAdvise) {
 			m_nRenderWaitsBroken++;
-			DLog(L"CMpcVideoRenderer::WaitForRenderTime() : nothing left to wait for, taking the picture now ({} so far)", m_nRenderWaitsBroken);
+			DLog(L"CMpcVideoRenderer::WaitForRenderTime() : the turn was taken away, taking the picture now ({} so far)", m_nRenderWaitsBroken);
+			return NOERROR;
+		}
+		if (waited >= 2000) {
+			m_nRenderWaitsLate++;
+			DLog(L"CMpcVideoRenderer::WaitForRenderTime() : {} ms waiting on a turn that is still not due, taking the picture now ({} so far)", waited, m_nRenderWaitsLate);
 			return NOERROR;
 		}
 	}
