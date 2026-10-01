@@ -11,12 +11,13 @@ as upstream does.
 
 To be clear on what's been changed :
 
-DLSS 5 neural reconstruction applied to film, frame by frame. — it rebuilds the picture, somehow.
+- DLSS 5 neural reconstruction applied to film, frame by frame. — it rebuilds the picture, somehow.
 Comes with a temporal stabilizer driven by NVIDIA Optical Flow, to avoid shimmering.
 A RTX 3050 is to slow, but a RTX 4060 can handle 1080p easy (with modded DLSS NR dll)
 Option to apply DLSS 5 after upscaling, but very heavy on 4K, you should have RTX 4080 or 4090 (didn't test)
 
-DLSS Super Resolution 4.5 for upscaling (experimental), fed motion vectors made for video. It degrains and denoises nicely as a side effect.
+- DLSS Super Resolution 4.5 for upscaling (experimental), fed motion vectors made for video.
+It degrains and denoises nicely as a side effect. But some picture vibration due to motion vector not perfectly handled.
 
 Six new upscalers, chosen by measurement
 - ArtCNN C4F16 DS — could be better on real film (grain + compression), best for animes
@@ -24,16 +25,23 @@ Six new upscalers, chosen by measurement
 - Anti-ringing versions of FSRCNNX, which kill the bright halo networks leave along dark lines (4× less overshoot, and on drawn lines it's better, not just cleaner).
 Both lists are now ordered best-first, but the choice is yours wether you prefer sharp or precise, etc. The list is ordered for compressed movies 1080p to 4K.
 
-"Replace VP chroma upsampling" — Does Chroma Upsampling by shader before the GPU, to avoid bilinear chroma upsampling by GPU => hands the GPU's video processor a full 4:4:4 picture. On 10-bit film that's +7 dB of colour, it kills a colour shift the NVIDIA driver introduces, and it makes RTX Video HDR now work on 10-bit sources (it did nothing there before).
+"Replace VP chroma upsampling" — Does Chroma Upsampling by shader before the GPU, to avoid bilinear chroma upsampling by GPU
+=> hands the GPU's video processor a full 4:4:4 picture. On 10-bit film that's +7 dB of colour, it kills a colour shift the NVIDIA driver introduces.
+You have to disable "Replace VP chroma upsampling" to activate RTX Super Resolution (it does not accept 4:4:4 source)
 
-Three new methods for Chroma:
+=> Three new methods for Chroma:
 - Jinc (EWA): It's the only method better than Catmull-Rom on both the colour itself and the bleeding along edges, and it costs nothing extra: it runs inside a pass that was already there.
 - FSRCNNX 8 AR is the opposite trade: slightly worse than Catmull-Rom on a photograph, and by far the best on drawn lines — it's the entry for animation.
 - RAVU-zoom: also nice but not sharp at all
 
+Two sharpening filters added, with 1 to 5 slider intensity:
+- Adaptive-Sharpen (best quality, heavier)
+- Unsharp + Clamp (very nice quality, lighter)
+
 Render video ahead, so all of that stays locked to the audio clock — no late frames, no drift.
 
-Nothing is lost: the processor keeps the picture, so deinterlacing, RTX Video Super Resolution and HDR passthrough all carry on. Interlaced video keeps the processor's own chroma, since it alone can deinterlace.
+Nothing is lost: the processor keeps the picture, so deinterlacing, RTX Video Super Resolution and HDR passthrough all carry on.
+Interlaced video keeps the processor's own chroma, since it alone can deinterlace.
 
 No more freeze when you disable RTX Video HDR, Super Resolution, etc. — now takes effect on the next frame, no restart.
 
@@ -42,6 +50,8 @@ Fixes Lanczos producing invalid pixels at an exact integer scale factor (×2, ×
 The default chroma upsampling moves from Bilinear to Catmull-Rom, but best is now Jinc (EWA)
 
 The default luma upscaling is Jinc2m but I prefer less sharp (FSRCNNX 16 AR)
+
+Don't use SaneAR audio renderer with this (small play pause bugs), use MPC Audio Renderer.
 
 ------------------
 
