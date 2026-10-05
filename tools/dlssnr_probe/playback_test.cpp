@@ -96,6 +96,7 @@ static bool g_bToggleGpu = false;      // --toggle --gpu: the pictures arrive as
 static bool g_bToggleTap = false;      // --toggle --tap: pause and play tapped, nothing else -- the reported freeze
 static bool g_bToggleWindow = false;   // --toggle --fswitch: paused, the window changes, playback resumes -- the double click
 static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
+static int g_frameSeconds = 0;         // --frame N: the page inside a real property frame
 static int g_pageSection = -1;         // --section N: which one to show, or the page's own choice
 static bool g_bPageApply = false;      // --apply: press Apply before closing it
 // The picture is fed as NV12 wherever the hardware video processor has to be able
@@ -1076,6 +1077,116 @@ static void DumpPageState(HWND hwnd, const char* when)
     fflush(stdout);
 }
 
+
+// --frame N: the page through OleCreatePropertyFrame, which is how a player puts
+// it up -- not through Activate, which is how everything above does. The two are
+// not the same host, and a page can look right in one and wrong in the other.
+//
+// The frame creates the page by its class id, so COM has to be able to find the
+// build under test. Registering it for this user alone needs no administrator and
+// is undone on the way out.
+static const wchar_t* const kPageClsidKey =
+	L"Software\\Classes\\CLSID\\{B6F4E8A2-3C71-4D59-9E80-1F2A7C4B5D63}";
+
+static bool RegisterPageForThisUser(const std::wstring& axPath)
+{
+	const std::wstring inproc = std::wstring(kPageClsidKey) + L"\\InprocServer32";
+	if (RegSetKeyValueW(HKEY_CURRENT_USER, kPageClsidKey, nullptr, REG_SZ,
+			L"MPCVR settings page (test)", (DWORD)(sizeof(wchar_t) * 27)) != ERROR_SUCCESS) {
+		return false;
+	}
+	if (RegSetKeyValueW(HKEY_CURRENT_USER, inproc.c_str(), nullptr, REG_SZ,
+			axPath.c_str(), (DWORD)((axPath.size() + 1) * sizeof(wchar_t))) != ERROR_SUCCESS) {
+		return false;
+	}
+	return RegSetKeyValueW(HKEY_CURRENT_USER, inproc.c_str(), L"ThreadingModel", REG_SZ,
+		L"Both", (DWORD)(5 * sizeof(wchar_t))) == ERROR_SUCCESS;
+}
+
+static void UnregisterPageForThisUser()
+{
+	const std::wstring inproc = std::wstring(kPageClsidKey) + L"\\InprocServer32";
+	RegDeleteKeyW(HKEY_CURRENT_USER, inproc.c_str());
+	RegDeleteKeyW(HKEY_CURRENT_USER, kPageClsidKey);
+}
+
+struct FrameHunt {
+	DWORD pid;
+	HWND skip;
+	HWND found;
+};
+
+static BOOL CALLBACK FindFrameWindow(HWND hwnd, LPARAM param)
+{
+	auto* hunt = (FrameHunt*)param;
+	DWORD pid = 0;
+	GetWindowThreadProcessId(hwnd, &pid);
+	if (pid == hunt->pid && hwnd != hunt->skip && IsWindowVisible(hwnd) && !GetParent(hwnd)) {
+		hunt->found = hwnd;
+		return FALSE;
+	}
+	return TRUE;
+}
+
+static int ShowPropertyFrame(HMODULE hFilter, HWND hwndOurs, int seconds, const std::wstring& axPath)
+{
+	if (!RegisterPageForThisUser(axPath)) {
+		printf("could not register the page for this user\n");
+		return 1;
+	}
+
+	using PFN_DllGetClassObject = HRESULT(STDAPICALLTYPE*)(REFCLSID, REFIID, LPVOID*);
+	const auto pfnGetClassObject = (PFN_DllGetClassObject)GetProcAddress(hFilter, "DllGetClassObject");
+	CComPtr<IClassFactory> pFactory;
+	CComPtr<IBaseFilter> pRenderer;
+	if (!pfnGetClassObject
+			|| FAILED(pfnGetClassObject(CLSID_MpcVideoRenderer, IID_IClassFactory, (LPVOID*)&pFactory))
+			|| FAILED(pFactory->CreateInstance(nullptr, IID_IBaseFilter, (void**)&pRenderer))) {
+		printf("the renderer could not be created\n");
+		UnregisterPageForThisUser();
+		return 1;
+	}
+
+	static const CLSID clsidPage = { 0xB6F4E8A2, 0x3C71, 0x4D59, { 0x9E, 0x80, 0x1F, 0x2A, 0x7C, 0x4B, 0x5D, 0x63 } };
+	CComPtr<IUnknown> pUnk;
+	pRenderer->QueryInterface(IID_PPV_ARGS(&pUnk));
+	IUnknown* objects[] = { pUnk.p };
+
+	wchar_t exe[MAX_PATH] = {};
+	GetModuleFileNameW(nullptr, exe, MAX_PATH);
+	const std::wstring dir = std::wstring(exe).substr(0, std::wstring(exe).find_last_of(L'\\'));
+
+	// The frame runs its own loop, so the picture has to be taken from beside it.
+	std::thread shooter([&] {
+		Sleep(seconds * 1000);
+		FrameHunt hunt = { GetCurrentProcessId(), hwndOurs, nullptr };
+		EnumWindows(FindFrameWindow, (LPARAM)&hunt);
+		if (hunt.found) {
+			std::vector<BYTE> shot;
+			int w = 0, h = 0;
+			if (CaptureWindow(hunt.found, shot, w, h)) {
+				const std::wstring path = dir + L"\\propframe.bmp";
+				SaveBmp(path, shot, w, h);
+				wprintf(L"picture: %s\n", path.c_str());
+			}
+			// What the page really built, read from outside it.
+			if (const HWND hPage = GetWindow(hunt.found, GW_CHILD)) {
+				DumpPageState(hunt.found, "in the frame");
+			}
+			PostMessageW(hunt.found, WM_CLOSE, 0, 0);
+		} else {
+			printf("the frame window was not found\n");
+		}
+	});
+
+	const HRESULT hr = OleCreatePropertyFrame(nullptr, 0, 0, L"MPC Video Renderer",
+		1, objects, 1, (CLSID*)&clsidPage, 0, 0, nullptr);
+	printf("OleCreatePropertyFrame returned 0x%08X\n", (unsigned)hr);
+	shooter.join();
+	UnregisterPageForThisUser();
+	return 0;
+}
+
 // Its picture is saved next to the program as proppage.bmp.
 static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID clsidPage,
 	const std::vector<int>& clicks = {})
@@ -1274,6 +1385,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_frameDuration = (REFERENCE_TIME)std::llround(10000000.0 / _wtof(argv[i + 1]));
 		} else if (!wcscmp(argv[i], L"--only")) {
 			only = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--frame")) {
+			g_frameSeconds = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--section")) {
 			g_pageSection = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--click")) {
@@ -1386,6 +1499,13 @@ int wmain(int argc, wchar_t* argv[])
 	if (!IsWindowVisible(hwnd)) {
 		printf("the test window could not be shown\n");
 		return 1;
+	}
+
+	if (g_frameSeconds > 0) {
+		const int rc = ShowPropertyFrame(hFilter, hwnd, g_frameSeconds, filterPath);
+		DestroyWindow(hwnd);
+		CoUninitialize();
+		return rc;
 	}
 
 	if (pageSeconds > 0) {
