@@ -44,6 +44,7 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <map>
 #include <thread>
 #include <vector>
 #include "IVideoRenderer.h"
@@ -97,6 +98,7 @@ static bool g_bToggleTap = false;      // --toggle --tap: pause and play tapped,
 static bool g_bToggleWindow = false;   // --toggle --fswitch: paused, the window changes, playback resumes -- the double click
 static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
 static int g_frameSeconds = 0;         // --frame N: the page inside a real property frame
+static bool g_bThemedHost = false;     // --themed: and a player that paints it
 static int g_pageSection = -1;         // --section N: which one to show, or the page's own choice
 static bool g_bPageApply = false;      // --apply: press Apply before closing it
 // The picture is fed as NV12 wherever the hardware video processor has to be able
@@ -1128,6 +1130,143 @@ static BOOL CALLBACK FindFrameWindow(HWND hwnd, LPARAM param)
 	return TRUE;
 }
 
+// --themed: a player that paints the property sheet it put the page in. MPC-HC does
+// this, and the page came back wrong from a user's machine while it came back right
+// from here -- because nothing here had ever done it. So here it is: every label,
+// check box and list in the frame has its window procedure taken and paints its own
+// background, ignoring whatever the dialog answers to WM_CTLCOLORSTATIC. The colours
+// are the ones read off that user's screenshot, so this reproduces what they saw and
+// not a guess at it.
+static const COLORREF kPlayerBack = RGB(25, 25, 25);
+static const COLORREF kPlayerText = RGB(220, 220, 220);
+static const COLORREF kPlayerSel  = RGB(119, 119, 119);
+static std::map<HWND, WNDPROC> g_taken;
+
+static LRESULT CALLBACK PlayerPaintProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	const auto it = g_taken.find(hWnd);
+	const WNDPROC prev = (it == g_taken.end()) ? nullptr : it->second;
+	if (uMsg == WM_ERASEBKGND) {
+		return 1;
+	}
+	if (uMsg == WM_PAINT) {
+		PAINTSTRUCT ps = {};
+		HDC hdc = BeginPaint(hWnd, &ps);
+		RECT rc = {};
+		GetClientRect(hWnd, &rc);
+		HBRUSH hbr = CreateSolidBrush(kPlayerBack);
+		FillRect(hdc, &rc, hbr);
+		DeleteObject(hbr);
+		wchar_t cls[32] = {};
+		GetClassNameW(hWnd, cls, (int)std::size(cls));
+		SetBkMode(hdc, TRANSPARENT);
+		SetTextColor(hdc, kPlayerText);
+		HGDIOBJ old = nullptr;
+		if (HFONT hf = (HFONT)SendMessageW(hWnd, WM_GETFONT, 0, 0)) {
+			old = SelectObject(hdc, hf);
+		}
+		if (!_wcsicmp(cls, L"ListBox")) {
+			const int count = (int)SendMessageW(hWnd, LB_GETCOUNT, 0, 0);
+			const int sel = (int)SendMessageW(hWnd, LB_GETCURSEL, 0, 0);
+			for (int i = 0; i < count; i++) {
+				RECT item = {};
+				SendMessageW(hWnd, LB_GETITEMRECT, i, (LPARAM)&item);
+				if (i == sel) {
+					HBRUSH hs = CreateSolidBrush(kPlayerSel);
+					FillRect(hdc, &item, hs);
+					DeleteObject(hs);
+				}
+				wchar_t name[64] = {};
+				SendMessageW(hWnd, LB_GETTEXT, i, (LPARAM)name);
+				item.left += 6;
+				DrawTextW(hdc, name, -1, &item, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+			}
+		} else {
+			wchar_t text[512] = {};
+			GetWindowTextW(hWnd, text, (int)std::size(text));
+			RECT rcText = rc;
+			if (!_wcsicmp(cls, L"Button")) {
+				rcText.left += 18;   // where a plain check box leaves its label
+				const RECT box = { rc.left + 2, rc.top + 2, rc.left + 14, rc.top + 14 };
+				FrameRect(hdc, &box, (HBRUSH)GetStockObject(GRAY_BRUSH));
+			}
+			DrawTextW(hdc, text, -1, &rcText, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+		}
+		if (old) {
+			SelectObject(hdc, old);
+		}
+		EndPaint(hWnd, &ps);
+		return 0;
+	}
+	return prev ? CallWindowProcW(prev, hWnd, uMsg, wParam, lParam)
+	            : DefWindowProcW(hWnd, uMsg, wParam, lParam);
+}
+
+static BOOL CALLBACK TakeOverOne(HWND hwnd, LPARAM)
+{
+	wchar_t cls[32] = {};
+	GetClassNameW(hwnd, cls, (int)std::size(cls));
+	const bool bCheck = !_wcsicmp(cls, L"Button")
+		&& (GetWindowLongW(hwnd, GWL_STYLE) & BS_TYPEMASK) == BS_AUTOCHECKBOX;
+	if (!_wcsicmp(cls, L"Static") || !_wcsicmp(cls, L"ListBox") || bCheck) {
+		const auto prev = (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)PlayerPaintProc);
+		if (prev != PlayerPaintProc) {
+			g_taken[hwnd] = prev;
+		}
+	}
+	EnumChildWindows(hwnd, TakeOverOne, 0);
+	return TRUE;
+}
+
+static int StillTheirs()
+{
+	int held = 0;
+	for (const auto& it : g_taken) {
+		if ((WNDPROC)GetWindowLongPtrW(it.first, GWLP_WNDPROC) == PlayerPaintProc) {
+			held++;
+		}
+	}
+	return held;
+}
+
+// The window procedure is the whole of it: a picture can be argued with, and a
+// control whose procedure belongs to the player paints what the player says.
+static void PaintLikeAPlayer(HWND frame)
+{
+	EnumChildWindows(frame, TakeOverOne, 0);
+	const int grabbed = (int)g_taken.size();
+	printf("a player took %d controls over, and holds %d of them\n",
+		grabbed, StillTheirs());
+	const DWORD t0 = GetTickCount();
+	int held = grabbed;
+	while (held && GetTickCount() - t0 < 5000) {
+		Sleep(25);
+		held = StillTheirs();
+	}
+	if (held) {
+		printf("five seconds on, the player still holds %d of %d\n", held, grabbed);
+	} else {
+		printf("the page had every one of them back %u ms later\n",
+			(unsigned)(GetTickCount() - t0));
+	}
+}
+
+// settleMs is how long the page is given before the shutter. The first picture
+// wants less than the page's own half-second look, or it photographs the recovery
+// instead of the thing it was meant to catch.
+static void ShootFrame(HWND frame, const std::wstring& path, int settleMs = 700)
+{
+	RedrawWindow(frame, nullptr, nullptr,
+		RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME);
+	Sleep(settleMs);
+	std::vector<BYTE> shot;
+	int w = 0, h = 0;
+	if (CaptureWindow(frame, shot, w, h)) {
+		SaveBmp(path, shot, w, h);
+		wprintf(L"picture: %s\n", path.c_str());
+	}
+}
+
 static int ShowPropertyFrame(HMODULE hFilter, HWND hwndOurs, int seconds, const std::wstring& axPath)
 {
 	if (!RegisterPageForThisUser(axPath)) {
@@ -1162,12 +1301,13 @@ static int ShowPropertyFrame(HMODULE hFilter, HWND hwndOurs, int seconds, const 
 		FrameHunt hunt = { GetCurrentProcessId(), hwndOurs, nullptr };
 		EnumWindows(FindFrameWindow, (LPARAM)&hunt);
 		if (hunt.found) {
-			std::vector<BYTE> shot;
-			int w = 0, h = 0;
-			if (CaptureWindow(hunt.found, shot, w, h)) {
-				const std::wstring path = dir + L"\\propframe.bmp";
-				SaveBmp(path, shot, w, h);
-				wprintf(L"picture: %s\n", path.c_str());
+			if (g_bThemedHost) {
+				PaintLikeAPlayer(hunt.found);
+				ShootFrame(hunt.found, dir + L"\\propframe_taken.bmp", 200);
+				Sleep(800);
+				ShootFrame(hunt.found, dir + L"\\propframe_back.bmp");
+			} else {
+				ShootFrame(hunt.found, dir + L"\\propframe.bmp");
 			}
 			// What the page really built, read from outside it.
 			if (const HWND hPage = GetWindow(hunt.found, GW_CHILD)) {
@@ -1422,6 +1562,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bScalers = true;
 			source.cx &= ~1; // NV12
 			source.cy &= ~1;
+		} else if (!wcscmp(argv[i], L"--themed")) {
+			g_bThemedHost = true;
 		} else if (!wcscmp(argv[i], L"--apply")) {
 			g_bPageApply = true;
 		} else if (!wcscmp(argv[i], L"--vp")) {

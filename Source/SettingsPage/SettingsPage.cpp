@@ -363,6 +363,150 @@ static LRESULT CALLBACK SwitchProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM l
 	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
 }
 
+// One row of the list down the side: a pill in the accent colour behind the section
+// being looked at, and the name. Drawn from the dialog while the list still reports
+// to it, and from the list's own painting once the page has had to take it back.
+static void DrawNavItem(HDC hdc, const RECT& rcItem, LPCWSTR name, bool bSel)
+{
+	RECT rc = rcItem;
+	FillRect(hdc, &rc, g_hbrPanel);
+	RECT pill = rc;
+	InflateRect(&pill, -2, -1);
+	if (bSel) {
+		FillRound(hdc, pill, g_th.accent, (pill.bottom - pill.top) / 2);
+	}
+	RECT rcText = pill;
+	rcText.left += MulDiv(12, GetDeviceCaps(hdc, LOGPIXELSX), 96);
+	SetBkMode(hdc, TRANSPARENT);
+	SetTextColor(hdc, bSel ? g_th.onAccent : g_th.text);
+	DrawTextW(hdc, name, -1, &rcText,
+		DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+}
+
+// A player is free to paint the property sheet it puts us in, and at least one does:
+// it takes the window procedure of the controls once the page is up, and from then on
+// they paint their own background and ignore the colour the page hands them in answer
+// to WM_CTLCOLORSTATIC. There is no arguing with that from the dialog -- the only way
+// to paint a control is to hold its procedure, and the last one to take it holds it.
+// So the page paints its own labels and its own list, the same way it already paints
+// its own switches, and takes them back whenever it finds them gone.
+static constexpr DWORD_PTR kLabelOnCard = 1;   // the surface under the text
+static constexpr DWORD_PTR kLabelDim    = 2;   // the one-line description of a section
+
+static LRESULT CALLBACK LabelProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
+	UINT_PTR idSubclass, DWORD_PTR refData)
+{
+	switch (uMsg) {
+	case WM_NCDESTROY:
+		RemoveWindowSubclass(hWnd, LabelProc, idSubclass);
+		break;
+
+	case WM_ERASEBKGND:
+		return 1;   // WM_PAINT fills it
+
+	case WM_PAINT: {
+		PAINTSTRUCT ps = {};
+		HDC hdc = BeginPaint(hWnd, &ps);
+		RECT rc = {};
+		GetClientRect(hWnd, &rc);
+		FillRect(hdc, &rc, (refData & kLabelOnCard) ? g_hbrPanel : g_hbrBg);
+
+		wchar_t text[512] = {};
+		GetWindowTextW(hWnd, text, (int)std::size(text));
+		// Read back from the control so the page keeps whatever the layout asked
+		// for, rather than a second opinion about it kept somewhere here.
+		const LONG style = GetWindowLongW(hWnd, GWL_STYLE);
+		UINT format = DT_NOPREFIX | DT_WORDBREAK;
+		if ((style & SS_TYPEMASK) == SS_RIGHT) {
+			format |= DT_RIGHT;
+		} else if ((style & SS_TYPEMASK) == SS_CENTER) {
+			format |= DT_CENTER;
+		}
+		if (style & SS_CENTERIMAGE) {
+			format = (format & ~DT_WORDBREAK) | DT_VCENTER | DT_SINGLELINE;
+		}
+		if (style & SS_ENDELLIPSIS) {
+			format |= DT_END_ELLIPSIS;
+		}
+		SetBkMode(hdc, TRANSPARENT);
+		SetTextColor(hdc, !IsWindowEnabled(hWnd) ? g_th.textOff
+			: ((refData & kLabelDim) ? g_th.textDim : g_th.text));
+		HGDIOBJ oldFont = nullptr;
+		if (HFONT hFont = (HFONT)SendMessageW(hWnd, WM_GETFONT, 0, 0)) {
+			oldFont = SelectObject(hdc, hFont);
+		}
+		DrawTextW(hdc, text, -1, &rc, format);
+		if (oldFont) {
+			SelectObject(hdc, oldFont);
+		}
+		EndPaint(hWnd, &ps);
+		return 0;
+	}
+
+	// Greying and a new reading both change what is on screen, and neither of them
+	// repaints a control that paints itself.
+	case WM_ENABLE:
+	case WM_SETTEXT: {
+		const LRESULT r = DefSubclassProc(hWnd, uMsg, wParam, lParam);
+		InvalidateRect(hWnd, nullptr, FALSE);
+		return r;
+	}
+	}
+	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+}
+
+static LRESULT CALLBACK NavProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
+	UINT_PTR idSubclass, DWORD_PTR refData)
+{
+	switch (uMsg) {
+	case WM_NCDESTROY:
+		RemoveWindowSubclass(hWnd, NavProc, idSubclass);
+		break;
+
+	case WM_ERASEBKGND:
+		return 1;
+
+	case WM_PAINT: {
+		PAINTSTRUCT ps = {};
+		HDC hdc = BeginPaint(hWnd, &ps);
+		RECT rc = {};
+		GetClientRect(hWnd, &rc);
+		FillRect(hdc, &rc, g_hbrPanel);
+		HGDIOBJ oldFont = nullptr;
+		if (HFONT hFont = (HFONT)SendMessageW(hWnd, WM_GETFONT, 0, 0)) {
+			oldFont = SelectObject(hdc, hFont);
+		}
+		const int count = (int)SendMessageW(hWnd, LB_GETCOUNT, 0, 0);
+		const int sel = (int)SendMessageW(hWnd, LB_GETCURSEL, 0, 0);
+		for (int i = 0; i < count; i++) {
+			RECT item = {};
+			if (SendMessageW(hWnd, LB_GETITEMRECT, i, (LPARAM)&item) == LB_ERR) {
+				continue;
+			}
+			wchar_t name[64] = {};
+			SendMessageW(hWnd, LB_GETTEXT, i, (LPARAM)name);
+			DrawNavItem(hdc, item, name, i == sel);
+		}
+		if (oldFont) {
+			SelectObject(hdc, oldFont);
+		}
+		EndPaint(hWnd, &ps);
+		return 0;
+	}
+
+	// The row moves before the list is asked to paint again, by mouse, by key and
+	// by the page putting it back where it was left.
+	case LB_SETCURSEL:
+	case WM_LBUTTONDOWN:
+	case WM_KEYDOWN: {
+		const LRESULT r = DefSubclassProc(hWnd, uMsg, wParam, lParam);
+		InvalidateRect(hWnd, nullptr, FALSE);
+		return r;
+	}
+	}
+	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+}
+
 // Everything the look needs doing once the controls exist.
 void CVRSettingsPPage::DressUp()
 {
@@ -378,9 +522,81 @@ void CVRSettingsPPage::DressUp()
 		}
 	}
 
-	// Every check box becomes a switch, and every list and box is told about dark
-	// mode. The theme names are undocumented: when they do nothing the control
-	// simply stays light, which is why the failure is invisible rather than ugly.
+	// The boxes, the lists and the sliders are drawn by Windows, and are only told
+	// which way round. The theme names are undocumented: when they do nothing the
+	// control simply stays light, which is why the failure is invisible, not ugly.
+	if (g_bDark) {
+		for (HWND hSection : m_hSections) {
+			if (!hSection) {
+				continue;
+			}
+			for (HWND h = ::GetWindow(hSection, GW_CHILD); h; h = ::GetWindow(h, GW_HWNDNEXT)) {
+				wchar_t cls[32] = {};
+				::GetClassNameW(h, cls, (int)std::size(cls));
+				const bool bCheck = !_wcsicmp(cls, L"Button")
+					&& (::GetWindowLongW(h, GWL_STYLE) & BS_TYPEMASK) == BS_AUTOCHECKBOX;
+				if (bCheck || !_wcsicmp(cls, L"Static")) {
+					continue;   // painted below, by us
+				}
+				SetWindowTheme(h, (!_wcsicmp(cls, L"ComboBox") || !_wcsicmp(cls, L"Edit"))
+					? L"DarkMode_CFD" : L"DarkMode_Explorer", nullptr);
+			}
+		}
+		if (HWND h = ::GetDlgItem(m_hwnd, IDC_BUTTON1)) {
+			SetWindowTheme(h, L"DarkMode_Explorer", nullptr);
+		}
+	}
+
+	TakeBackPainting();
+}
+
+// Which surface a label sits on and how it reads, worked out the same way the answer
+// to WM_CTLCOLORSTATIC is: the one-line description of a section sits on the page,
+// everything else in a section sits on a card.
+static DWORD_PTR LabelFlags(HWND hCtrl, bool bInSection)
+{
+	const int id = ::GetDlgCtrlID(hCtrl);
+	bool bDim = false;
+	for (const int d : g_descriptions) {
+		bDim = bDim || (id == d);
+	}
+	return (bDim ? kLabelDim : 0) | ((bInSection && !bDim) ? kLabelOnCard : 0);
+}
+
+// The controls the page paints rather than Windows. Holding the window procedure is
+// what makes the painting ours, so this is written to be run again as often as it
+// takes: whoever took the procedure last is the one that paints.
+void CVRSettingsPPage::TakeBackPainting()
+{
+	const auto take = [this](HWND h, SUBCLASSPROC proc, DWORD_PTR data) {
+		// Asking comctl32 a second time does not help. It keeps its own note of
+		// having subclassed the window, so once a host has written its procedure
+		// straight into GWLP_WNDPROC, adding to the chain rearranges a chain nobody
+		// calls any more. What has to go back is the procedure itself, and the only
+		// one who knows which that was is whoever put the subclass on -- so the page
+		// writes it down the first time and restores it afterwards.
+		for (auto& held : m_painted) {
+			if (held.first != h) {
+				continue;
+			}
+			if ((WNDPROC)::GetWindowLongPtrW(h, GWLP_WNDPROC) != held.second) {
+				::SetWindowLongPtrW(h, GWLP_WNDPROC, (LONG_PTR)held.second);
+			}
+			return;
+		}
+		SetWindowSubclass(h, proc, 1, data);
+		m_painted.emplace_back(h, (WNDPROC)::GetWindowLongPtrW(h, GWLP_WNDPROC));
+	};
+
+	for (HWND h = ::GetWindow(m_hwnd, GW_CHILD); h; h = ::GetWindow(h, GW_HWNDNEXT)) {
+		wchar_t cls[32] = {};
+		::GetClassNameW(h, cls, (int)std::size(cls));
+		if (::GetDlgCtrlID(h) == IDC_NAV) {
+			take(h, NavProc, 0);
+		} else if (!_wcsicmp(cls, L"Static")) {
+			take(h, LabelProc, LabelFlags(h, false));
+		}
+	}
 	for (HWND hSection : m_hSections) {
 		if (!hSection) {
 			continue;
@@ -388,28 +604,27 @@ void CVRSettingsPPage::DressUp()
 		for (HWND h = ::GetWindow(hSection, GW_CHILD); h; h = ::GetWindow(h, GW_HWNDNEXT)) {
 			wchar_t cls[32] = {};
 			::GetClassNameW(h, cls, (int)std::size(cls));
-			if (!_wcsicmp(cls, L"Button")) {
-				const LONG style = ::GetWindowLongW(h, GWL_STYLE);
-				if ((style & BS_TYPEMASK) == BS_AUTOCHECKBOX) {
-					// Removed first so a second pass puts ours back on the outside:
-					// a player that themes the whole sheet does so after the page is
-					// activated, and the outermost subclass is the one that paints.
-					RemoveWindowSubclass(h, SwitchProc, 1);
-					SetWindowSubclass(h, SwitchProc, 1, 0);
-				} else if (g_bDark) {
-					SetWindowTheme(h, L"DarkMode_Explorer", nullptr);
-				}
-			} else if (g_bDark) {
-				SetWindowTheme(h, (!_wcsicmp(cls, L"ComboBox") || !_wcsicmp(cls, L"Edit"))
-					? L"DarkMode_CFD" : L"DarkMode_Explorer", nullptr);
+			if (!_wcsicmp(cls, L"Static")) {
+				take(h, LabelProc, LabelFlags(h, true));
+			} else if (!_wcsicmp(cls, L"Button")
+					&& (::GetWindowLongW(h, GWL_STYLE) & BS_TYPEMASK) == BS_AUTOCHECKBOX) {
+				take(h, SwitchProc, 0);
 			}
 		}
 	}
-	if (g_bDark) {
-		if (HWND h = ::GetDlgItem(m_hwnd, IDC_BUTTON1)) {
-			SetWindowTheme(h, L"DarkMode_Explorer", nullptr);
+}
+
+// Nothing announces that a host has taken a control over, so the page looks: what
+// answers for the control is no longer what the page left there.
+bool CVRSettingsPPage::PaintingWasTakenAway() const
+{
+	for (const auto& held : m_painted) {
+		if (::IsWindow(held.first)
+				&& (WNDPROC)::GetWindowLongPtrW(held.first, GWLP_WNDPROC) != held.second) {
+			return true;
 		}
 	}
+	return false;
 }
 
 // What a dialog of ours answers when Windows asks what colour something is.
@@ -1260,6 +1475,7 @@ HRESULT CVRSettingsPPage::OnDeactivate()
 {
 	KillTimer(kRefreshTimer);
 	KillTimer(kDressTimer);
+	m_painted.clear();   // the windows go with the page, and the notes with them
 	RememberSection(m_iSection);
 
 	// The page's dialog is destroyed right after this, and its children with it.
@@ -1304,22 +1520,9 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 	if (uMsg == WM_DRAWITEM) {
 		const auto* dis = (const DRAWITEMSTRUCT*)lParam;
 		if (dis->CtlID == IDC_NAV && (int)dis->itemID >= 0) {
-			const bool bSel = (dis->itemState & ODS_SELECTED) != 0;
-			RECT rc = dis->rcItem;
-			FillRect(dis->hDC, &rc, g_hbrPanel);
-			RECT pill = rc;
-			InflateRect(&pill, -2, -1);
-			if (bSel) {
-				FillRound(dis->hDC, pill, g_th.accent, (pill.bottom - pill.top) / 2);
-			}
 			wchar_t name[64] = {};
 			SendMessageW(dis->hwndItem, LB_GETTEXT, dis->itemID, (LPARAM)name);
-			RECT rcText = pill;
-			rcText.left += MulDiv(12, GetDeviceCaps(dis->hDC, LOGPIXELSX), 96);
-			SetBkMode(dis->hDC, TRANSPARENT);
-			SetTextColor(dis->hDC, bSel ? g_th.onAccent : g_th.text);
-			DrawTextW(dis->hDC, name, -1, &rcText,
-				DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+			DrawNavItem(dis->hDC, dis->rcItem, name, (dis->itemState & ODS_SELECTED) != 0);
 			return (INT_PTR)TRUE;
 		}
 	}
@@ -1349,6 +1552,18 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 			}
 		}
 		return (INT_PTR)TRUE;
+	}
+
+	// A player that themes the property sheet does it on its own schedule, and some
+	// of it lands after the page is up. Nothing says so, so the page looks.
+	if (uMsg == WM_TIMER && wParam == kRefreshTimer && PaintingWasTakenAway()) {
+		TakeBackPainting();
+		::InvalidateRect(m_hwnd, nullptr, TRUE);
+		for (HWND hSection : m_hSections) {
+			if (hSection) {
+				::InvalidateRect(hSection, nullptr, TRUE);
+			}
+		}
 	}
 
 	if ((uMsg == WM_TIMER && wParam == kRefreshTimer || uMsg == WM_SHOWWINDOW && wParam) && m_pVideoRenderer) {

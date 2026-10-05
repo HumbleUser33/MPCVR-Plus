@@ -21,6 +21,7 @@
 #pragma once
 
 #include "../IVideoRenderer.h"
+#include <vector>
 
 // CVRSettingsPPage
 //
@@ -78,6 +79,10 @@ private:
 	bool m_bDlssNRSeen = false;
 
 	HWND m_hSections[SECTION_COUNT] = {};
+	// What answered for each control the page paints when it last took it over. A
+	// player that themes the sheet puts its own procedure there, and comparing is
+	// the only way to find out: there is no message for it.
+	std::vector<std::pair<HWND, WNDPROC>> m_painted;
 	int m_iSection = SECTION_Source;
 
 	static INT_PTR CALLBACK SectionProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -94,6 +99,8 @@ private:
 	int  SectionOf(HWND hDlg) const;
 	void ShowSection(int section);
 	void DressUp();            // fonts, colours, and the controls we draw ourselves
+	void TakeBackPainting();   // the window procedures of the controls we paint
+	bool PaintingWasTakenAway() const;
 	void FillCombos();
 	void SetControls();
 	void EnableControls();
