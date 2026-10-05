@@ -237,13 +237,15 @@
 #define IDC_STATIC_DESC_HDR             1260
 #define IDC_STATIC_DESC_PRESENT         1261
 #define IDC_SHARPEN_LEVEL_TEXT          1262
+#define IDC_STATIC_HEAD_STATS           1263
+#define IDC_STATIC_TITLE                1264
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        4009
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1263
+#define _APS_NEXT_CONTROL_VALUE         1265
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

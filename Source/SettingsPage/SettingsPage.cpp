@@ -23,7 +23,11 @@
 #include "resource.h"
 #include "Helper.h"
 #include "../../Include/FilterInterfaces.h"
+#include <uxtheme.h>
 #include "SettingsPage.h"
+
+#pragma comment(lib, "uxtheme.lib")
+#pragma comment(lib, "comctl32.lib")
 
 // Combo boxes are addressed by window handle here rather than by dialog id,
 // because the control is not a child of the page but of one of its sections.
@@ -99,6 +103,329 @@ static const struct {
 	{ CVRSettingsPPage::SECTION_Hdr,     IDD_SECTION_HDR,     L"HDR"          },
 	{ CVRSettingsPPage::SECTION_Present, IDD_SECTION_PRESENT, L"Presentation" },
 };
+
+
+// ---------------------------------------------------------------- the look
+//
+// A property page is a child of the player's own frame, so the frame draws the
+// tabs and the buttons and we draw everything inside. Flat surfaces, one accent,
+// a hairline where a group box used to be, and the switches drawn rather than
+// the system's check boxes -- but drawn *around* the real control, which keeps
+// its state, its keyboard and its accessibility. An owner-draw button would have
+// cost all three.
+//
+// Windows' own dark mode is followed. The theme names below are not documented;
+// where they stop working the page is light in places and still works, which is
+// why nothing depends on them.
+
+struct Theme {
+	COLORREF bg;        // the content surface
+	COLORREF panel;     // the list down the side
+	COLORREF text;
+	COLORREF textDim;   // descriptions, headings
+	COLORREF textOff;   // greyed
+	COLORREF line;      // hairlines, and a switch that is off
+	COLORREF accent;
+	COLORREF onAccent;
+};
+
+static Theme  g_th = {};
+static bool   g_bDark = false;
+static HBRUSH g_hbrBg = nullptr;
+static HBRUSH g_hbrPanel = nullptr;
+static HBRUSH g_hbrAccent = nullptr;
+static HBRUSH g_hbrLine = nullptr;
+static HFONT  g_hTitleFont = nullptr;
+static HFONT  g_hHeadFont = nullptr;
+
+// Headings inside a section: they get the heavier font and a rule under them.
+static const int g_headings[] = { IDC_STATIC30, IDC_STATIC31, IDC_STATIC35, IDC_STATIC_HEAD_STATS };
+// The one-line descriptions at the top of each section.
+static const int g_descriptions[] = {
+	IDC_STATIC_DESC_SOURCE, IDC_STATIC_DESC_CHROMA, IDC_STATIC_DESC_SCALING,
+	IDC_STATIC_DESC_DETAIL, IDC_STATIC_DESC_DLSSNR, IDC_STATIC_DESC_HDR,
+	IDC_STATIC_DESC_PRESENT,
+};
+
+static bool SystemUsesDarkApps()
+{
+	DWORD value = 1;
+	DWORD size = sizeof(value);
+	if (RegGetValueW(HKEY_CURRENT_USER,
+			L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+			L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS) {
+		return value == 0;
+	}
+	return false;   // no key, no dark mode: light is the safe answer
+}
+
+// Windows only hands out the dark variants of the common controls -- the boxes,
+// the lists, the buttons -- to a process that has asked for them, through an entry
+// point uxtheme exports by ordinal and does not name. Where it is missing, on an
+// older Windows or a future one that moved it, nothing happens and those controls
+// stay light: the page is then less dark than it could be, and never broken.
+static void AllowDarkModeForThisProcess()
+{
+	static bool bAsked = false;
+	if (bAsked) {
+		return;
+	}
+	bAsked = true;
+	const HMODULE hUx = LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+	if (!hUx) {
+		return;
+	}
+	// 135 is AllowDarkModeForApp(BOOL) on Windows 10 1809 and SetPreferredAppMode
+	// on 1903 and later; 1 means "allow dark" to both of them.
+	using PFN_PreferredAppMode = int(WINAPI*)(int);
+	using PFN_RefreshColours = void(WINAPI*)();
+	if (const auto pfnMode = (PFN_PreferredAppMode)GetProcAddress(hUx, MAKEINTRESOURCEA(135))) {
+		pfnMode(1);
+	}
+	if (const auto pfnRefresh = (PFN_RefreshColours)GetProcAddress(hUx, MAKEINTRESOURCEA(104))) {
+		pfnRefresh();
+	}
+	// Kept loaded on purpose: the policy belongs to the process, not to this call.
+}
+
+static void FreeTheme()
+{
+	for (HBRUSH* p : { &g_hbrBg, &g_hbrPanel, &g_hbrAccent, &g_hbrLine }) {
+		if (*p) {
+			DeleteObject(*p);
+			*p = nullptr;
+		}
+	}
+	for (HFONT* p : { &g_hTitleFont, &g_hHeadFont }) {
+		if (*p) {
+			DeleteObject(*p);
+			*p = nullptr;
+		}
+	}
+}
+
+static void LoadTheme(HWND hRef)
+{
+	FreeTheme();
+	g_bDark = SystemUsesDarkApps();
+	if (g_bDark) {
+		AllowDarkModeForThisProcess();
+	}
+	if (g_bDark) {
+		g_th = { RGB(32, 32, 32), RGB(43, 43, 43), RGB(255, 255, 255), RGB(165, 165, 165),
+				 RGB(110, 110, 110), RGB(64, 64, 64), RGB(76, 194, 255), RGB(0, 0, 0) };
+	} else {
+		g_th = { RGB(255, 255, 255), RGB(243, 243, 243), RGB(26, 26, 26), RGB(99, 99, 99),
+				 RGB(160, 160, 160), RGB(224, 224, 224), RGB(0, 95, 184), RGB(255, 255, 255) };
+	}
+	g_hbrBg     = CreateSolidBrush(g_th.bg);
+	g_hbrPanel  = CreateSolidBrush(g_th.panel);
+	g_hbrAccent = CreateSolidBrush(g_th.accent);
+	g_hbrLine   = CreateSolidBrush(g_th.line);
+
+	// Two sizes derived from the dialog's own font, so they follow the host's DPI
+	// rather than a number of pixels picked here.
+	LOGFONTW lf = {};
+	if (HFONT hDlgFont = (HFONT)SendMessageW(hRef, WM_GETFONT, 0, 0)) {
+		GetObjectW(hDlgFont, sizeof(lf), &lf);
+	}
+	if (!lf.lfHeight) {
+		lf.lfHeight = -12;
+		wcscpy_s(lf.lfFaceName, L"Segoe UI");
+	}
+	LOGFONTW lfTitle = lf;
+	lfTitle.lfHeight = (LONG)(lf.lfHeight * 1.35);
+	lfTitle.lfWeight = FW_SEMIBOLD;
+	g_hTitleFont = CreateFontIndirectW(&lfTitle);
+	LOGFONTW lfHead = lf;
+	lfHead.lfWeight = FW_SEMIBOLD;
+	g_hHeadFont = CreateFontIndirectW(&lfHead);
+}
+
+// A rounded rectangle without a pen of its own.
+static void FillRound(HDC hdc, const RECT& rc, COLORREF colour, int radius)
+{
+	HBRUSH hbr = CreateSolidBrush(colour);
+	HPEN hpen = CreatePen(PS_SOLID, 1, colour);
+	HGDIOBJ oldBr = SelectObject(hdc, hbr);
+	HGDIOBJ oldPen = SelectObject(hdc, hpen);
+	RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, radius, radius);
+	SelectObject(hdc, oldBr);
+	SelectObject(hdc, oldPen);
+	DeleteObject(hbr);
+	DeleteObject(hpen);
+}
+
+// The check boxes are drawn as switches. The control underneath is still a plain
+// auto check box: it keeps its state, its space bar and its notifications, and
+// only its painting is taken over.
+static LRESULT CALLBACK SwitchProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
+	UINT_PTR idSubclass, DWORD_PTR refData)
+{
+	switch (uMsg) {
+	case WM_NCDESTROY:
+		RemoveWindowSubclass(hWnd, SwitchProc, idSubclass);
+		break;
+
+	case WM_ERASEBKGND:
+		return 1;   // WM_PAINT fills it
+
+	case WM_PAINT: {
+		PAINTSTRUCT ps = {};
+		HDC hdc = BeginPaint(hWnd, &ps);
+		RECT rc = {};
+		GetClientRect(hWnd, &rc);
+		FillRect(hdc, &rc, g_hbrBg);
+
+		const bool bOn = SendMessageW(hWnd, BM_GETCHECK, 0, 0) == BST_CHECKED;
+		const bool bEnabled = IsWindowEnabled(hWnd) != FALSE;
+
+		// The switch is as tall as the row allows, up to a sensible ceiling, and
+		// twice as wide as it is tall.
+		const int h = std::min<int>(rc.bottom - rc.top, MulDiv(14, GetDeviceCaps(hdc, LOGPIXELSY), 96));
+		const int top = rc.top + ((rc.bottom - rc.top) - h) / 2;
+		const RECT track = { rc.left, top, rc.left + h * 2, top + h };
+		const COLORREF trackColour = !bEnabled ? g_th.line : (bOn ? g_th.accent : g_th.line);
+		FillRound(hdc, track, trackColour, h);
+
+		const int pad = std::max(2, h / 7);
+		const int knob = h - pad * 2;
+		const int knobLeft = bOn ? (track.right - pad - knob) : (track.left + pad);
+		const RECT knobRc = { knobLeft, top + pad, knobLeft + knob, top + pad + knob };
+		COLORREF knobColour = bOn ? g_th.onAccent : g_th.textDim;
+		if (!bEnabled) {
+			knobColour = g_th.textOff;
+		}
+		FillRound(hdc, knobRc, knobColour, knob);
+
+		wchar_t label[256] = {};
+		GetWindowTextW(hWnd, label, (int)std::size(label));
+		RECT rcText = { track.right + MulDiv(8, GetDeviceCaps(hdc, LOGPIXELSX), 96), rc.top, rc.right, rc.bottom };
+		SetBkMode(hdc, TRANSPARENT);
+		SetTextColor(hdc, bEnabled ? g_th.text : g_th.textOff);
+		HGDIOBJ oldFont = SelectObject(hdc, (HFONT)SendMessageW(hWnd, WM_GETFONT, 0, 0));
+		DrawTextW(hdc, label, -1, &rcText,
+			DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+		if (GetFocus() == hWnd) {
+			RECT rcFocus = rcText;
+			DrawTextW(hdc, label, -1, &rcFocus,
+				DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_CALCRECT | DT_NOPREFIX);
+			InflateRect(&rcFocus, 2, 1);
+			rcFocus.top = rc.top;
+			rcFocus.bottom = rc.bottom;
+			DrawFocusRect(hdc, &rcFocus);
+		}
+		SelectObject(hdc, oldFont);
+		EndPaint(hWnd, &ps);
+		return 0;
+	}
+
+	// The state changes before we are asked to paint again, and a switch that
+	// slides only on the next mouse move looks broken.
+	case BM_SETCHECK:
+	case WM_LBUTTONUP:
+	case WM_KEYUP:
+	case WM_SETFOCUS:
+	case WM_KILLFOCUS:
+	case WM_ENABLE: {
+		const LRESULT r = DefSubclassProc(hWnd, uMsg, wParam, lParam);
+		InvalidateRect(hWnd, nullptr, FALSE);
+		return r;
+	}
+	}
+	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+}
+
+// Everything the look needs doing once the controls exist.
+void CVRSettingsPPage::DressUp()
+{
+	LoadTheme(m_hwnd);
+
+	if (HWND h = ::GetDlgItem(m_hwnd, IDC_STATIC_TITLE)) {
+		SendMessageW(h, WM_SETFONT, (WPARAM)g_hTitleFont, TRUE);
+	}
+	for (const int id : g_headings) {
+		if (HWND h = Item(id)) {
+			SendMessageW(h, WM_SETFONT, (WPARAM)g_hHeadFont, TRUE);
+		}
+	}
+
+	// Every check box becomes a switch, and every list and box is told about dark
+	// mode. The theme names are undocumented: when they do nothing the control
+	// simply stays light, which is why the failure is invisible rather than ugly.
+	for (HWND hSection : m_hSections) {
+		if (!hSection) {
+			continue;
+		}
+		for (HWND h = ::GetWindow(hSection, GW_CHILD); h; h = ::GetWindow(h, GW_HWNDNEXT)) {
+			wchar_t cls[32] = {};
+			::GetClassNameW(h, cls, (int)std::size(cls));
+			if (!_wcsicmp(cls, L"Button")) {
+				const LONG style = ::GetWindowLongW(h, GWL_STYLE);
+				if ((style & BS_TYPEMASK) == BS_AUTOCHECKBOX) {
+					SetWindowSubclass(h, SwitchProc, 1, 0);
+				} else if (g_bDark) {
+					SetWindowTheme(h, L"DarkMode_Explorer", nullptr);
+				}
+			} else if (g_bDark) {
+				SetWindowTheme(h, (!_wcsicmp(cls, L"ComboBox") || !_wcsicmp(cls, L"Edit"))
+					? L"DarkMode_CFD" : L"DarkMode_Explorer", nullptr);
+			}
+		}
+	}
+	if (g_bDark) {
+		if (HWND h = ::GetDlgItem(m_hwnd, IDC_BUTTON1)) {
+			SetWindowTheme(h, L"DarkMode_Explorer", nullptr);
+		}
+	}
+}
+
+// What a dialog of ours answers when Windows asks what colour something is.
+static INT_PTR ColourMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	switch (uMsg) {
+	case WM_CTLCOLORDLG:
+	case WM_CTLCOLORBTN:
+		return (INT_PTR)g_hbrBg;
+
+	// A writable box sends this one and a read-only box sends WM_CTLCOLORSTATIC,
+	// so both have to be answered or the two look nothing like each other.
+	case WM_CTLCOLOREDIT: {
+		const HDC hdc = (HDC)wParam;
+		SetBkMode(hdc, OPAQUE);
+		SetBkColor(hdc, g_th.bg);
+		SetTextColor(hdc, ::IsWindowEnabled((HWND)lParam) ? g_th.text : g_th.textOff);
+		return (INT_PTR)g_hbrBg;
+	}
+
+	case WM_CTLCOLORSTATIC: {
+		const HDC hdc = (HDC)wParam;
+		const HWND hCtrl = (HWND)lParam;
+		const int id = ::GetDlgCtrlID(hCtrl);
+		bool bDim = false;
+		for (const int d : g_descriptions) {
+			bDim = bDim || (id == d);
+		}
+		for (const int d : g_headings) {
+			bDim = bDim || (id == d);
+		}
+		SetBkMode(hdc, TRANSPARENT);
+		// A read-only edit is a static as far as this message is concerned, and it
+		// is the only one that wants the surface drawn under it.
+		wchar_t cls[16] = {};
+		::GetClassNameW(hCtrl, cls, (int)std::size(cls));
+		const bool bEdit = !_wcsicmp(cls, L"Edit");
+		SetTextColor(hdc, !::IsWindowEnabled(hCtrl) ? g_th.textOff
+			: (bDim ? g_th.textDim : g_th.text));
+		if (bEdit) {
+			SetBkMode(hdc, OPAQUE);
+			SetBkColor(hdc, g_th.bg);
+		}
+		return (INT_PTR)g_hbrBg;
+	}
+	}
+	return 0;
+}
 
 
 // One line of what it does, one of what it needs. The measurements and the
@@ -847,6 +1174,7 @@ HRESULT CVRSettingsPPage::OnActivate()
 	SetControls();
 	EnableControls();
 	SetDlgItemTextW(IDC_EDIT2, GetNameAndVersion());
+	DressUp();
 
 	if (hList) {
 		SendMessageW(hList, LB_SETCURSEL, 0, 0);
@@ -886,6 +1214,7 @@ HRESULT CVRSettingsPPage::OnDeactivate()
 		::DestroyWindow(m_hHint);
 		m_hHint = nullptr;
 	}
+	FreeTheme();
 	m_bActivated = false;
 
 	return S_OK;
@@ -893,6 +1222,58 @@ HRESULT CVRSettingsPPage::OnDeactivate()
 
 INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	if (const INT_PTR colour = ColourMessage(uMsg, wParam, lParam)) {
+		return colour;
+	}
+
+	// The list down the side is ours to draw: a pill in the accent colour behind
+	// the section being looked at, and nothing else.
+	if (uMsg == WM_MEASUREITEM) {
+		auto* mis = (MEASUREITEMSTRUCT*)lParam;
+		if (mis->CtlID == IDC_NAV) {
+			RECT rc = { 0, 0, 0, 13 };   // one row, in the page's own units
+			MapDialogRect(m_hwnd, &rc);
+			mis->itemHeight = rc.bottom;
+			return (INT_PTR)TRUE;
+		}
+	}
+	if (uMsg == WM_DRAWITEM) {
+		const auto* dis = (const DRAWITEMSTRUCT*)lParam;
+		if (dis->CtlID == IDC_NAV && (int)dis->itemID >= 0) {
+			const bool bSel = (dis->itemState & ODS_SELECTED) != 0;
+			RECT rc = dis->rcItem;
+			FillRect(dis->hDC, &rc, g_hbrPanel);
+			RECT pill = rc;
+			InflateRect(&pill, -2, -1);
+			if (bSel) {
+				FillRound(dis->hDC, pill, g_th.accent, (pill.bottom - pill.top) / 2);
+			}
+			wchar_t name[64] = {};
+			SendMessageW(dis->hwndItem, LB_GETTEXT, dis->itemID, (LPARAM)name);
+			RECT rcText = pill;
+			rcText.left += MulDiv(12, GetDeviceCaps(dis->hDC, LOGPIXELSX), 96);
+			SetBkMode(dis->hDC, TRANSPARENT);
+			SetTextColor(dis->hDC, bSel ? g_th.onAccent : g_th.text);
+			DrawTextW(dis->hDC, name, -1, &rcText,
+				DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+			return (INT_PTR)TRUE;
+		}
+	}
+	if (uMsg == WM_CTLCOLORLISTBOX) {
+		return (INT_PTR)g_hbrPanel;
+	}
+	// Windows says so when the user switches light and dark while this is open.
+	if (uMsg == WM_SETTINGCHANGE && lParam
+			&& !wcscmp((const wchar_t*)lParam, L"ImmersiveColorSet")) {
+		DressUp();
+		::InvalidateRect(m_hwnd, nullptr, TRUE);
+		for (HWND hSection : m_hSections) {
+			if (hSection) {
+				::InvalidateRect(hSection, nullptr, TRUE);
+			}
+		}
+	}
+
 	if ((uMsg == WM_TIMER && wParam == kRefreshTimer || uMsg == WM_SHOWWINDOW && wParam) && m_pVideoRenderer) {
 		// What the renderer is doing with the picture decides part of the greying,
 		// and the toggle key can switch DLSS 5 NR while this page is open. Nothing
@@ -946,6 +1327,33 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 
 INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	if (const INT_PTR colour = ColourMessage(uMsg, wParam, lParam)) {
+		return colour;
+	}
+
+	// The surface, and a hairline under each heading where a group box used to
+	// draw a whole frame. Painted here rather than in WM_PAINT so it lands under
+	// the controls rather than over them.
+	if (uMsg == WM_ERASEBKGND) {
+		const HDC hdc = (HDC)wParam;
+		RECT rc = {};
+		::GetClientRect(hDlg, &rc);
+		FillRect(hdc, &rc, g_hbrBg);
+		for (const int id : g_headings) {
+			const HWND hHead = ::GetDlgItem(hDlg, id);
+			if (!hHead) {
+				continue;
+			}
+			RECT rcHead = {};
+			::GetWindowRect(hHead, &rcHead);
+			::MapWindowPoints(nullptr, hDlg, (POINT*)&rcHead, 2);
+			const int y = rcHead.bottom + MulDiv(4, GetDeviceCaps(hdc, LOGPIXELSY), 96);
+			const RECT rule = { rcHead.left, y, rc.right - rcHead.left, y + 1 };
+			FillRect(hdc, &rule, g_hbrLine);
+		}
+		return (INT_PTR)TRUE;
+	}
+
 	if (uMsg == WM_COMMAND) {
 		const int nID = LOWORD(wParam);
 		const int action = HIWORD(wParam);

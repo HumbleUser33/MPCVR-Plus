@@ -92,6 +92,7 @@ private:
 	void    SetText(int id, LPCWSTR text) const;
 
 	void ShowSection(int section);
+	void DressUp();            // fonts, colours, and the controls we draw ourselves
 	void FillCombos();
 	void SetControls();
 	void EnableControls();
