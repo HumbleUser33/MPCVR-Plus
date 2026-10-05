@@ -1047,7 +1047,8 @@ static void DumpPageState(HWND hwnd, const char* when)
                            std::pair{ 1042, "Upscaling list" },
                            std::pair{ 1043, "Downscaling list" },
                            std::pair{ 1251, "Sharpening list" },
-                           std::pair{ 1253, "Sharpening intensity" } }) {
+                           std::pair{ 1253, "Sharpening intensity" },
+                           std::pair{ 1200, "DLSS 5 NR enable" } }) {
         const HWND h = FindItem(hDlg, c.first);
         if (!h) {
             printf("  %-30s (not on this page)\n", c.second);
@@ -1148,7 +1149,7 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 			SendMessageW(hControl, BM_SETCHECK,
 				SendMessageW(hControl, BM_GETCHECK, 0, 0) == BST_CHECKED ? BST_UNCHECKED : BST_CHECKED, 0);
 			SendMessageW(hOwner, WM_COMMAND, MAKEWPARAM(clickId, BN_CLICKED), (LPARAM)hControl);
-			Pump(300);
+			Pump(900);
 			Shoot(L"proppage_clicked.bmp");
 			char what[64] = {};
 			sprintf_s(what, "after clicking %d", clickId);

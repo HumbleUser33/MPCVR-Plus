@@ -73,6 +73,10 @@ private:
 	bool m_bActivated = false;
 	HWND m_hHint = nullptr;
 
+	// What the renderer last held for DLSS, so the toggle key can be told apart
+	// from an edit of the page's own that has not been applied yet.
+	bool m_bDlssNRSeen = false;
+
 	HWND m_hSections[SECTION_COUNT] = {};
 	int m_iSection = SECTION_Source;
 
