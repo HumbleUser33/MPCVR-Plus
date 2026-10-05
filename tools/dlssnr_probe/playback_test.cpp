@@ -96,7 +96,7 @@ static bool g_bToggleGpu = false;      // --toggle --gpu: the pictures arrive as
 static bool g_bToggleTap = false;      // --toggle --tap: pause and play tapped, nothing else -- the reported freeze
 static bool g_bToggleWindow = false;   // --toggle --fswitch: paused, the window changes, playback resumes -- the double click
 static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
-static int g_pageSection = 0;          // --section N: which section of the settings page
+static int g_pageSection = -1;         // --section N: which one to show, or the page's own choice
 static bool g_bPageApply = false;      // --apply: press Apply before closing it
 // The picture is fed as NV12 wherever the hardware video processor has to be able
 // to take it; elsewhere RGB32 keeps the film exact.
@@ -1111,11 +1111,18 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 	pPage->Show(SW_SHOW);
 	if (const HWND hDlg = GetWindow(hwnd, GW_CHILD)) {
 		if (const HWND hList = GetDlgItem(hDlg, 1254)) {   // IDC_NAV
-			SendMessageW(hList, LB_SETCURSEL, g_pageSection, 0);
-			SendMessageW(hDlg, WM_COMMAND, MAKEWPARAM(1254, LBN_SELCHANGE), (LPARAM)hList);
+			if (g_pageSection >= 0) {
+				SendMessageW(hList, LB_SETCURSEL, g_pageSection, 0);
+				SendMessageW(hDlg, WM_COMMAND, MAKEWPARAM(1254, LBN_SELCHANGE), (LPARAM)hList);
+			}
+			// Without --section, say which one the page chose for itself: it is
+			// supposed to come back where it was last left.
+			const LRESULT at = SendMessageW(hList, LB_GETCURSEL, 0, 0);
 			wchar_t name[64] = {};
-			SendMessageW(hList, LB_GETTEXT, g_pageSection, (LPARAM)name);
-			wprintf(L"section %d: %s\n", g_pageSection, name);
+			if (at != LB_ERR) {
+				SendMessageW(hList, LB_GETTEXT, at, (LPARAM)name);
+			}
+			wprintf(L"section %d: %s\n", (int)at, name);
 		}
 	}
 	printf("property page %ldx%ld shown for %d s\n", info.size.cx, info.size.cy, seconds);

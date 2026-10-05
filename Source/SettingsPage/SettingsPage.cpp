@@ -131,6 +131,7 @@ struct Theme {
 
 static Theme  g_th = {};
 static bool   g_bDark = false;
+static int    g_pagesDressed = 0;   // how many pages the brushes below belong to
 static HBRUSH g_hbrBg = nullptr;
 static HBRUSH g_hbrPanel = nullptr;
 static HBRUSH g_hbrAccent = nullptr;
@@ -145,6 +146,29 @@ static const int g_descriptions[] = {
 	IDC_STATIC_DESC_DETAIL, IDC_STATIC_DESC_DLSSNR, IDC_STATIC_DESC_HDR,
 	IDC_STATIC_DESC_PRESENT,
 };
+
+// Which section was being looked at when the page was last closed. It lives
+// beside the settings but is not one of them: Settings_t is append-only and
+// shared with upstream, and where the user had scrolled to is nobody's setting.
+static const wchar_t* const kRegKey = L"Software\\MPC-BE Filters\\MPC Video Renderer";
+static const wchar_t* const kRegSection = L"SettingsPageSection";
+
+static int LastSectionLookedAt()
+{
+	DWORD value = 0;
+	DWORD size = sizeof(value);
+	if (RegGetValueW(HKEY_CURRENT_USER, kRegKey, kRegSection, RRF_RT_REG_DWORD,
+			nullptr, &value, &size) == ERROR_SUCCESS) {
+		return (int)value;
+	}
+	return 0;
+}
+
+static void RememberSection(int section)
+{
+	const DWORD value = (DWORD)section;
+	RegSetKeyValueW(HKEY_CURRENT_USER, kRegKey, kRegSection, REG_DWORD, &value, sizeof(value));
+}
 
 static bool SystemUsesDarkApps()
 {
@@ -205,7 +229,11 @@ static void FreeTheme()
 
 static void LoadTheme(HWND hRef)
 {
-	FreeTheme();
+	// Freeing them while another page is still drawing with them would leave it
+	// painting through dangling handles, which is a page with no surfaces at all.
+	if (g_pagesDressed <= 1) {
+		FreeTheme();
+	}
 	g_bDark = SystemUsesDarkApps();
 	if (g_bDark) {
 		AllowDarkModeForThisProcess();
@@ -338,6 +366,7 @@ static LRESULT CALLBACK SwitchProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM l
 // Everything the look needs doing once the controls exist.
 void CVRSettingsPPage::DressUp()
 {
+	g_pagesDressed++;
 	LoadTheme(m_hwnd);
 
 	if (HWND h = ::GetDlgItem(m_hwnd, IDC_STATIC_TITLE)) {
@@ -362,6 +391,10 @@ void CVRSettingsPPage::DressUp()
 			if (!_wcsicmp(cls, L"Button")) {
 				const LONG style = ::GetWindowLongW(h, GWL_STYLE);
 				if ((style & BS_TYPEMASK) == BS_AUTOCHECKBOX) {
+					// Removed first so a second pass puts ours back on the outside:
+					// a player that themes the whole sheet does so after the page is
+					// activated, and the outermost subclass is the one that paints.
+					RemoveWindowSubclass(h, SwitchProc, 1);
 					SetWindowSubclass(h, SwitchProc, 1, 0);
 				} else if (g_bDark) {
 					SetWindowTheme(h, L"DarkMode_Explorer", nullptr);
@@ -1185,10 +1218,22 @@ HRESULT CVRSettingsPPage::OnActivate()
 	SetDlgItemTextW(IDC_EDIT2, GetNameAndVersion());
 	DressUp();
 
-	if (hList) {
-		SendMessageW(hList, LB_SETCURSEL, 0, 0);
+	{
+		int wanted = LastSectionLookedAt();
+		if (wanted < 0 || wanted >= SECTION_COUNT || !m_hSections[wanted]) {
+			wanted = SECTION_Source;
+		}
+		if (hList) {
+			const LRESULT count = SendMessageW(hList, LB_GETCOUNT, 0, 0);
+			for (LRESULT i = 0; i < count; i++) {
+				if ((int)SendMessageW(hList, LB_GETITEMDATA, i, 0) == wanted) {
+					SendMessageW(hList, LB_SETCURSEL, i, 0);
+					break;
+				}
+			}
+		}
+		ShowSection(wanted);
 	}
-	ShowSection(SECTION_Source);
 
 	for (const auto& hint : g_hints) {
 		AddHint(hint.id, hint.text);
@@ -1198,6 +1243,11 @@ HRESULT CVRSettingsPPage::OnActivate()
 	// switch DLSS while it is open, and what the processor is doing moves with the
 	// film.
 	SetTimer(kRefreshTimer, 500);
+
+	// A player that paints the property sheet in its own colours does it once the
+	// page is up, which would leave its check boxes over our switches. Asking again
+	// a moment later puts ours back outermost; it costs one tick and nothing after.
+	SetTimer(kDressTimer, 700);
 
 	// From here on an edit is the user's: SetDirty does nothing before this, so
 	// filling the controls in above does not light the Apply button.
@@ -1209,6 +1259,8 @@ HRESULT CVRSettingsPPage::OnActivate()
 HRESULT CVRSettingsPPage::OnDeactivate()
 {
 	KillTimer(kRefreshTimer);
+	KillTimer(kDressTimer);
+	RememberSection(m_iSection);
 
 	// The page's dialog is destroyed right after this, and its children with it.
 	// Forgetting them here is what stops a later activation from adding tooltips to
@@ -1223,7 +1275,10 @@ HRESULT CVRSettingsPPage::OnDeactivate()
 		::DestroyWindow(m_hHint);
 		m_hHint = nullptr;
 	}
-	FreeTheme();
+	if (--g_pagesDressed <= 0) {
+		g_pagesDressed = 0;
+		FreeTheme();
+	}
 	m_bActivated = false;
 
 	return S_OK;
@@ -1281,6 +1336,19 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 				::InvalidateRect(hSection, nullptr, TRUE);
 			}
 		}
+	}
+
+	if (uMsg == WM_TIMER && wParam == kDressTimer) {
+		KillTimer(kDressTimer);
+		g_pagesDressed--;        // DressUp counts itself, and this is the same page
+		DressUp();
+		::InvalidateRect(m_hwnd, nullptr, TRUE);
+		for (HWND hSection : m_hSections) {
+			if (hSection) {
+				::InvalidateRect(hSection, nullptr, TRUE);
+			}
+		}
+		return (INT_PTR)TRUE;
 	}
 
 	if ((uMsg == WM_TIMER && wParam == kRefreshTimer || uMsg == WM_SHOWWINDOW && wParam) && m_pVideoRenderer) {

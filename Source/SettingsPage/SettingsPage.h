@@ -120,6 +120,9 @@ private:
 	// switch DLSS while this is open, and what the processor is really doing moves
 	// with the film.
 	static constexpr UINT_PTR kRefreshTimer = 1;
+	// Fires once, to put our own painting back on top of a player that themed the
+	// sheet after the page came up.
+	static constexpr UINT_PTR kDressTimer = 2;
 
 	void AddHint(int id, LPCWSTR text);
 };
