@@ -138,8 +138,7 @@ static HBRUSH g_hbrLine = nullptr;
 static HFONT  g_hTitleFont = nullptr;
 static HFONT  g_hHeadFont = nullptr;
 
-// Headings inside a section: they get the heavier font and a rule under them.
-static const int g_headings[] = { IDC_STATIC30, IDC_STATIC31, IDC_STATIC35, IDC_STATIC_HEAD_STATS };
+#include "cards.inc"
 // The one-line descriptions at the top of each section.
 static const int g_descriptions[] = {
 	IDC_STATIC_DESC_SOURCE, IDC_STATIC_DESC_CHROMA, IDC_STATIC_DESC_SCALING,
@@ -275,7 +274,7 @@ static LRESULT CALLBACK SwitchProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM l
 		HDC hdc = BeginPaint(hWnd, &ps);
 		RECT rc = {};
 		GetClientRect(hWnd, &rc);
-		FillRect(hdc, &rc, g_hbrBg);
+		FillRect(hdc, &rc, g_hbrPanel);
 
 		const bool bOn = SendMessageW(hWnd, BM_GETCHECK, 0, 0) == BST_CHECKED;
 		const bool bEnabled = IsWindowEnabled(hWnd) != FALSE;
@@ -344,7 +343,7 @@ void CVRSettingsPPage::DressUp()
 	if (HWND h = ::GetDlgItem(m_hwnd, IDC_STATIC_TITLE)) {
 		SendMessageW(h, WM_SETFONT, (WPARAM)g_hTitleFont, TRUE);
 	}
-	for (const int id : g_headings) {
+	for (const int id : g_cardTitles) {
 		if (HWND h = Item(id)) {
 			SendMessageW(h, WM_SETFONT, (WPARAM)g_hHeadFont, TRUE);
 		}
@@ -381,21 +380,23 @@ void CVRSettingsPPage::DressUp()
 }
 
 // What a dialog of ours answers when Windows asks what colour something is.
-static INT_PTR ColourMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
+static INT_PTR ColourMessage(UINT uMsg, WPARAM wParam, LPARAM lParam, bool bOnCard)
 {
 	switch (uMsg) {
 	case WM_CTLCOLORDLG:
-	case WM_CTLCOLORBTN:
 		return (INT_PTR)g_hbrBg;
+
+	case WM_CTLCOLORBTN:
+		return (INT_PTR)(bOnCard ? g_hbrPanel : g_hbrBg);
 
 	// A writable box sends this one and a read-only box sends WM_CTLCOLORSTATIC,
 	// so both have to be answered or the two look nothing like each other.
 	case WM_CTLCOLOREDIT: {
 		const HDC hdc = (HDC)wParam;
 		SetBkMode(hdc, OPAQUE);
-		SetBkColor(hdc, g_th.bg);
+		SetBkColor(hdc, bOnCard ? g_th.panel : g_th.bg);
 		SetTextColor(hdc, ::IsWindowEnabled((HWND)lParam) ? g_th.text : g_th.textOff);
-		return (INT_PTR)g_hbrBg;
+		return (INT_PTR)(bOnCard ? g_hbrPanel : g_hbrBg);
 	}
 
 	case WM_CTLCOLORSTATIC: {
@@ -406,10 +407,7 @@ static INT_PTR ColourMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		for (const int d : g_descriptions) {
 			bDim = bDim || (id == d);
 		}
-		for (const int d : g_headings) {
-			bDim = bDim || (id == d);
-		}
-		SetBkMode(hdc, TRANSPARENT);
+			SetBkMode(hdc, TRANSPARENT);
 		// A read-only edit is a static as far as this message is concerned, and it
 		// is the only one that wants the surface drawn under it.
 		wchar_t cls[16] = {};
@@ -419,9 +417,10 @@ static INT_PTR ColourMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 			: (bDim ? g_th.textDim : g_th.text));
 		if (bEdit) {
 			SetBkMode(hdc, OPAQUE);
-			SetBkColor(hdc, g_th.bg);
+			SetBkColor(hdc, bOnCard ? g_th.panel : g_th.bg);
 		}
-		return (INT_PTR)g_hbrBg;
+		// The one-line description sits on the page; the rest sits on a card.
+		return (INT_PTR)((bOnCard && !bDim) ? g_hbrPanel : g_hbrBg);
 	}
 	}
 	return 0;
@@ -724,6 +723,16 @@ void CVRSettingsPPage::SetText(int id, LPCWSTR text) const
 	if (HWND h = Item(id)) {
 		::SetWindowTextW(h, text);
 	}
+}
+
+int CVRSettingsPPage::SectionOf(HWND hDlg) const
+{
+	for (int i = 0; i < SECTION_COUNT; i++) {
+		if (m_hSections[i] == hDlg) {
+			return i;
+		}
+	}
+	return -1;
 }
 
 void CVRSettingsPPage::ShowSection(int section)
@@ -1107,7 +1116,7 @@ HRESULT CVRSettingsPPage::OnActivate()
 	m_uVPUse = m_bRendererActive ? m_pVideoRenderer->GetVideoProcessorUse() : 0;
 
 	// Where the sections go, in the page's own units, so the host's font decides.
-	RECT rcContent = { 112, 26, 412, 274 };
+	RECT rcContent = { 112, 26, 412, 318 };
 	MapDialogRect(m_hwnd, &rcContent);
 
 	HWND hList = ::GetDlgItem(m_hwnd, IDC_NAV);
@@ -1222,7 +1231,7 @@ HRESULT CVRSettingsPPage::OnDeactivate()
 
 INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	if (const INT_PTR colour = ColourMessage(uMsg, wParam, lParam)) {
+	if (const INT_PTR colour = ColourMessage(uMsg, wParam, lParam, false)) {
 		return colour;
 	}
 
@@ -1327,29 +1336,33 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 
 INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	if (const INT_PTR colour = ColourMessage(uMsg, wParam, lParam)) {
+	if (const INT_PTR colour = ColourMessage(uMsg, wParam, lParam, true)) {
 		return colour;
 	}
 
-	// The surface, and a hairline under each heading where a group box used to
-	// draw a whole frame. Painted here rather than in WM_PAINT so it lands under
-	// the controls rather than over them.
+	// The page, then the cards on it. Painted here rather than in WM_PAINT so the
+	// surfaces land under the controls instead of over them.
 	if (uMsg == WM_ERASEBKGND) {
 		const HDC hdc = (HDC)wParam;
 		RECT rc = {};
 		::GetClientRect(hDlg, &rc);
 		FillRect(hdc, &rc, g_hbrBg);
-		for (const int id : g_headings) {
-			const HWND hHead = ::GetDlgItem(hDlg, id);
-			if (!hHead) {
+		const int section = SectionOf(hDlg);
+		const int radius = MulDiv(10, GetDeviceCaps(hdc, LOGPIXELSX), 96);
+		for (const auto& card : g_cards) {
+			if (card.section != section) {
 				continue;
 			}
-			RECT rcHead = {};
-			::GetWindowRect(hHead, &rcHead);
-			::MapWindowPoints(nullptr, hDlg, (POINT*)&rcHead, 2);
-			const int y = rcHead.bottom + MulDiv(4, GetDeviceCaps(hdc, LOGPIXELSY), 96);
-			const RECT rule = { rcHead.left, y, rc.right - rcHead.left, y + 1 };
-			FillRect(hdc, &rule, g_hbrLine);
+			RECT rcCard = { card.rc.left, card.rc.top, card.rc.right, card.rc.bottom };
+			MapDialogRect(hDlg, &rcCard);
+			FillRound(hdc, rcCard, g_th.panel, radius);
+			// In the light theme the card is barely lighter than the page, so it
+			// needs an edge to be a card at all; in the dark one it does not.
+			if (!g_bDark) {
+				HBRUSH hbr = CreateSolidBrush(g_th.line);
+				FrameRect(hdc, &rcCard, hbr);
+				DeleteObject(hbr);
+			}
 		}
 		return (INT_PTR)TRUE;
 	}

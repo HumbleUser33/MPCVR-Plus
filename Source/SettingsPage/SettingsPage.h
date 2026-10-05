@@ -91,6 +91,7 @@ private:
 	LRESULT Send(int id, UINT uMsg, WPARAM wParam = 0, LPARAM lParam = 0) const;
 	void    SetText(int id, LPCWSTR text) const;
 
+	int  SectionOf(HWND hDlg) const;
 	void ShowSection(int section);
 	void DressUp();            // fonts, colours, and the controls we draw ourselves
 	void FillCombos();

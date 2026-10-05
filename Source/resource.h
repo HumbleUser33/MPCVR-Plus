@@ -239,13 +239,23 @@
 #define IDC_SHARPEN_LEVEL_TEXT          1262
 #define IDC_STATIC_HEAD_STATS           1263
 #define IDC_STATIC_TITLE                1264
+#define IDC_CARD_DECODING               1265
+#define IDC_CARD_CHROMA                 1266
+#define IDC_CARD_RESIZING               1267
+#define IDC_CARD_SHARPENING             1268
+#define IDC_CARD_SESSION                1269
+#define IDC_CARD_HDRSOURCE              1270
+#define IDC_CARD_FALLBACK               1271
+#define IDC_CARD_PRESENT                1272
+#define IDC_STATIC_SUPERRES_NOTE        1273
+#define IDC_CARD_DRIVER                 1274
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        4009
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1265
+#define _APS_NEXT_CONTROL_VALUE         1274
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
