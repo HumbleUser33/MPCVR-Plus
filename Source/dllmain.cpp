@@ -22,7 +22,7 @@
 #include <InitGuid.h>
 #include "VideoRenderer.h"
 #include "PropPage.h"
-#include "DLSS/DlssPropPage.h"
+#include "SettingsPage/SettingsPage.h"
 
 #include "../external/minhook/include/MinHook.h"
 
@@ -48,9 +48,7 @@ const AMOVIESETUP_FILTER sudFilter[] = {
 CFactoryTemplate g_Templates[] = {
 	{sudFilter[0].strName, &__uuidof(CMpcVideoRenderer), CreateInstance<CMpcVideoRenderer>, nullptr, &sudFilter[0]},
 	{L"MainProp", &__uuidof(CVRMainPPage), CreateInstance<CVRMainPPage>, nullptr, nullptr},
-#ifdef _WIN64
-	{L"DlssProp", &__uuidof(CVRDlssPPage), CreateInstance<CVRDlssPPage>, nullptr, nullptr},
-#endif
+	{L"SettingsProp", &__uuidof(CVRSettingsPPage), CreateInstance<CVRSettingsPPage>, nullptr, nullptr},
 	{L"InfoProp", &__uuidof(CVRInfoPPage), CreateInstance<CVRInfoPPage>, nullptr, nullptr}
 };
 

@@ -48,7 +48,7 @@
     <ClCompile Include="DLSS\DlssNR.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DLSS\DlssPropPage.cpp">
+    <ClCompile Include="SettingsPage\SettingsPage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="DLSS\DlssOpticalFlow.cpp">
@@ -173,8 +173,8 @@
     <ClInclude Include="DLSS\DlssNR.h">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="DLSS\DlssPropPage.h">
-      <Filter>Source Files</Filter>
+    <ClInclude Include="SettingsPage\SettingsPage.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DLSS\DlssOpticalFlow.h">
       <Filter>Source Files</Filter>

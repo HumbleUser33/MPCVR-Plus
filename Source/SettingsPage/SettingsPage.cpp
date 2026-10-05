@@ -1,0 +1,1180 @@
+/*
+ * (C) 2026 see Authors.txt
+ *
+ * This file is part of MPC-BE.
+ *
+ * MPC-BE is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * MPC-BE is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#include "stdafx.h"
+#include <commdlg.h>
+#include "resource.h"
+#include "Helper.h"
+#include "../../Include/FilterInterfaces.h"
+#include "SettingsPage.h"
+
+// Combo boxes are addressed by window handle here rather than by dialog id,
+// because the control is not a child of the page but of one of its sections.
+
+static void Combo_AddData(HWND hCombo, LPCWSTR str, LONG_PTR data)
+{
+	if (!hCombo) {
+		return;
+	}
+	const LRESULT index = SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)str);
+	if (index != CB_ERR) {
+		SendMessageW(hCombo, CB_SETITEMDATA, index, data);
+	}
+}
+
+static LONG_PTR Combo_CurData(HWND hCombo)
+{
+	LRESULT value = hCombo ? SendMessageW(hCombo, CB_GETCURSEL, 0, 0) : CB_ERR;
+	if (value != CB_ERR) {
+		value = SendMessageW(hCombo, CB_GETITEMDATA, value, 0);
+	}
+	return value;
+}
+
+static void Combo_SelectData(HWND hCombo, LONG_PTR data)
+{
+	const LRESULT count = hCombo ? SendMessageW(hCombo, CB_GETCOUNT, 0, 0) : CB_ERR;
+	for (LRESULT i = 0; count != CB_ERR && i < count; i++) {
+		if (SendMessageW(hCombo, CB_GETITEMDATA, i, 0) == data) {
+			SendMessageW(hCombo, CB_SETCURSEL, i, 0);
+			break;
+		}
+	}
+}
+
+// The network strengths are stored x100 and shown as 1.00.
+static std::wstring StrengthText(int value)
+{
+	return std::format(L"{:.2f}", (float)value / DLSSNR_STR_SCALE);
+}
+
+// The stabilizer is a plain 0..100, where 0 turns it off.
+static std::wstring StabilizerText(int value)
+{
+	return value ? std::to_wstring(value) : std::wstring(L"off");
+}
+
+static HWND CreateHintWindow(HWND parent, int timePop)
+{
+	HWND hhint = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr,
+		WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP, CW_USEDEFAULT,
+		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, parent, nullptr, nullptr, nullptr);
+
+	::SetWindowPos(hhint, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+	SendMessageW(hhint, TTM_SETDELAYTIME, TTDT_AUTOPOP, MAKELONG(timePop, 0));
+	SendMessageW(hhint, TTM_SETDELAYTIME, TTDT_INITIAL, MAKELONG(70, 0));
+	SendMessageW(hhint, TTM_SETDELAYTIME, TTDT_RESHOW, MAKELONG(7, 0));
+	SendMessageW(hhint, TTM_SETMAXTIPWIDTH, 0, 470);
+	return hhint;
+}
+
+// What the list on the left offers, in the order the picture goes through them.
+static const struct {
+	int section;
+	int dialogId;
+	const wchar_t* name;
+} g_sections[] = {
+	{ CVRSettingsPPage::SECTION_Source,  IDD_SECTION_SOURCE,  L"Source"       },
+	{ CVRSettingsPPage::SECTION_Chroma,  IDD_SECTION_CHROMA,  L"Chroma"       },
+	{ CVRSettingsPPage::SECTION_Scaling, IDD_SECTION_SCALING, L"Scaling"      },
+	{ CVRSettingsPPage::SECTION_Detail,  IDD_SECTION_DETAIL,  L"Detail"       },
+	{ CVRSettingsPPage::SECTION_DlssNR,  IDD_SECTION_DLSSNR,  L"DLSS 5 NR"    },
+	{ CVRSettingsPPage::SECTION_Hdr,     IDD_SECTION_HDR,     L"HDR"          },
+	{ CVRSettingsPPage::SECTION_Present, IDD_SECTION_PRESENT, L"Presentation" },
+};
+
+
+// CVRSettingsPPage
+
+CVRSettingsPPage::CVRSettingsPPage(LPUNKNOWN lpunk, HRESULT* phr) :
+	CBasePropertyPage(L"SettingsProp", lpunk, IDD_SETTINGSPAGE, IDS_SETTINGSPAGE_TITLE)
+{
+	DLog(L"CVRSettingsPPage()");
+}
+
+CVRSettingsPPage::~CVRSettingsPPage()
+{
+	DLog(L"~CVRSettingsPPage()");
+}
+
+INT_PTR CALLBACK CVRSettingsPPage::SectionProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	if (uMsg == WM_INITDIALOG) {
+		::SetWindowLongPtrW(hDlg, GWLP_USERDATA, (LONG_PTR)lParam);
+		return TRUE;
+	}
+	auto* page = (CVRSettingsPPage*)::GetWindowLongPtrW(hDlg, GWLP_USERDATA);
+	return page ? page->OnSectionMessage(hDlg, uMsg, wParam, lParam) : (INT_PTR)FALSE;
+}
+
+HWND CVRSettingsPPage::Item(int id) const
+{
+	for (HWND hSection : m_hSections) {
+		if (hSection) {
+			if (HWND hItem = ::GetDlgItem(hSection, id)) {
+				return hItem;
+			}
+		}
+	}
+	return m_hwnd ? ::GetDlgItem(m_hwnd, id) : nullptr;
+}
+
+void CVRSettingsPPage::Enable(int id, BOOL bEnable) const
+{
+	if (HWND h = Item(id)) {
+		::EnableWindow(h, bEnable);
+	}
+}
+
+bool CVRSettingsPPage::Checked(int id) const
+{
+	HWND h = Item(id);
+	return h && SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED;
+}
+
+void CVRSettingsPPage::SetCheck(int id, bool bChecked) const
+{
+	if (HWND h = Item(id)) {
+		SendMessageW(h, BM_SETCHECK, bChecked ? BST_CHECKED : BST_UNCHECKED, 0);
+	}
+}
+
+LRESULT CVRSettingsPPage::Send(int id, UINT uMsg, WPARAM wParam, LPARAM lParam) const
+{
+	HWND h = Item(id);
+	return h ? SendMessageW(h, uMsg, wParam, lParam) : 0;
+}
+
+void CVRSettingsPPage::SetText(int id, LPCWSTR text) const
+{
+	if (HWND h = Item(id)) {
+		::SetWindowTextW(h, text);
+	}
+}
+
+void CVRSettingsPPage::ShowSection(int section)
+{
+	m_iSection = section;
+	for (int i = 0; i < SECTION_COUNT; i++) {
+		if (m_hSections[i]) {
+			::ShowWindow(m_hSections[i], (i == section) ? SW_SHOW : SW_HIDE);
+		}
+	}
+}
+
+HRESULT CVRSettingsPPage::OnConnect(IUnknown* pUnk)
+{
+	if (pUnk == nullptr) return E_POINTER;
+
+	m_pVideoRenderer = pUnk;
+	if (!m_pVideoRenderer) {
+		return E_NOINTERFACE;
+	}
+
+	return S_OK;
+}
+
+HRESULT CVRSettingsPPage::OnDisconnect()
+{
+	if (m_pVideoRenderer == nullptr) {
+		return E_UNEXPECTED;
+	}
+
+	if (m_SetsPP.iSDRDisplayNits != m_oldSDRDisplayNits) {
+		// OK or Apply was not pressed, and the nits slider applies as it is dragged.
+		m_pVideoRenderer->GetSettings(m_SetsPP);
+		m_SetsPP.iSDRDisplayNits = m_oldSDRDisplayNits;
+		m_pVideoRenderer->SetSettings(m_SetsPP);
+	}
+
+	m_pVideoRenderer.Release();
+
+	return S_OK;
+}
+
+void CVRSettingsPPage::FillCombos()
+{
+	Send(IDC_COMBO6, CB_ADDSTRING, 0, (LPARAM)L"Fixed font size");
+	Send(IDC_COMBO6, CB_ADDSTRING, 0, (LPARAM)L"Increase font by window");
+
+	Combo_AddData(Item(IDC_COMBO1), L"Auto 8/10-bit Integer",  0);
+	Combo_AddData(Item(IDC_COMBO1), L"8-bit Integer",          8);
+	Combo_AddData(Item(IDC_COMBO1), L"10-bit Integer",        10);
+	Combo_AddData(Item(IDC_COMBO1), L"16-bit Floating Point", 16);
+
+	Send(IDC_COMBO9, CB_ADDSTRING, 0, (LPARAM)L"Disable");
+	Send(IDC_COMBO9, CB_ADDSTRING, 0, (LPARAM)L"Enable");
+	Send(IDC_COMBO9, CB_ADDSTRING, 0, (LPARAM)L"HACK future frames");
+
+	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"Disable");
+	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"for SD");
+	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"for \x2264 720p");
+	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"for \x2264 1080p");
+	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"for \x2264 1440p");
+
+	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Do not change");
+	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Allow turn on (fullscreen)");
+	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Allow turn on");
+	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Allow turn on/off (fullscreen)");
+	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Allow turn on/off");
+
+	// Both lists are shown best first, as they measured on ten film references
+	// brought from 1080p to 4K (tools/dlssnr_probe, --tchroma and --tupscale, the
+	// tables in README-DLSS5.md). The number each entry carries is what is saved, so
+	// the order can change without moving anybody's setting.
+	Combo_AddData(Item(IDC_COMBO5), L"Jinc (EWA)",         CHROMA_Jinc);
+	Combo_AddData(Item(IDC_COMBO5), L"RAVU-zoom",          CHROMA_RAVU);
+	Combo_AddData(Item(IDC_COMBO5), L"Catmull-Rom",        CHROMA_CatmullRom);
+	Combo_AddData(Item(IDC_COMBO5), L"FSRCNNX 8 AR",       CHROMA_FSRCNNX8AR);
+	Combo_AddData(Item(IDC_COMBO5), L"Bilinear",           CHROMA_Bilinear);
+	Combo_AddData(Item(IDC_COMBO5), L"Nearest-neighbor",   CHROMA_Nearest);
+
+	Combo_AddData(Item(IDC_COMBO2), L"ArtCNN C4F16 DS",    UPSCALE_ArtCNN);
+	Combo_AddData(Item(IDC_COMBO2), L"RAVU-zoom",          UPSCALE_RAVUZoom);
+	Combo_AddData(Item(IDC_COMBO2), L"FSRCNNX 16 AR",      UPSCALE_FSRCNNX16AR);
+	Combo_AddData(Item(IDC_COMBO2), L"FSRCNNX 8 AR",       UPSCALE_FSRCNNX8AR);
+	Combo_AddData(Item(IDC_COMBO2), L"FSRCNNX 16",         UPSCALE_FSRCNNX16);
+	Combo_AddData(Item(IDC_COMBO2), L"FSRCNNX 8",          UPSCALE_FSRCNNX8);
+	Combo_AddData(Item(IDC_COMBO2), L"Catmull-Rom",        UPSCALE_CatmullRom);
+	Combo_AddData(Item(IDC_COMBO2), L"Lanczos2",           UPSCALE_Lanczos2);
+	Combo_AddData(Item(IDC_COMBO2), L"Mitchell-Netravali", UPSCALE_Mitchell);
+	Combo_AddData(Item(IDC_COMBO2), L"Lanczos3",           UPSCALE_Lanczos3);
+	Combo_AddData(Item(IDC_COMBO2), L"Jinc2m",             UPSCALE_Jinc2);
+	Combo_AddData(Item(IDC_COMBO2), L"Nearest-neighbor",   UPSCALE_Nearest);
+
+	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Box");
+	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Bilinear");
+	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Hamming");
+	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Bicubic");
+	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Bicubic sharp");
+	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Lanczos");
+
+	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Discard");
+	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Flip");
+
+	// In the order of the enum, so the position is the value.
+	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Disabled");
+	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Adaptive-Sharpen");
+	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Unsharp + Clamp");
+
+	Combo_AddData(Item(IDC_COMBO10), L"Ignore", -1);
+	Combo_AddData(Item(IDC_COMBO10), L"Passthrough", 0);
+	Combo_AddData(Item(IDC_COMBO10), L"ACES", 1);
+	Combo_AddData(Item(IDC_COMBO10), L"Reinhard", 2);
+	Combo_AddData(Item(IDC_COMBO10), L"Hable", 3);
+	Combo_AddData(Item(IDC_COMBO10), L"Mobius", 4);
+	Combo_AddData(Item(IDC_COMBO10), L"BT2390/ST 2094-10", 5);
+
+	Combo_AddData(Item(IDC_COMBO11), L"Default",   DLSSNR_STYLE_Default);
+	Combo_AddData(Item(IDC_COMBO11), L"Natural",   DLSSNR_STYLE_Natural);
+	Combo_AddData(Item(IDC_COMBO11), L"Cinematic", DLSSNR_STYLE_Cinematic);
+
+	for (int i = 0; i < DLSSNR_PRESET_COUNT; i++) {
+		Combo_AddData(Item(IDC_COMBO12), std::format(L"Preset {}", i).c_str(), i);
+	}
+
+	Combo_AddData(Item(IDC_COMBO14), L"NVIDIA Optical Flow", DLSSNR_MOTION_OPTICALFLOW);
+	Combo_AddData(Item(IDC_COMBO14), L"Shader detector (still areas)", DLSSNR_MOTION_DETECTOR);
+
+	Combo_AddData(Item(IDC_COMBO15), L"Automatic", DLSSSR_PRESET_DEF);
+	for (int preset = DLSSSR_PRESET_J; preset <= DLSSSR_PRESET_M; preset++) {
+		Combo_AddData(Item(IDC_COMBO15),
+			std::format(L"Preset {}", (wchar_t)(L'J' + preset - DLSSSR_PRESET_J)).c_str(), preset);
+	}
+
+	// Keys that players rarely bind to anything destructive. The hook swallows
+	// whichever one is chosen, so it must not be something the player needs.
+	static const struct { const wchar_t* name; int vk; } dlssKeys[] = {
+		{ L"None", 0 }, { L"Home", VK_HOME }, { L"End", VK_END },
+		{ L"Insert", VK_INSERT }, { L"Delete", VK_DELETE },
+		{ L"Page Up", VK_PRIOR }, { L"Page Down", VK_NEXT },
+		{ L"Pause", VK_PAUSE }, { L"Scroll Lock", VK_SCROLL },
+		{ L"F9", VK_F9 }, { L"F10", VK_F10 }, { L"F11", VK_F11 }, { L"F12", VK_F12 },
+	};
+	for (const auto& k : dlssKeys) {
+		Combo_AddData(Item(IDC_COMBO13), k.name, k.vk);
+	}
+
+	// Sliders and their ranges.
+	Send(IDC_SHARPEN_LEVEL, TBM_SETRANGE, 0, MAKELONG(SHARPEN_LEVEL_MIN, SHARPEN_LEVEL_MAX));
+	Send(IDC_SHARPEN_LEVEL, TBM_SETTIC, 0, 1);
+	Send(IDC_SHARPEN_LEVEL, TBM_SETLINESIZE, 0, 1);
+	Send(IDC_SHARPEN_LEVEL, TBM_SETPAGESIZE, 0, 1);
+
+	Send(IDC_SLIDER1, TBM_SETRANGE, 0, MAKELONG(0, 2));
+	Send(IDC_SLIDER1, TBM_SETTIC, 0, 1);
+
+	Send(IDC_SLIDER2, TBM_SETRANGE, 0, MAKELONG(SDR_NITS_MIN / SDR_NITS_STEP, SDR_NITS_MAX / SDR_NITS_STEP));
+	Send(IDC_SLIDER2, TBM_SETTIC, 0, SDR_NITS_DEF / SDR_NITS_STEP);
+	Send(IDC_SLIDER2, TBM_SETLINESIZE, 0, 1); // arrow keys
+	Send(IDC_SLIDER2, TBM_SETPAGESIZE, 0, 5); // clicks on the trackbar's channel
+
+	for (const int id : { IDC_SLIDER3, IDC_SLIDER4, IDC_SLIDER5, IDC_SLIDER6 }) {
+		const int minimum = (id == IDC_SLIDER6) ? DLSSNR_SKIN_MIN : DLSSNR_STR_MIN;
+		Send(id, TBM_SETRANGE, 0, MAKELONG(minimum, DLSSNR_STR_MAX));
+		Send(id, TBM_SETTIC, 0, DLSSNR_STR_DEF);
+		Send(id, TBM_SETLINESIZE, 0, 1);
+		Send(id, TBM_SETPAGESIZE, 0, 10);
+	}
+	Send(IDC_SLIDER7, TBM_SETRANGE, 0, MAKELONG(DLSSNR_STAB_MIN, DLSSNR_STAB_MAX));
+	Send(IDC_SLIDER7, TBM_SETLINESIZE, 0, 1);
+	Send(IDC_SLIDER7, TBM_SETPAGESIZE, 0, 10);
+}
+
+void CVRSettingsPPage::SetControls()
+{
+	SetCheck(IDC_CHECK1,  m_SetsPP.bUseD3D11);
+	SetCheck(IDC_CHECK2,  m_SetsPP.bShowStats);
+	Combo_SelectData(Item(IDC_COMBO1), m_SetsPP.iTexFormat);
+
+	SetCheck(IDC_CHECK7,  m_SetsPP.VPFmts.bNV12);
+	SetCheck(IDC_CHECK8,  m_SetsPP.VPFmts.bP01x);
+	SetCheck(IDC_CHECK9,  m_SetsPP.VPFmts.bYUY2);
+	SetCheck(IDC_CHECK4,  m_SetsPP.VPFmts.bOther);
+	Send(IDC_COMBO9, CB_SETCURSEL, m_SetsPP.iVPDeinterlacing, 0);
+	SetCheck(IDC_CHECK3,  m_SetsPP.bDeintDouble);
+	SetCheck(IDC_CHECK17, m_SetsPP.bDeintBlend);
+
+	SetCheck(IDC_CHECK5,  m_SetsPP.bVPScaling);
+	Send(IDC_COMBO8, CB_SETCURSEL, m_SetsPP.iVPSuperRes, 0);
+	Combo_SelectData(Item(IDC_COMBO2), m_SetsPP.iUpscaling);
+	Send(IDC_COMBO3, CB_SETCURSEL, m_SetsPP.iDownscaling, 0);
+	SetCheck(IDC_CHECK6,  m_SetsPP.bInterpolateAt50pct);
+
+	Combo_SelectData(Item(IDC_COMBO5), m_SetsPP.iChromaScaling);
+	SetCheck(IDC_CHECK27, m_SetsPP.bVPReplaceChroma);
+
+	Send(IDC_SHARPEN, CB_SETCURSEL, m_SetsPP.iSharpen, 0);
+	Send(IDC_SHARPEN_LEVEL, TBM_SETPOS, 1, m_SetsPP.iSharpenLevel);
+	SetText(IDC_SHARPEN_LEVEL_TEXT, std::to_wstring(m_SetsPP.iSharpenLevel).c_str());
+	SetCheck(IDC_CHECK10, m_SetsPP.bUseDither);
+
+	if (m_SetsPP.bHdrPassthrough) {
+		Combo_SelectData(Item(IDC_COMBO10), 0);
+	} else if (m_SetsPP.bHdrLocalToneMapping) {
+		Combo_SelectData(Item(IDC_COMBO10), m_SetsPP.iHdrLocalToneMappingType);
+	} else {
+		Combo_SelectData(Item(IDC_COMBO10), -1);
+	}
+	SetCheck(IDC_CHECK18, m_SetsPP.bHdrPreferDoVi);
+	SetCheck(IDC_CHECK14, m_SetsPP.bConvertToSdr);
+	SetCheck(IDC_CHECK19, m_SetsPP.bVPRTXVideoHDR);
+	Send(IDC_COMBO7, CB_SETCURSEL, m_SetsPP.iHdrToggleDisplay, 0);
+	Send(IDC_SLIDER1, TBM_SETPOS, 1, m_SetsPP.iHdrOsdBrightness);
+	Send(IDC_SLIDER2, TBM_SETPOS, 1, m_SetsPP.iSDRDisplayNits / SDR_NITS_STEP);
+	SetText(IDC_EDIT1, std::to_wstring(m_SetsPP.iSDRDisplayNits).c_str());
+	m_SetsPP.iHdrDisplayMaxNits = discard<int>(m_SetsPP.iHdrDisplayMaxNits, HDR_NITS_DEF, HDR_NITS_MIN, HDR_NITS_MAX);
+	SetText(IDC_EDIT_DISPLAYMAX, std::to_wstring(m_SetsPP.iHdrDisplayMaxNits).c_str());
+
+	Send(IDC_COMBO4, CB_SETCURSEL, m_SetsPP.iSwapEffect, 0);
+	SetCheck(IDC_CHECK11, m_SetsPP.bExclusiveFS);
+	SetCheck(IDC_CHECK15, m_SetsPP.bVBlankBeforePresent);
+	SetCheck(IDC_CHECK13, m_SetsPP.bAdjustPresentTime);
+	SetCheck(IDC_CHECK16, m_SetsPP.bReinitByDisplay);
+	SetCheck(IDC_CHECK26, m_SetsPP.bDlssRenderAhead);
+	Send(IDC_COMBO6, CB_SETCURSEL, m_SetsPP.iResizeStats, 0);
+
+	SetCheck(IDC_CHECK20, m_SetsPP.bDlssNR);
+	SetCheck(IDC_CHECK21, m_SetsPP.bDlssNRAutoMask);
+	SetCheck(IDC_CHECK22, m_SetsPP.bDlssNRNoHistory);
+	SetCheck(IDC_CHECK23, m_SetsPP.bDlssNRAfterUpscale);
+	SetCheck(IDC_CHECK24, m_SetsPP.bDlssNRMotionVectors);
+	Combo_SelectData(Item(IDC_COMBO11), m_SetsPP.iDlssNRStyle);
+	Combo_SelectData(Item(IDC_COMBO12), m_SetsPP.iDlssNRPreset);
+	Combo_SelectData(Item(IDC_COMBO13), m_SetsPP.iDlssNRToggleKey);
+	Combo_SelectData(Item(IDC_COMBO14), m_SetsPP.iDlssNRMotion);
+
+	const struct { int idSlider; int idEdit; int value; bool bStrength; } sliders[] = {
+		{ IDC_SLIDER3, IDC_EDIT3, m_SetsPP.iDlssNRIntensity,      true  },
+		{ IDC_SLIDER4, IDC_EDIT4, m_SetsPP.iDlssNRLocalTone,      true  },
+		{ IDC_SLIDER5, IDC_EDIT5, m_SetsPP.iDlssNRLocalStructure, true  },
+		{ IDC_SLIDER6, IDC_EDIT6, m_SetsPP.iDlssNRSkinStructure,  true  },
+		{ IDC_SLIDER7, IDC_EDIT8, m_SetsPP.iDlssNRStabilizer,     false },
+	};
+	for (const auto& s : sliders) {
+		Send(s.idSlider, TBM_SETPOS, TRUE, (LPARAM)s.value);
+		SetText(s.idEdit, (s.bStrength ? StrengthText(s.value) : StabilizerText(s.value)).c_str());
+	}
+	SetText(IDC_EDIT7, m_SetsPP.szDlssNRDllPath);
+
+	SetCheck(IDC_CHECK25, m_SetsPP.bDlssSR);
+	Combo_SelectData(Item(IDC_COMBO15), m_SetsPP.iDlssSRPreset);
+	SetText(IDC_EDIT9, m_SetsPP.szDlssSRDllPath);
+}
+
+void CVRSettingsPPage::EnableControls()
+{
+	if (!IsWindows8OrGreater()) { // Windows 7: no Direct3D 11 video processor
+		const BOOL bEnable = !m_SetsPP.bUseD3D11;
+		for (const int id : { IDC_STATIC1, IDC_STATIC2, IDC_CHECK7, IDC_CHECK8, IDC_CHECK9,
+				IDC_CHECK4, IDC_CHECK3, IDC_CHECK5, IDC_STATIC3, IDC_COMBO4 }) {
+			Enable(id, bEnable);
+		}
+	}
+	else if (IsWindows10OrGreater()) {
+		const BOOL bEnable = m_SetsPP.bUseD3D11;
+		for (const int id : { IDC_COMBO10, IDC_STATIC5, IDC_COMBO7, IDC_STATIC6, IDC_SLIDER1 }) {
+			Enable(id, bEnable);
+		}
+		// Super Resolution is settled below, with the rest of what the processor is
+		// really doing: asking for it is not enough to make it happen.
+#ifdef _WIN64
+		Enable(IDC_CHECK19, bEnable && m_SetsPP.bHdrPassthrough);
+#endif
+	}
+
+	Enable(IDC_STATIC8, m_SetsPP.bConvertToSdr);
+	Enable(IDC_EDIT1, m_SetsPP.bConvertToSdr);
+	Enable(IDC_SLIDER2, m_SetsPP.bConvertToSdr);
+	Enable(IDC_EDIT_DISPLAYMAX, m_SetsPP.bHdrLocalToneMapping);
+
+	// What the video processor takes, the shaders never see. It converts the formats
+	// ticked in Source, chroma upsampling included, and resizes as well when "Use the
+	// video processor for resizing" is on -- except while DLSS 5 NR or DLSS Super
+	// Resolution runs, which keeps it at the source size and hands the resizing back
+	// to the shaders. DLSS Super Resolution enlarges in its place, so the Upscaling
+	// method then only stands in where it cannot run.
+	// "Replace the video processor's chroma upsampling" gives the chroma of a
+	// progressive 4:2:0/4:2:2 picture back to the shaders, and only the chroma: the
+	// processor is handed a 4:4:4 picture and goes on converting and resizing it.
+	// While something plays, the renderer also says what it is really doing with it,
+	// and a list is only greyed when both agree that it has nothing to do.
+	const bool bAllVPFormats = m_SetsPP.VPFmts.bNV12 && m_SetsPP.VPFmts.bP01x
+		&& m_SetsPP.VPFmts.bYUY2 && m_SetsPP.VPFmts.bOther;
+	const bool bVPAvailable = !(m_SetsPP.bUseD3D11 && !IsWindows8OrGreater());
+	const bool bDlssPass = m_SetsPP.bUseD3D11 && (m_SetsPP.bDlssNR || m_SetsPP.bDlssSR);
+	const bool bChromaToShaders = m_SetsPP.bUseD3D11 && m_SetsPP.bVPReplaceChroma;
+	const bool bVPTakesPicture = bAllVPFormats && bVPAvailable;
+	const bool bVPConverts = bVPTakesPicture && !bChromaToShaders
+		&& (!m_bRendererActive || (m_uVPUse & VPUSE_Converting));
+	const bool bVPResizes = bVPTakesPicture && m_SetsPP.bVPScaling && !bDlssPass
+		&& (!m_bRendererActive || (m_uVPUse & VPUSE_Resizing));
+
+	const BOOL bChromaList = !bVPConverts;
+	const BOOL bDownscalingList = !bVPResizes;
+	const BOOL bUpscalingList = !bVPResizes && !(m_SetsPP.bUseD3D11 && m_SetsPP.bDlssSR);
+	Enable(IDC_STATIC40, bChromaList);
+	Enable(IDC_COMBO5, bChromaList);
+	Enable(IDC_STATIC39, bUpscalingList);
+	Enable(IDC_COMBO2, bUpscalingList);
+	Enable(IDC_STATIC41, bDownscalingList);
+	Enable(IDC_COMBO3, bDownscalingList);
+	Enable(IDC_CHECK6, bUpscalingList || bDownscalingList);
+
+	// RTX Video Super Resolution lives inside the processor and only does something
+	// while the processor is the one enlarging the picture -- which is what "Use the
+	// video processor for resizing" gives it, and what a DLSS pass takes away. It
+	// also needs a subsampled picture: the driver leaves a 4:4:4 one untouched, so it
+	// can do nothing while the chroma replacement is really handing one over.
+#ifdef _WIN64
+	const bool bChromaReplacedNow = bChromaToShaders
+		&& (!m_bRendererActive || !(m_uVPUse & VPUSE_Converting));
+	const BOOL bSuperRes = m_SetsPP.bUseD3D11 && IsWindows10OrGreater()
+		&& bVPResizes && !bChromaReplacedNow;
+#else
+	const BOOL bSuperRes = FALSE; // the extension is x64 only
+#endif
+	Enable(IDC_STATIC7, bSuperRes);
+	Enable(IDC_COMBO8, bSuperRes);
+
+	// The sharpening pass is a Direct3D 11 one, and its intensity says nothing
+	// while no method is chosen.
+	Enable(IDC_STATIC_SHARPEN, m_SetsPP.bUseD3D11);
+	Enable(IDC_SHARPEN, m_SetsPP.bUseD3D11);
+	const BOOL bSharpLevel = m_SetsPP.bUseD3D11 && m_SetsPP.iSharpen != SHARPEN_Disabled;
+	Enable(IDC_STATIC_SHARPEN_LEVEL, bSharpLevel);
+	Enable(IDC_SHARPEN_LEVEL, bSharpLevel);
+	Enable(IDC_SHARPEN_LEVEL_TEXT, bSharpLevel);
+
+	// Render ahead and the chroma replacement belong to the Direct3D 11 processor.
+	Enable(IDC_CHECK26, m_SetsPP.bUseD3D11);
+	Enable(IDC_CHECK27, m_SetsPP.bUseD3D11);
+
+	// DLSS. The path boxes stay live even when the feature is off, so a wrong path
+	// can be fixed without enabling it first.
+	const BOOL bD3D11 = m_SetsPP.bUseD3D11;
+	const BOOL bNROn  = bD3D11 && m_SetsPP.bDlssNR;
+	for (const int id : { IDC_CHECK20, IDC_STATIC27, IDC_EDIT7, IDC_BUTTON2, IDC_STATIC29, IDC_COMBO13 }) {
+		Enable(id, bD3D11);
+	}
+	for (const int id : { IDC_CHECK21, IDC_CHECK22, IDC_CHECK23, IDC_COMBO11, IDC_COMBO12,
+			IDC_SLIDER3, IDC_SLIDER4, IDC_SLIDER5, IDC_SLIDER6,
+			IDC_EDIT3, IDC_EDIT4, IDC_EDIT5, IDC_EDIT6,
+			IDC_STATIC21, IDC_STATIC22, IDC_STATIC23, IDC_STATIC24, IDC_STATIC25, IDC_STATIC26,
+			IDC_STATIC30, IDC_BUTTON3 }) {
+		Enable(id, bNROn);
+	}
+	// The stabilizer works after the network, whatever its own history does.
+	for (const int id : { IDC_STATIC31, IDC_STATIC32, IDC_SLIDER7, IDC_EDIT8, IDC_STATIC34, IDC_COMBO14 }) {
+		Enable(id, bNROn);
+	}
+	// Vectors exist only with Optical Flow, and only while the stabilizer runs.
+	Enable(IDC_CHECK24, bNROn && m_SetsPP.iDlssNRStabilizer > 0
+		&& m_SetsPP.iDlssNRMotion == DLSSNR_MOTION_OPTICALFLOW);
+
+	// DLSS Super Resolution does not depend on DLSS 5 NR: another DLL, another session.
+	for (const int id : { IDC_CHECK25, IDC_STATIC35, IDC_STATIC37, IDC_EDIT9, IDC_BUTTON4 }) {
+		Enable(id, bD3D11);
+	}
+	for (const int id : { IDC_STATIC36, IDC_COMBO15 }) {
+		Enable(id, bD3D11 && m_SetsPP.bDlssSR);
+	}
+}
+
+HRESULT CVRSettingsPPage::OnActivate()
+{
+	// set m_hWnd for CWindow
+	m_hWnd = m_hwnd;
+
+	m_pVideoRenderer->GetSettings(m_SetsPP);
+	m_oldSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
+	m_bRendererActive = m_pVideoRenderer->GetActive();
+	m_uVPUse = m_bRendererActive ? m_pVideoRenderer->GetVideoProcessorUse() : 0;
+
+	// Where the sections go, in the page's own units, so the host's font decides.
+	RECT rcContent = { 112, 26, 412, 274 };
+	MapDialogRect(m_hwnd, &rcContent);
+
+	HWND hList = ::GetDlgItem(m_hwnd, IDC_NAV);
+	for (const auto& s : g_sections) {
+#ifndef _WIN64
+		if (s.section == SECTION_DlssNR) {
+			continue; // the snippet is x64 only, and so is its section
+		}
+#endif
+		HWND hSection = CreateDialogParamW(g_hInst, MAKEINTRESOURCEW(s.dialogId),
+			m_hwnd, SectionProc, (LPARAM)this);
+		if (!hSection) {
+			continue;
+		}
+		m_hSections[s.section] = hSection;
+		::SetWindowPos(hSection, nullptr, rcContent.left, rcContent.top,
+			rcContent.right - rcContent.left, rcContent.bottom - rcContent.top,
+			SWP_NOZORDER | SWP_NOACTIVATE);
+		if (hList) {
+			const LRESULT index = SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)s.name);
+			if (index != LB_ERR) {
+				SendMessageW(hList, LB_SETITEMDATA, index, s.section);
+			}
+		}
+	}
+
+	if (!IsWindows7SP1OrGreater()) {
+		Enable(IDC_CHECK1, FALSE);
+		m_SetsPP.bUseD3D11 = false;
+	}
+	if (!IsWindows10OrGreater()) {
+		for (const int id : { IDC_COMBO10, IDC_STATIC5, IDC_COMBO7, IDC_STATIC6,
+				IDC_SLIDER1, IDC_STATIC7, IDC_COMBO8, IDC_CHECK19 }) {
+			Enable(id, FALSE);
+		}
+	}
+#ifndef _WIN64
+	for (const int id : { IDC_STATIC7, IDC_COMBO8, IDC_CHECK19 }) {
+		Enable(id, FALSE);
+	}
+#endif
+
+	FillCombos();
+
+	// Show whether each DLSS session actually came up, and why not if it did not.
+	{
+		const struct { const char* field; int id; } statuses[] = {
+			{ "dlssStatus",   IDC_STATIC28 },
+			{ "dlssSRStatus", IDC_STATIC38 },
+		};
+		for (const auto& s : statuses) {
+			std::wstring status;
+			if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
+				LPWSTR pstr = nullptr;
+				if (S_OK == pIExFilterConfig->Flt_GetString(s.field, &pstr, nullptr) && pstr) {
+					status = pstr;
+					CoTaskMemFree(pstr);
+				}
+			}
+			SetText(s.id, status.empty() ? L"" : (L"Status: " + status).c_str());
+		}
+	}
+
+	SetControls();
+	EnableControls();
+	SetDlgItemTextW(IDC_EDIT2, GetNameAndVersion());
+
+	if (hList) {
+		SendMessageW(hList, LB_SETCURSEL, 0, 0);
+	}
+	ShowSection(SECTION_Source);
+
+	AddHint(IDC_CHECK5,
+		L"Fast, not always good. Untick it to resize with shaders.\n"
+		"It decides the resizing and nothing else: the chroma is the\n"
+		"business of the formats in Source and of the chroma\n"
+		"replacement.\n"
+		"\"Request Super Resolution\" needs it -- the processor can\n"
+		"only enhance a picture it is enlarging itself. DLSS takes\n"
+		"the resizing back while it runs.");
+	AddHint(IDC_COMBO8,
+		L"Direct3D 11. Nvidia RTX (x64) or Intel UHD 610 and later.\n"
+		"The processor sharpens as it enlarges.\n"
+		"Greyed unless it is the one enlarging: tick \"Use the video\n"
+		"processor for resizing\". DLSS takes the enlarging back while\n"
+		"it runs. Greyed too while the chroma replacement hands it a\n"
+		"4:4:4 picture, which the driver will not touch.");
+	AddHint(IDC_CHECK19,
+		L"Direct3D 11. Nvidia RTX (x64).\n"
+		"An HDR picture out of an SDR source, tone mapped by the\n"
+		"driver. It works at any depth: measured here, 8-bit 36.9,\n"
+		"10-bit 4:2:0 36.7, 4:4:4 37.7.\n"
+		"Needs HDR passthrough and an HDR display. The statistics\n"
+		"carry a star while the driver is really doing it.");
+	AddHint(IDC_COMBO5,
+		L"For YUV 4:2:0/4:2:2 when the video processor does not\n"
+		"convert them; greyed while it does, but still used for what\n"
+		"it refuses (Dolby Vision, YCgCo, RGB on Nvidia).\n"
+		"Listed best first, measured on 1080p film. Jinc (EWA) is\n"
+		"the best and costs nothing extra; RAVU-zoom (+0.5 dB) and\n"
+		"FSRCNNX 8 AR (-0.2 dB on film, +2.3 on drawn lines) cost a\n"
+		"few milliseconds. Direct3D 11 and 4:2:0 in planes.");
+	AddHint(IDC_SHARPEN,
+		L"Direct3D 11. Sharpens after the resize, so it works whatever\n"
+		"enlarged the picture -- and on a film already at the screen's\n"
+		"size, where nothing else can.\n"
+		"Adaptive-Sharpen sharpens the blurred edges most and the flat\n"
+		"areas least: measured here, the only one that does not amplify\n"
+		"the grain, and the one that costs least on a compressed film.\n"
+		"It is also the dearest, about 3 ms for a 4K frame.\n"
+		"Unsharp + Clamp is a plain unsharp mask held to the range its\n"
+		"neighbours really cover, which is what stops the halo. Five\n"
+		"times cheaper and the lowest ringing of all on a clean source.\n"
+		"It adds to RTX Video Super Resolution and to DLSS, which\n"
+		"sharpen as well -- nothing here prevents it.");
+	AddHint(IDC_SHARPEN_LEVEL,
+		L"Five levels, and a level means the same amount of sharpening\n"
+		"whichever method is chosen: each one's setting was read off its\n"
+		"own curve at the same five edge gradients.\n"
+		"3 is where both come closest to the truth, measured on ten 4K\n"
+		"frames; 4 and 5 are past that, for a taste rather than for\n"
+		"fidelity.");
+	AddHint(IDC_CHECK27,
+		L"Direct3D 11.\n"
+		"The shaders rebuild the chroma with the method above and\n"
+		"hand the processor a 4:4:4 picture, so it stays in the\n"
+		"chain. Its own chroma is about bilinear and shifts the\n"
+		"colour on 10-bit: this gains 5.6 dB there, 0.6 dB on 8-bit.\n"
+		"It costs RTX Video Super Resolution, which does nothing to\n"
+		"a 4:4:4 picture. RTX Video HDR is unaffected.\n"
+		"Progressive YUV only: interlaced keeps the processor's\n"
+		"chroma, and 4:4:4 and RGB have none to rebuild.");
+	AddHint(IDC_COMBO2,
+		L"Used to enlarge when the video processor does not resize;\n"
+		"greyed while it does, or while DLSS Super Resolution runs.\n"
+		"Listed best first, measured on film brought to 4K. FSRCNNX\n"
+		"and ArtCNN double the luma through a small network,\n"
+		"RAVU-zoom enlarges to any size; the colour is Catmull-Rom.\n"
+		"ArtCNN C4F16 DS is the best on grain and compression and\n"
+		"the dearest: about 13 ms, 1080p to 4K, on an RTX 3050.\n"
+		"AR keeps what the network invented inside the source's own\n"
+		"range; FSRCNNX rings without it. Direct3D 11.");
+	AddHint(IDC_COMBO3,
+		L"Used to reduce when the video processor does not resize;\n"
+		"greyed while it does. DLSS hands the resizing back here.");
+	AddHint(IDC_COMBO4,
+		L"'Flip' is more efficient, but 'Discard' may work\n"
+		"more correctly in some rare situations.");
+	AddHint(IDC_CHECK26,
+		L"Direct3D 11.\n"
+		"Starts each picture earlier by the time the heavy passes\n"
+		"take -- DLSS, FSRCNNX, RAVU-zoom -- and holds it until its\n"
+		"own time, so they do not make the video late against the\n"
+		"audio. Does nothing while none of them runs.");
+	AddHint(IDC_CHECK20,
+		L"Available for Direct3D 11, x64, NVIDIA only.\n"
+		"Requires nvngx_dlssnr.dll. Runs the network on a private\n"
+		"Direct3D 12 device; the renderer itself stays Direct3D 11.\n"
+		"Forces 16-bit float internal textures and uses about\n"
+		"500 MB of video memory at 1080p.");
+	AddHint(IDC_CHECK23,
+		L"Run the network on the scaled image instead of the source.\n"
+		"Much heavier: at 4K output it works on roughly four times the\n"
+		"pixels, and its working set grows with them.");
+	AddHint(IDC_COMBO13,
+		L"Toggles DLSS during playback without opening this page.\n"
+		"The filter swallows this key, so pick one the player does\n"
+		"not need. Set to None to disable the shortcut.");
+	AddHint(IDC_EDIT7,
+		L"Path to nvngx_dlssnr.dll.\n"
+		"Leave empty to look next to the filter, then one and two\n"
+		"directories up.");
+	AddHint(IDC_COMBO12,
+		L"This DLL build ships a single network, so every preset\n"
+		"falls back to the same one. Kept for other builds.");
+	AddHint(IDC_SLIDER7,
+		L"Steadies the network's effect over time, after it runs: only the\n"
+		"change it makes to the picture is filtered, then added to the current\n"
+		"frame, so the video itself is never delayed. Removes most of the\n"
+		"shimmer DLSS adds. 100 is the measured setting; 0 runs nothing.");
+	AddHint(IDC_COMBO14,
+		L"Where the stabilizer takes motion from.\n"
+		"NVIDIA Optical Flow follows the picture, so moving areas are\n"
+		"steadied too. Where it cannot run, the shader detector takes over.\n"
+		"The shader detector only steadies what stands still.\n"
+		"GPU time per picture on an RTX 3050 at 1080p: 2.8 ms with\n"
+		"Optical Flow, 0.8 ms with the shader detector.");
+	AddHint(IDC_CHECK24,
+		L"Also gives the Optical Flow vectors to the network, which then uses\n"
+		"them for its own history. Steadier still, but the network renders\n"
+		"differently, most visibly around moving objects.");
+	AddHint(IDC_CHECK22,
+		L"Makes the network ignore its previous output on every frame.\n"
+		"The stabilizer is not affected: it works after the network.");
+	AddHint(IDC_CHECK25,
+		L"Enlarges the picture with NVIDIA DLSS Super Resolution instead of\n"
+		"the Upscaling method above, which is then greyed.\n"
+		"Works with or without DLSS 5 NR. Requires nvngx_dlss.dll (DLSS 4.5,\n"
+		"310.5 or later) and an RTX GPU. Motion comes from NVIDIA Optical Flow;\n"
+		"where DLSS cannot run, the Upscaling method takes over.\n"
+		"Experimental: on grainy film, moving subjects can still shimmer a\n"
+		"little, as estimated motion is never exact, and DLSS removes film\n"
+		"grain along with compression noise.");
+	AddHint(IDC_COMBO15,
+		L"Automatic lets DLSS pick the model for the scale: with 310.9,\n"
+		"M for x2 (1080p on a 4K screen), L for x3 (720p), K below x1.85.\n"
+		"J and K are the first transformer models, L and M the second.\n"
+		"GPU time per frame at 1080p to 4K on an RTX 3050: J or K 11 ms,\n"
+		"M 24 ms, L 31 ms.");
+	AddHint(IDC_EDIT9,
+		L"Path to nvngx_dlss.dll, or its folder; the file must keep that name.\n"
+		"Leave empty to look next to the filter, then one and two\n"
+		"directories up.");
+
+	// Nothing tells this page that the renderer moved under it: the toggle key can
+	// switch DLSS while it is open, and what the processor is doing moves with the
+	// film.
+	SetTimer(kRefreshTimer, 500);
+
+	// From here on an edit is the user's: SetDirty does nothing before this, so
+	// filling the controls in above does not light the Apply button.
+	m_bActivated = true;
+
+	return S_OK;
+}
+
+HRESULT CVRSettingsPPage::OnDeactivate()
+{
+	KillTimer(kRefreshTimer);
+
+	// The page's dialog is destroyed right after this, and its children with it.
+	// Forgetting them here is what stops a later activation from adding tooltips to
+	// a dead window and quietly losing every hint.
+	for (HWND& hSection : m_hSections) {
+		if (hSection) {
+			::DestroyWindow(hSection);
+			hSection = nullptr;
+		}
+	}
+	if (m_hHint) {
+		::DestroyWindow(m_hHint);
+		m_hHint = nullptr;
+	}
+	m_bActivated = false;
+
+	return S_OK;
+}
+
+INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	if ((uMsg == WM_TIMER && wParam == kRefreshTimer || uMsg == WM_SHOWWINDOW && wParam) && m_pVideoRenderer) {
+		// What the renderer is doing with the picture decides part of the greying,
+		// and the toggle key can switch DLSS 5 NR while this page is open. Nothing
+		// else of the user's edits is touched.
+		Settings_t current;
+		m_pVideoRenderer->GetSettings(current);
+		const bool bActive = m_pVideoRenderer->GetActive();
+		const unsigned uVPUse = bActive ? m_pVideoRenderer->GetVideoProcessorUse() : 0;
+		const bool bToggled = (current.bDlssNR != m_SetsPP.bDlssNR);
+		if (bToggled || bActive != m_bRendererActive || uVPUse != m_uVPUse || uMsg == WM_SHOWWINDOW) {
+			if (bToggled) {
+				m_SetsPP.bDlssNR = current.bDlssNR;
+				SetCheck(IDC_CHECK20, m_SetsPP.bDlssNR);
+			}
+			m_bRendererActive = bActive;
+			m_uVPUse = uVPUse;
+			EnableControls();
+		}
+	}
+
+	if (uMsg == WM_COMMAND) {
+		const int nID = LOWORD(wParam);
+		const int action = HIWORD(wParam);
+
+		if (action == LBN_SELCHANGE && nID == IDC_NAV) {
+			HWND hList = ::GetDlgItem(m_hwnd, IDC_NAV);
+			const LRESULT index = hList ? SendMessageW(hList, LB_GETCURSEL, 0, 0) : LB_ERR;
+			if (index != LB_ERR) {
+				ShowSection((int)SendMessageW(hList, LB_GETITEMDATA, index, 0));
+			}
+			return (INT_PTR)1;
+		}
+		if (action == BN_CLICKED && nID == IDC_BUTTON1) {
+			// Back to the defaults, except the DLSS tuning, which has its own button
+			// in its own section -- the same split the two old pages had.
+			Settings_t defaults;
+			CopyDlssSettings(defaults, m_SetsPP);
+			m_SetsPP = defaults;
+			SetControls();
+			EnableControls();
+			SetDirty();
+			return (INT_PTR)1;
+		}
+	}
+
+	return CBasePropertyPage::OnReceiveMessage(hwnd, uMsg, wParam, lParam);
+}
+
+INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	if (uMsg == WM_COMMAND) {
+		const int nID = LOWORD(wParam);
+		const int action = HIWORD(wParam);
+
+		if (action == BN_CLICKED) {
+			// bEnables: the box decides whether other controls still serve.
+			const struct { int id; bool* pValue; bool bEnables; } checks[] = {
+				{ IDC_CHECK1,  &m_SetsPP.bUseD3D11,            true  },
+				{ IDC_CHECK2,  &m_SetsPP.bShowStats,           false },
+				{ IDC_CHECK3,  &m_SetsPP.bDeintDouble,         false },
+				{ IDC_CHECK4,  &m_SetsPP.VPFmts.bOther,        true  },
+				{ IDC_CHECK5,  &m_SetsPP.bVPScaling,           true  },
+				{ IDC_CHECK6,  &m_SetsPP.bInterpolateAt50pct,  false },
+				{ IDC_CHECK7,  &m_SetsPP.VPFmts.bNV12,         true  },
+				{ IDC_CHECK8,  &m_SetsPP.VPFmts.bP01x,         true  },
+				{ IDC_CHECK9,  &m_SetsPP.VPFmts.bYUY2,         true  },
+				{ IDC_CHECK10, &m_SetsPP.bUseDither,           false },
+				{ IDC_CHECK11, &m_SetsPP.bExclusiveFS,         false },
+				{ IDC_CHECK13, &m_SetsPP.bAdjustPresentTime,   false },
+				{ IDC_CHECK14, &m_SetsPP.bConvertToSdr,        true  },
+				{ IDC_CHECK15, &m_SetsPP.bVBlankBeforePresent, false },
+				{ IDC_CHECK16, &m_SetsPP.bReinitByDisplay,     false },
+				{ IDC_CHECK17, &m_SetsPP.bDeintBlend,          false },
+				{ IDC_CHECK18, &m_SetsPP.bHdrPreferDoVi,       false },
+				{ IDC_CHECK19, &m_SetsPP.bVPRTXVideoHDR,       false },
+				{ IDC_CHECK20, &m_SetsPP.bDlssNR,              true  },
+				{ IDC_CHECK21, &m_SetsPP.bDlssNRAutoMask,      false },
+				{ IDC_CHECK22, &m_SetsPP.bDlssNRNoHistory,     false },
+				{ IDC_CHECK23, &m_SetsPP.bDlssNRAfterUpscale,  false },
+				{ IDC_CHECK24, &m_SetsPP.bDlssNRMotionVectors, false },
+				{ IDC_CHECK25, &m_SetsPP.bDlssSR,              true  },
+				{ IDC_CHECK26, &m_SetsPP.bDlssRenderAhead,     false },
+				{ IDC_CHECK27, &m_SetsPP.bVPReplaceChroma,     true  },
+			};
+			for (const auto& c : checks) {
+				if (nID == c.id) {
+					*c.pValue = Checked(c.id);
+					if (c.bEnables) {
+						EnableControls();
+					}
+					SetDirty();
+					return (INT_PTR)1;
+				}
+			}
+
+			if (nID == IDC_BUTTON2 || nID == IDC_BUTTON4) {
+				const bool bSR = (nID == IDC_BUTTON4);
+				wchar_t* target = bSR ? m_SetsPP.szDlssSRDllPath : m_SetsPP.szDlssNRDllPath;
+				wchar_t path[MAX_PATH] = {};
+				wcscpy_s(path, target);
+
+				OPENFILENAMEW ofn = {};
+				ofn.lStructSize = sizeof(ofn);
+				ofn.hwndOwner   = hDlg;
+				ofn.lpstrFilter = bSR
+					? L"DLSS Super Resolution\0nvngx_dlss.dll\0DLL files (*.dll)\0*.dll\0All files (*.*)\0*.*\0\0"
+					: L"NGX snippet\0nvngx_dlssnr.dll;nvngx*.dll\0DLL files (*.dll)\0*.dll\0All files (*.*)\0*.*\0\0";
+				ofn.lpstrFile   = path;
+				ofn.nMaxFile    = (DWORD)std::size(path);
+				ofn.lpstrTitle  = bSR ? L"Select nvngx_dlss.dll" : L"Select nvngx_dlssnr.dll";
+				ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+				if (GetOpenFileNameW(&ofn)) {
+					wcscpy_s(target, MAX_PATH, path);
+					SetText(bSR ? IDC_EDIT9 : IDC_EDIT7, target);
+					SetDirty();
+				}
+				return (INT_PTR)1;
+			}
+
+			if (nID == IDC_BUTTON3) {
+				// Back to the default DLSS tuning. Whether DLSS is on, its key and
+				// where the DLL lives are not tuning, so they stay as they are.
+				Settings_t defaults;
+				defaults.bDlssNR = m_SetsPP.bDlssNR;
+				defaults.iDlssNRToggleKey = m_SetsPP.iDlssNRToggleKey;
+				wcscpy_s(defaults.szDlssNRDllPath, m_SetsPP.szDlssNRDllPath);
+				defaults.bDlssSR = m_SetsPP.bDlssSR;
+				wcscpy_s(defaults.szDlssSRDllPath, m_SetsPP.szDlssSRDllPath);
+				CopyDlssSettings(m_SetsPP, defaults);
+				SetControls();
+				EnableControls();
+				SetDirty();
+				return (INT_PTR)1;
+			}
+		}
+
+		if (action == EN_CHANGE) {
+			if (nID == IDC_EDIT_DISPLAYMAX) {
+				SetDirty();
+				return (INT_PTR)1;
+			}
+			if (nID == IDC_EDIT7 || nID == IDC_EDIT9) {
+				// SetControls fills the box too; only a real edit makes it dirty.
+				wchar_t* target = (nID == IDC_EDIT9) ? m_SetsPP.szDlssSRDllPath : m_SetsPP.szDlssNRDllPath;
+				wchar_t path[MAX_PATH] = {};
+				if (HWND h = Item(nID)) {
+					::GetWindowTextW(h, path, (int)std::size(path));
+				}
+				if (wcscmp(path, target)) {
+					wcscpy_s(target, MAX_PATH, path);
+					SetDirty();
+				}
+				return (INT_PTR)1;
+			}
+		}
+
+		if (action == CBN_SELCHANGE) {
+			// Lists whose selected position is the value that gets saved. Their order
+			// must never change: it is what the registry holds.
+			const struct { int id; int* pValue; bool bEnables; } byPosition[] = {
+				{ IDC_COMBO3,  &m_SetsPP.iDownscaling,       false },
+				{ IDC_COMBO4,  &m_SetsPP.iSwapEffect,        false },
+				{ IDC_COMBO6,  &m_SetsPP.iResizeStats,       false },
+				{ IDC_COMBO7,  &m_SetsPP.iHdrToggleDisplay,  false },
+				{ IDC_COMBO8,  &m_SetsPP.iVPSuperRes,        false },
+				{ IDC_COMBO9,  &m_SetsPP.iVPDeinterlacing,   false },
+				{ IDC_SHARPEN, &m_SetsPP.iSharpen,           true  },
+			};
+			for (const auto& c : byPosition) {
+				if (nID == c.id) {
+					const int value = (int)Send(c.id, CB_GETCURSEL);
+					if (value != *c.pValue) {
+						*c.pValue = value;
+						SetDirty();
+						if (c.bEnables) {
+							EnableControls();
+						}
+					}
+					return (INT_PTR)1;
+				}
+			}
+
+			// Lists that carry their value as item data, so they can be ordered freely.
+			const struct { int id; int* pValue; bool bEnables; } byData[] = {
+				{ IDC_COMBO2,  &m_SetsPP.iUpscaling,       false },
+				{ IDC_COMBO5,  &m_SetsPP.iChromaScaling,   false },
+				{ IDC_COMBO11, &m_SetsPP.iDlssNRStyle,     false },
+				{ IDC_COMBO12, &m_SetsPP.iDlssNRPreset,    false },
+				{ IDC_COMBO13, &m_SetsPP.iDlssNRToggleKey, false },
+				{ IDC_COMBO14, &m_SetsPP.iDlssNRMotion,    true  },
+				{ IDC_COMBO15, &m_SetsPP.iDlssSRPreset,    false },
+			};
+			for (const auto& c : byData) {
+				if (nID == c.id) {
+					const int value = (int)Combo_CurData(Item(c.id));
+					if (value != *c.pValue) {
+						*c.pValue = value;
+						SetDirty();
+						if (c.bEnables) {
+							EnableControls();
+						}
+					}
+					return (INT_PTR)1;
+				}
+			}
+
+			if (nID == IDC_COMBO1) {
+				const int value = (int)Combo_CurData(Item(IDC_COMBO1));
+				if (value != m_SetsPP.iTexFormat) {
+					m_SetsPP.iTexFormat = value;
+					SetDirty();
+#ifdef _WIN64
+					Enable(IDC_CHECK19, m_SetsPP.bUseD3D11 && m_SetsPP.bHdrPassthrough
+						&& m_SetsPP.iTexFormat != TEXFMT_8INT);
+#endif
+				}
+				return (INT_PTR)1;
+			}
+
+			if (nID == IDC_COMBO10) {
+				// One list for two fields: passthrough, or a local tone mapping of a
+				// given kind.
+				const LRESULT value = Send(IDC_COMBO10, CB_GETCURSEL);
+				switch (value) {
+				case 0:
+					m_SetsPP.bHdrPassthrough = false;
+					m_SetsPP.bHdrLocalToneMapping = false;
+					break;
+				case 1:
+					m_SetsPP.bHdrPassthrough = true;
+					m_SetsPP.bHdrLocalToneMapping = false;
+					break;
+				case 2: case 3: case 4: case 5: case 6:
+					m_SetsPP.bHdrPassthrough = false;
+					m_SetsPP.bHdrLocalToneMapping = true;
+					m_SetsPP.iHdrLocalToneMappingType = (int)value - 1;
+					break;
+				default:
+					break;
+				}
+				SetDirty();
+				EnableControls();
+				return (INT_PTR)1;
+			}
+		}
+	}
+	else if (uMsg == WM_HSCROLL) {
+		const HWND hCtrl = (HWND)lParam;
+
+		if (hCtrl == Item(IDC_SHARPEN_LEVEL)) {
+			const int value = (int)Send(IDC_SHARPEN_LEVEL, TBM_GETPOS);
+			if (value != m_SetsPP.iSharpenLevel) {
+				m_SetsPP.iSharpenLevel = value;
+				SetText(IDC_SHARPEN_LEVEL_TEXT, std::to_wstring(value).c_str());
+				SetDirty();
+			}
+			return (INT_PTR)1;
+		}
+		if (hCtrl == Item(IDC_SLIDER1)) {
+			const int value = (int)Send(IDC_SLIDER1, TBM_GETPOS);
+			if (value != m_SetsPP.iHdrOsdBrightness) {
+				m_SetsPP.iHdrOsdBrightness = value;
+				SetDirty();
+			}
+			return (INT_PTR)1;
+		}
+		if (hCtrl == Item(IDC_SLIDER2)) {
+			const int value = (int)Send(IDC_SLIDER2, TBM_GETPOS) * SDR_NITS_STEP;
+			if (value != m_SetsPP.iSDRDisplayNits) {
+				m_SetsPP.iSDRDisplayNits = value;
+				SetText(IDC_EDIT1, std::to_wstring(value).c_str());
+				SetDirty();
+				// This one applies as it is dragged, so the picture follows the slider.
+				Settings_t sets;
+				m_pVideoRenderer->GetSettings(sets);
+				sets.iSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
+				m_pVideoRenderer->SetSettings(sets);
+			}
+			return (INT_PTR)1;
+		}
+
+		// The DLSS sliders are not applied on drag: a settings round-trip per pixel
+		// of travel would recreate state on every mouse move.
+		const struct { int idSlider; int idEdit; int* pValue; bool bStrength; } sliders[] = {
+			{ IDC_SLIDER3, IDC_EDIT3, &m_SetsPP.iDlssNRIntensity,      true  },
+			{ IDC_SLIDER4, IDC_EDIT4, &m_SetsPP.iDlssNRLocalTone,      true  },
+			{ IDC_SLIDER5, IDC_EDIT5, &m_SetsPP.iDlssNRLocalStructure, true  },
+			{ IDC_SLIDER6, IDC_EDIT6, &m_SetsPP.iDlssNRSkinStructure,  true  },
+			{ IDC_SLIDER7, IDC_EDIT8, &m_SetsPP.iDlssNRStabilizer,     false },
+		};
+		for (const auto& s : sliders) {
+			if (hCtrl == Item(s.idSlider)) {
+				const int value = (int)Send(s.idSlider, TBM_GETPOS);
+				if (value != *s.pValue) {
+					*s.pValue = value;
+					SetText(s.idEdit, (s.bStrength ? StrengthText(value) : StabilizerText(value)).c_str());
+					if (!s.bStrength) {
+						EnableControls(); // the vectors box needs a running stabilizer
+					}
+					SetDirty();
+				}
+				return (INT_PTR)1;
+			}
+		}
+	}
+
+	return (INT_PTR)FALSE;
+}
+
+HRESULT CVRSettingsPPage::OnApplyChanges()
+{
+	BOOL translated = FALSE;
+	int displayMaxNits = 0;
+	if (HWND h = Item(IDC_EDIT_DISPLAYMAX)) {
+		wchar_t text[16] = {};
+		::GetWindowTextW(h, text, (int)std::size(text));
+		translated = (text[0] != L'\0');
+		displayMaxNits = _wtoi(text);
+	}
+	if (!translated || displayMaxNits <= HDR_NITS_MIN || displayMaxNits > HDR_NITS_MAX) {
+		MessageBoxW(L"Invalid HDR Brightness. Please enter a valid number from 100 to 10000.", L"Error", MB_OK | MB_ICONERROR);
+	}
+	else {
+		m_SetsPP.iHdrDisplayMaxNits = displayMaxNits;
+	}
+
+	// The DLL paths are free text; an empty box means "locate it automatically".
+	if (HWND h = Item(IDC_EDIT7)) {
+		::GetWindowTextW(h, m_SetsPP.szDlssNRDllPath, (int)std::size(m_SetsPP.szDlssNRDllPath));
+	}
+	if (HWND h = Item(IDC_EDIT9)) {
+		::GetWindowTextW(h, m_SetsPP.szDlssSRDllPath, (int)std::size(m_SetsPP.szDlssSRDllPath));
+	}
+
+	m_pVideoRenderer->SetSettings(m_SetsPP);
+	m_pVideoRenderer->SaveSettings();
+
+	m_oldSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
+
+	EnableControls(); // what was just applied decides part of the greying
+
+	// And whether the DLSS sessions came up with it.
+	if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
+		const struct { const char* field; int id; } statuses[] = {
+			{ "dlssStatus",   IDC_STATIC28 },
+			{ "dlssSRStatus", IDC_STATIC38 },
+		};
+		for (const auto& s : statuses) {
+			LPWSTR pstr = nullptr;
+			std::wstring status;
+			if (S_OK == pIExFilterConfig->Flt_GetString(s.field, &pstr, nullptr) && pstr) {
+				status = pstr;
+				CoTaskMemFree(pstr);
+			}
+			SetText(s.id, status.empty() ? L"" : (L"Status: " + status).c_str());
+		}
+	}
+
+	return S_OK;
+}
+
+void CVRSettingsPPage::AddHint(int id, LPCWSTR text)
+{
+	HWND hItem = Item(id);
+	if (!hItem) {
+		return;
+	}
+	if (!m_hHint) {
+		m_hHint = CreateHintWindow(m_Dlg, 15000);
+	}
+	TOOLINFOW ti = { sizeof(TOOLINFOW) };
+	ti.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
+	ti.hwnd = ::GetParent(hItem);
+	ti.uId = (UINT_PTR)hItem;
+	ti.lpszText = const_cast<LPWSTR>(text);
+	SendMessageW(m_hHint, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+}

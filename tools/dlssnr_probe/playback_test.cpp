@@ -21,8 +21,8 @@
 // the Catmull-Rom one: a wrong pass shows as a large difference.
 //
 //   playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.976] [--only N] [--scalers]
-//   playback_test.exe --dlsspage N    shows the filter's DLSS page for N seconds instead
-//   playback_test.exe --mainpage N    the same for the Settings page
+//   playback_test.exe --mainpage N    shows the filter's settings page for N seconds
+//                                     --section K picks which of its sections to show
 //   playback_test.exe --chroma10 <png>  --chroma in ten bits: P010 against a Y410 reference
 //   playback_test.exe --chroma <png> --interlaced   the media type says interlaced, to see
 //   playback_test.exe --toggle          settings changed in full playback, as the player does
@@ -96,6 +96,8 @@ static bool g_bToggleGpu = false;      // --toggle --gpu: the pictures arrive as
 static bool g_bToggleTap = false;      // --toggle --tap: pause and play tapped, nothing else -- the reported freeze
 static bool g_bToggleWindow = false;   // --toggle --fswitch: paused, the window changes, playback resumes -- the double click
 static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
+static int g_pageSection = 0;          // --section N: which section of the settings page
+static bool g_bPageApply = false;      // --apply: press Apply before closing it
 // The picture is fed as NV12 wherever the hardware video processor has to be able
 // to take it; elsewhere RGB32 keeps the film exact.
 static bool NV12Source() { return g_bScalers || g_bToggle; }
@@ -1016,6 +1018,21 @@ static bool CaptureWindow(HWND hwnd, std::vector<BYTE>& bgra, int& w, int& h)
 // Which of the controls that grey each other are live, and how the two scaling lists
 // were built. A picture of the page says nothing about either, and a control that is
 // accepted but does nothing is exactly the fault worth catching.
+// A control by id anywhere on the page: the sections are child dialogs of their
+// own, so the control is a grandchild and GetDlgItem alone does not reach it.
+static HWND FindItem(HWND hRoot, int id)
+{
+    if (HWND h = GetDlgItem(hRoot, id)) {
+        return h;
+    }
+    for (HWND child = GetWindow(hRoot, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+        if (HWND h = GetDlgItem(child, id)) {
+            return h;
+        }
+    }
+    return nullptr;
+}
+
 static void DumpPageState(HWND hwnd, const char* when)
 {
     const HWND hDlg = GetWindow(hwnd, GW_CHILD);
@@ -1031,17 +1048,17 @@ static void DumpPageState(HWND hwnd, const char* when)
                            std::pair{ 1043, "Downscaling list" },
                            std::pair{ 1251, "Sharpening list" },
                            std::pair{ 1253, "Sharpening intensity" } }) {
-        const HWND h = GetDlgItem(hDlg, c.first);
+        const HWND h = FindItem(hDlg, c.first);
         if (!h) {
             printf("  %-30s (not on this page)\n", c.second);
             continue;
         }
         const bool bCheck = (SendMessageW(h, WM_GETDLGCODE, 0, 0) & DLGC_BUTTON) != 0;
         printf("  %-30s %-7s%s\n", c.second, IsWindowEnabled(h) ? "live" : "GREYED",
-            bCheck ? (IsDlgButtonChecked(hDlg, c.first) == BST_CHECKED ? ", ticked" : ", unticked") : "");
+            bCheck ? (SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED ? ", ticked" : ", unticked") : "");
     }
     for (const auto& list : { std::pair{ 1045, "Chroma upsampling" }, std::pair{ 1042, "Upscaling" } }) {
-        const HWND hCombo = GetDlgItem(hDlg, list.first);
+        const HWND hCombo = FindItem(hDlg, list.first);
         if (!hCombo) {
             continue;
         }
@@ -1091,6 +1108,15 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 	RECT page = { 0, 0, info.size.cx, info.size.cy };
 	pPage->Activate(hwnd, &page, FALSE);
 	pPage->Show(SW_SHOW);
+	if (const HWND hDlg = GetWindow(hwnd, GW_CHILD)) {
+		if (const HWND hList = GetDlgItem(hDlg, 1254)) {   // IDC_NAV
+			SendMessageW(hList, LB_SETCURSEL, g_pageSection, 0);
+			SendMessageW(hDlg, WM_COMMAND, MAKEWPARAM(1254, LBN_SELCHANGE), (LPARAM)hList);
+			wchar_t name[64] = {};
+			SendMessageW(hList, LB_GETTEXT, g_pageSection, (LPARAM)name);
+			wprintf(L"section %d: %s\n", g_pageSection, name);
+		}
+	}
 	printf("property page %ldx%ld shown for %d s\n", info.size.cx, info.size.cy, seconds);
 	fflush(stdout);
 	Pump(700);
@@ -1116,11 +1142,12 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 	// one, and the page is read out after each.
 	for (const int clickId : clicks) {
 		const HWND hDlg = GetWindow(hwnd, GW_CHILD);
-		const HWND hControl = hDlg ? GetDlgItem(hDlg, clickId) : nullptr;
+		const HWND hControl = hDlg ? FindItem(hDlg, clickId) : nullptr;
 		if (hControl) {
+			const HWND hOwner = GetParent(hControl);
 			SendMessageW(hControl, BM_SETCHECK,
-				IsDlgButtonChecked(hDlg, clickId) == BST_CHECKED ? BST_UNCHECKED : BST_CHECKED, 0);
-			SendMessageW(hDlg, WM_COMMAND, MAKEWPARAM(clickId, BN_CLICKED), (LPARAM)hControl);
+				SendMessageW(hControl, BM_GETCHECK, 0, 0) == BST_CHECKED ? BST_UNCHECKED : BST_CHECKED, 0);
+			SendMessageW(hOwner, WM_COMMAND, MAKEWPARAM(clickId, BN_CLICKED), (LPARAM)hControl);
 			Pump(300);
 			Shoot(L"proppage_clicked.bmp");
 			char what[64] = {};
@@ -1130,6 +1157,15 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 			printf("control %d not found\n", clickId);
 		}
 	}
+	// --apply: press Apply as the frame would, so the whole write-back path is
+	// exercised and the registry can be compared before and after.
+	if (g_bPageApply) {
+		const HRESULT hr = pPage->Apply();
+		printf("Apply returned 0x%08X, the page says it is %s\n", (unsigned)hr,
+			pPage->IsPageDirty() == S_OK ? "still dirty" : "clean");
+		Pump(300);
+	}
+
 	Pump(std::max(0, seconds * 1000 - 1000));
 
 	pPage->Deactivate();
@@ -1214,7 +1250,6 @@ int wmain(int argc, wchar_t* argv[])
 	int seconds = 20;
 	int only = -1;
 	int pageSeconds = 0;
-	bool bMainPage = false;
 	std::vector<int> clickControls; // --click N, repeatable: boxes to tick once the page is up
 	const wchar_t* chromaFile = nullptr; // --chroma <file>: the picture to measure on
 	const wchar_t* filterFile = nullptr; // --filter <path>: another build of the x64 filter, to compare with
@@ -1231,8 +1266,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_frameDuration = (REFERENCE_TIME)std::llround(10000000.0 / _wtof(argv[i + 1]));
 		} else if (!wcscmp(argv[i], L"--only")) {
 			only = _wtoi(argv[i + 1]);
-		} else if (!wcscmp(argv[i], L"--dlsspage")) {
-			pageSeconds = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--section")) {
+			g_pageSection = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--click")) {
 			clickControls.push_back(_wtoi(argv[i + 1]));
 		} else if (!wcscmp(argv[i], L"--filter")) {
@@ -1259,7 +1294,6 @@ int wmain(int argc, wchar_t* argv[])
 			chromaFile = argv[i + 1];
 		} else if (!wcscmp(argv[i], L"--mainpage")) {
 			pageSeconds = _wtoi(argv[i + 1]);
-			bMainPage = true;
 		}
 	}
 	for (int i = 1; i < argc; i++) {
@@ -1267,6 +1301,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bScalers = true;
 			source.cx &= ~1; // NV12
 			source.cy &= ~1;
+		} else if (!wcscmp(argv[i], L"--apply")) {
+			g_bPageApply = true;
 		} else if (!wcscmp(argv[i], L"--vp")) {
 			g_bHardwareVP = true;
 		} else if (!wcscmp(argv[i], L"--verbose")) {
@@ -1345,9 +1381,8 @@ int wmain(int argc, wchar_t* argv[])
 	}
 
 	if (pageSeconds > 0) {
-		static const CLSID CLSID_DlssPage = { 0xE3A1C5D7, 0x6B2F, 0x4F19, { 0xA8, 0xD4, 0x5C, 0x0B, 0x9E, 0x7F, 0x21, 0x36 } };
-		static const CLSID CLSID_MainPage = { 0xDA46D181, 0x07D6, 0x441D, { 0xB3, 0x14, 0x01, 0x9A, 0xEB, 0x10, 0x14, 0x8A } };
-		const int rc = ShowPropertyPage(hFilter, hwnd, pageSeconds, bMainPage ? CLSID_MainPage : CLSID_DlssPage, clickControls);
+		static const CLSID CLSID_SettingsPage = { 0xB6F4E8A2, 0x3C71, 0x4D59, { 0x9E, 0x80, 0x1F, 0x2A, 0x7C, 0x4B, 0x5D, 0x63 } };
+		const int rc = ShowPropertyPage(hFilter, hwnd, pageSeconds, CLSID_SettingsPage, clickControls);
 		DestroyWindow(hwnd);
 		CoUninitialize();
 		return rc;

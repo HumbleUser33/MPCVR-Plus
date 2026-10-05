@@ -25,7 +25,7 @@
 #include <Mferror.h>
 #include "Helper.h"
 #include "PropPage.h"
-#include "DLSS/DlssPropPage.h"
+#include "SettingsPage/SettingsPage.h"
 #include "VideoRendererInputPin.h"
 #include "../Include/Version.h"
 #include "VideoRenderer.h"
@@ -1622,23 +1622,17 @@ STDMETHODIMP CMpcVideoRenderer::GetPages(CAUUID* pPages)
 	// Read once: the count and the list below must agree.
 	const bool bActive = GetActive();
 
-	// The DLSS 5 page follows the main one; the snippet is x64 only.
-#ifdef _WIN64
-	const ULONG nFixed = 2;
-#else
-	const ULONG nFixed = 1;
-#endif
-	pPages->cElems = nFixed + (bActive ? 2 : 0);
+	// One page of ours, which carries the settings and DLSS between them.
+	// Upstream's own page is still built and still registered; it is simply not
+	// offered, so a merge from upstream never touches anything the user sees.
+	pPages->cElems = 1 + (bActive ? 2 : 0);
 	pPages->pElems = static_cast<GUID*>(CoTaskMemAlloc(sizeof(GUID) * pPages->cElems));
 	if (pPages->pElems == nullptr) {
 		return E_OUTOFMEMORY;
 	}
 
 	ULONG n = 0;
-	pPages->pElems[n++] = __uuidof(CVRMainPPage);
-#ifdef _WIN64
-	pPages->pElems[n++] = __uuidof(CVRDlssPPage);
-#endif
+	pPages->pElems[n++] = __uuidof(CVRSettingsPPage);
 	if (bActive) {
 		pPages->pElems[n++] = __uuidof(CVRInfoPPage);
 		pPages->pElems[n++] = guidQualityPPage;

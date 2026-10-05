@@ -126,57 +126,162 @@ BEGIN
     EDITTEXT        IDC_EDIT2,5,140,308,12,ES_READONLY | NOT WS_BORDER,WS_EX_RIGHT
 END
 
-IDD_DLSSPROPPAGE DIALOGEX 0, 0, 352, 312
+IDD_SETTINGSPAGE DIALOGEX 0, 0, 420, 302
 STYLE DS_SETFONT | WS_CHILD
-FONT 8, "MS Shell Dlg", 400, 0, 0x0
+FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
-    GROUPBOX        "NVIDIA DLSS 5 Neural Rendering (Direct3D 11, x64)",IDC_STATIC20,5,4,342,62
-    CONTROL         "Enable",IDC_CHECK20,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,10,17,40,10
-    CONTROL         "Apply after upscaling",IDC_CHECK23,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,60,17,90,10
-    LTEXT           "Toggle key:",IDC_STATIC29,236,18,40,8
-    COMBOBOX        IDC_COMBO13,278,16,64,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "DLL:",IDC_STATIC27,10,35,18,8
-    EDITTEXT        IDC_EDIT7,30,33,290,12,ES_AUTOHSCROLL
-    PUSHBUTTON      "...",IDC_BUTTON2,324,33,18,12
-    LTEXT           "",IDC_STATIC28,10,51,332,8,SS_LEFTNOWORDWRAP | SS_ENDELLIPSIS
-    GROUPBOX        "Rendering",IDC_STATIC30,5,72,342,66
-    LTEXT           "Style:",IDC_STATIC21,10,87,22,8
-    COMBOBOX        IDC_COMBO11,34,85,58,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "Preset:",IDC_STATIC22,100,87,24,8
-    COMBOBOX        IDC_COMBO12,126,85,58,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL         "Auto mask",IDC_CHECK21,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,194,86,50,10
-    LTEXT           "Intensity:",IDC_STATIC23,10,105,44,8
-    CONTROL         "",IDC_SLIDER3,"msctls_trackbar32",WS_TABSTOP | 0x400,56,103,80,12
-    EDITTEXT        IDC_EDIT3,138,104,24,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
-    LTEXT           "Local tone:",IDC_STATIC24,178,105,44,8
-    CONTROL         "",IDC_SLIDER4,"msctls_trackbar32",WS_TABSTOP | 0x400,224,103,80,12
-    EDITTEXT        IDC_EDIT4,306,104,24,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
-    LTEXT           "Local struct.:",IDC_STATIC25,10,122,44,8
-    CONTROL         "",IDC_SLIDER5,"msctls_trackbar32",WS_TABSTOP | 0x400,56,120,80,12
-    EDITTEXT        IDC_EDIT5,138,121,24,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
-    LTEXT           "Skin struct.:",IDC_STATIC26,178,122,44,8
-    CONTROL         "",IDC_SLIDER6,"msctls_trackbar32",WS_TABSTOP | 0x400,224,120,80,12
-    EDITTEXT        IDC_EDIT6,306,121,24,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
-    GROUPBOX        "Temporal stability",IDC_STATIC31,5,144,342,74
-    LTEXT           "Stabilizer:",IDC_STATIC32,10,159,44,8
-    CONTROL         "",IDC_SLIDER7,"msctls_trackbar32",WS_TABSTOP | 0x400,56,157,106,12
-    EDITTEXT        IDC_EDIT8,164,158,24,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
-    LTEXT           "Motion:",IDC_STATIC34,200,159,28,8
-    COMBOBOX        IDC_COMBO14,230,157,112,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL         "Send the motion vectors to DLSS",IDC_CHECK24,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,10,174,140,10
-    CONTROL         "Disable temporal history",IDC_CHECK22,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,178,174,110,10
-    LTEXT           "Steadies the network's effect after it runs: only its change to the picture is filtered over time, so the video itself is never delayed. Optical Flow follows motion; the shader detector steadies still areas only.",IDC_STATIC33,10,188,332,26
-    GROUPBOX        "Upscaling: NVIDIA DLSS Super Resolution (Direct3D 11, x64)",IDC_STATIC35,5,224,342,62
-    CONTROL         "Use DLSS SR 4.5 for upscaling (Experimental)",IDC_CHECK25,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,10,237,200,10
-    LTEXT           "Preset:",IDC_STATIC36,236,238,26,8
-    COMBOBOX        IDC_COMBO15,264,236,78,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "DLL:",IDC_STATIC37,10,255,18,8
-    EDITTEXT        IDC_EDIT9,30,253,290,12,ES_AUTOHSCROLL
-    PUSHBUTTON      "...",IDC_BUTTON4,324,253,18,12
-    LTEXT           "",IDC_STATIC38,10,271,332,8,SS_LEFTNOWORDWRAP | SS_ENDELLIPSIS
-    PUSHBUTTON      "Default",IDC_BUTTON3,305,292,37,14
+    LTEXT           "MPC Video Renderer",IDC_STATIC,10,8,150,12
+    RTEXT           "",IDC_EDIT2,170,8,242,12
+    LISTBOX         IDC_NAV,10,26,96,248,LBS_NOTIFY | WS_BORDER | WS_TABSTOP
+    PUSHBUTTON      "Default",IDC_BUTTON1,375,280,37,14
 END
 
+IDD_SECTION_SOURCE DIALOGEX 0, 0, 300, 248
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "How the picture reaches the renderer, and what the hardware video processor is allowed to take.",IDC_STATIC_DESC_SOURCE,8,6,284,18
+    CONTROL         "Use Direct3D 11",IDC_CHECK1,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,32,120,10
+    LTEXT           "Texture format:",IDC_STATIC,8,52,78,8
+    COMBOBOX        IDC_COMBO1,90,50,120,100,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Let the video processor take:",IDC_STATIC1,8,76,110,8
+    CONTROL         "NV12",IDC_CHECK7,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,16,90,44,10
+    CONTROL         "P010/P016",IDC_CHECK8,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,66,90,62,10
+    CONTROL         "YUY2",IDC_CHECK9,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,134,90,44,10
+    CONTROL         "Other supported formats",IDC_CHECK4,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,16,104,130,10
+    LTEXT           "Deinterlacing:",IDC_STATIC2,8,128,78,8
+    COMBOBOX        IDC_COMBO9,90,126,120,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Double the frame rate when deinterlacing",IDC_CHECK3,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,148,230,10
+    CONTROL         "Use Blend deinterlacing for YUV 4:2:0",IDC_CHECK17,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,164,230,10
+END
+
+IDD_SECTION_CHROMA DIALOGEX 0, 0, 300, 248
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Rebuilding the colour of a subsampled picture. The method below serves whenever the shaders do the conversion.",IDC_STATIC_DESC_CHROMA,8,6,284,18
+    LTEXT           "Chroma upsampling:",IDC_STATIC40,8,34,78,8
+    COMBOBOX        IDC_COMBO5,90,32,140,140,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Replace the video processor's chroma upsampling",IDC_CHECK27,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,56,250,10
+    LTEXT           "The shaders rebuild the chroma with the method above and hand the processor a 4:4:4 picture, so it stays in the chain. It costs RTX Video Super Resolution, which the driver does not apply to 4:4:4.",IDC_STATIC,18,72,274,26
+END
+
+IDD_SECTION_SCALING DIALOGEX 0, 0, 300, 248
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Everything that changes the size of the picture. Only one enlarger runs at a time.",IDC_STATIC_DESC_SCALING,8,6,284,18
+    CONTROL         "Use the video processor for resizing",IDC_CHECK5,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,32,190,10
+    LTEXT           "Request Super Resolution:",IDC_STATIC7,18,50,104,8
+    COMBOBOX        IDC_COMBO8,126,48,86,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Upscaling:",IDC_STATIC39,8,74,78,8
+    COMBOBOX        IDC_COMBO2,90,72,140,170,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Downscaling:",IDC_STATIC41,8,94,78,8
+    COMBOBOX        IDC_COMBO3,90,92,140,100,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Use the ""Upscaling"" method to reduce the frame to 50%",IDC_CHECK6,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,114,270,10
+    LTEXT           "NVIDIA DLSS Super Resolution",IDC_STATIC35,8,138,284,8
+    CONTROL         "Use DLSS SR 4.5 for upscaling (experimental)",IDC_CHECK25,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,154,230,10
+    LTEXT           "Preset:",IDC_STATIC36,8,174,78,8
+    COMBOBOX        IDC_COMBO15,90,172,110,100,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "DLL:",IDC_STATIC37,8,194,78,8
+    EDITTEXT        IDC_EDIT9,90,192,180,12,ES_AUTOHSCROLL
+    PUSHBUTTON      "...",IDC_BUTTON4,274,192,18,12
+    LTEXT           "",IDC_STATIC38,8,212,284,8,SS_LEFTNOWORDWRAP | SS_ENDELLIPSIS
+END
+
+IDD_SECTION_DETAIL DIALOGEX 0, 0, 300, 248
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Sharpening runs after the resize, so it reaches a film already at the screen's size as well.",IDC_STATIC_DESC_DETAIL,8,6,284,18
+    LTEXT           "Sharpening:",IDC_STATIC_SHARPEN,8,34,78,8
+    COMBOBOX        IDC_SHARPEN,90,32,140,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Intensity:",IDC_STATIC_SHARPEN_LEVEL,8,58,78,8
+    CONTROL         "",IDC_SHARPEN_LEVEL,"msctls_trackbar32",WS_TABSTOP | 0x400,90,56,140,14
+    LTEXT           "3",IDC_SHARPEN_LEVEL_TEXT,236,58,30,8
+    CONTROL         "Use dithering",IDC_CHECK10,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,84,120,10
+END
+
+IDD_SECTION_DLSSNR DIALOGEX 0, 0, 300, 248
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Neural reconstruction. Direct3D 11, x64, NVIDIA.",IDC_STATIC_DESC_DLSSNR,8,4,284,10
+    CONTROL         "Enable",IDC_CHECK20,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,20,54,10
+    CONTROL         "Apply after upscaling",IDC_CHECK23,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,66,20,100,10
+    LTEXT           "Toggle key:",IDC_STATIC29,176,21,46,8
+    COMBOBOX        IDC_COMBO13,224,19,68,100,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "DLL:",IDC_STATIC27,8,38,26,8
+    EDITTEXT        IDC_EDIT7,36,36,236,12,ES_AUTOHSCROLL
+    PUSHBUTTON      "...",IDC_BUTTON2,274,36,18,12
+    LTEXT           "",IDC_STATIC28,8,52,284,8,SS_LEFTNOWORDWRAP | SS_ENDELLIPSIS
+    LTEXT           "Rendering",IDC_STATIC30,8,68,284,8
+    LTEXT           "Style:",IDC_STATIC21,8,84,40,8
+    COMBOBOX        IDC_COMBO11,52,82,72,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Preset:",IDC_STATIC22,132,84,34,8
+    COMBOBOX        IDC_COMBO12,170,82,66,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Auto mask",IDC_CHECK21,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,242,83,54,10
+    LTEXT           "Intensity:",IDC_STATIC23,8,102,52,8
+    CONTROL         "",IDC_SLIDER3,"msctls_trackbar32",WS_TABSTOP | 0x400,64,100,170,12
+    EDITTEXT        IDC_EDIT3,238,101,28,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
+    LTEXT           "Local tone:",IDC_STATIC24,8,120,52,8
+    CONTROL         "",IDC_SLIDER4,"msctls_trackbar32",WS_TABSTOP | 0x400,64,118,170,12
+    EDITTEXT        IDC_EDIT4,238,119,28,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
+    LTEXT           "Local struct.:",IDC_STATIC25,8,138,52,8
+    CONTROL         "",IDC_SLIDER5,"msctls_trackbar32",WS_TABSTOP | 0x400,64,136,170,12
+    EDITTEXT        IDC_EDIT5,238,137,28,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
+    LTEXT           "Skin struct.:",IDC_STATIC26,8,156,52,8
+    CONTROL         "",IDC_SLIDER6,"msctls_trackbar32",WS_TABSTOP | 0x400,64,154,170,12
+    EDITTEXT        IDC_EDIT6,238,155,28,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
+    LTEXT           "Temporal stability",IDC_STATIC31,8,176,180,8
+    PUSHBUTTON      "Default",IDC_BUTTON3,254,172,38,14
+    LTEXT           "Stabilizer:",IDC_STATIC32,8,192,52,8
+    CONTROL         "",IDC_SLIDER7,"msctls_trackbar32",WS_TABSTOP | 0x400,64,190,170,12
+    EDITTEXT        IDC_EDIT8,238,191,28,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
+    LTEXT           "Motion:",IDC_STATIC34,8,210,52,8
+    COMBOBOX        IDC_COMBO14,64,208,170,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Send the motion vectors to DLSS",IDC_CHECK24,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,228,150,10
+    CONTROL         "Disable temporal history",IDC_CHECK22,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,164,228,128,10
+END
+
+IDD_SECTION_HDR DIALOGEX 0, 0, 300, 248
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "What leaves the renderer when the source carries more than SDR.",IDC_STATIC_DESC_HDR,8,6,284,10
+    CONTROL         "Prefer Dolby Vision over PQ and HLG",IDC_CHECK18,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,26,200,10
+    LTEXT           "HDR10/DV:",IDC_STATIC99,8,48,60,8
+    COMBOBOX        IDC_COMBO10,72,46,120,100,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    EDITTEXT        IDC_EDIT_DISPLAYMAX,200,46,34,12,ES_AUTOHSCROLL | ES_NUMBER,WS_EX_RIGHT
+    LTEXT           "Nits",IDC_STATIC100,238,48,20,8
+    LTEXT           "Windows HDR:",IDC_STATIC5,8,70,60,8
+    COMBOBOX        IDC_COMBO7,72,68,160,100,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Subtitle and OSD brightness:",IDC_STATIC6,8,92,110,8
+    CONTROL         "",IDC_SLIDER1,"msctls_trackbar32",WS_TABSTOP | 0x400,122,90,110,14
+    LTEXT           "If passthrough is impossible or disabled, then:",IDC_STATIC,8,118,240,8
+    CONTROL         "Convert to SDR",IDC_CHECK14,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,18,132,100,10
+    LTEXT           "SDR display nits:",IDC_STATIC8,18,152,70,8
+    EDITTEXT        IDC_EDIT1,92,150,34,12,ES_AUTOHSCROLL | ES_READONLY | ES_NUMBER,WS_EX_RIGHT
+    CONTROL         "",IDC_SLIDER2,"msctls_trackbar32",WS_TABSTOP | 0x400,132,150,100,14
+    CONTROL         "RTX Video HDR",IDC_CHECK19,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,178,120,10
+END
+
+IDD_SECTION_PRESENT DIALOGEX 0, 0, 300, 248
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "How finished pictures reach the screen.",IDC_STATIC_DESC_PRESENT,8,6,284,10
+    LTEXT           "Swap effect:",IDC_STATIC3,8,28,78,8
+    COMBOBOX        IDC_COMBO4,90,26,120,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Use exclusive fullscreen",IDC_CHECK11,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,48,190,10
+    CONTROL         "Wait for VBlank before Present",IDC_CHECK15,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,64,210,10
+    CONTROL         "Adjust the frame presentation time",IDC_CHECK13,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,80,210,10
+    CONTROL         "Reinitialize device when changing display",IDC_CHECK16,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,96,230,10
+    CONTROL         "Render ahead to keep audio sync",IDC_CHECK26,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,112,210,10
+    LTEXT           "Statistics",IDC_STATIC,8,136,284,8
+    CONTROL         "Show statistics",IDC_CHECK2,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,8,152,120,10
+    COMBOBOX        IDC_COMBO6,8,168,160,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+END
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -189,6 +294,11 @@ BEGIN
 END
 
 IDD_INFOPROPPAGE AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+IDD_SETTINGSPAGE AFX_DIALOG_LAYOUT
 BEGIN
     0
 END
@@ -235,7 +345,7 @@ STRINGTABLE
 BEGIN
     IDS_MAINPROPPAGE_TITLE  "Settings"
     IDS_INFOPROPPAGE_TITLE  "Information"
-    IDS_DLSSPROPPAGE_TITLE  "DLSS"
+    IDS_SETTINGSPAGE_TITLE  "Settings"
 END
 
 #endif    // English (United States) resources

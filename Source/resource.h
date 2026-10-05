@@ -19,8 +19,15 @@
 #define IDD_INFOPROPPAGE                103
 #define IDS_MAINPROPPAGE_TITLE          104
 #define IDS_INFOPROPPAGE_TITLE          105
-#define IDD_DLSSPROPPAGE                4000
-#define IDS_DLSSPROPPAGE_TITLE          4010
+#define IDD_SETTINGSPAGE                4001
+#define IDD_SECTION_SOURCE              4002
+#define IDD_SECTION_CHROMA              4003
+#define IDD_SECTION_SCALING             4004
+#define IDD_SECTION_DETAIL              4005
+#define IDD_SECTION_DLSSNR              4006
+#define IDD_SECTION_HDR                 4007
+#define IDD_SECTION_PRESENT             4008
+#define IDS_SETTINGSPAGE_TITLE          4011
 #define IDF_DITHER_32X32_FLOAT16        401
 #define IDF_HLSL_ST2084                 501
 #define IDF_HLSL_HLG                    502
@@ -221,13 +228,22 @@
 #define IDC_SHARPEN                     1251
 #define IDC_STATIC_SHARPEN_LEVEL        1252
 #define IDC_SHARPEN_LEVEL               1253
+#define IDC_NAV                         1254
+#define IDC_STATIC_DESC_SOURCE          1255
+#define IDC_STATIC_DESC_CHROMA          1256
+#define IDC_STATIC_DESC_SCALING         1257
+#define IDC_STATIC_DESC_DETAIL          1258
+#define IDC_STATIC_DESC_DLSSNR          1259
+#define IDC_STATIC_DESC_HDR             1260
+#define IDC_STATIC_DESC_PRESENT         1261
+#define IDC_SHARPEN_LEVEL_TEXT          1262
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        4011
+#define _APS_NEXT_RESOURCE_VALUE        4009
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1254
+#define _APS_NEXT_CONTROL_VALUE         1263
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

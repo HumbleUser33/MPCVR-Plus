@@ -74,7 +74,6 @@
     <ClCompile Include="DLSS\DlssMotionMask.cpp" />
     <ClCompile Include="DLSS\DlssNR.cpp" />
     <ClCompile Include="DLSS\DlssOpticalFlow.cpp" />
-    <ClCompile Include="DLSS\DlssPropPage.cpp" />
     <ClCompile Include="DLSS\DlssStabilizer.cpp" />
     <ClCompile Include="DLSS\DlssSR.cpp" />
     <ClCompile Include="DLSS\DlssTiming.cpp" />
@@ -86,6 +85,7 @@
     <ClCompile Include="Helper.cpp" />
     <ClCompile Include="MediaSampleSideData.cpp" />
     <ClCompile Include="PropPage.cpp" />
+    <ClCompile Include="SettingsPage\SettingsPage.cpp" />
     <ClCompile Include="renbase2.cpp" />
     <ClCompile Include="Shaders.cpp" />
     <ClCompile Include="stdafx.cpp">
@@ -118,7 +118,6 @@
     <ClInclude Include="DX11Helper.h" />
     <ClInclude Include="DLSS\DlssNR.h" />
     <ClInclude Include="DLSS\DlssOpticalFlow.h" />
-    <ClInclude Include="DLSS\DlssPropPage.h" />
     <ClInclude Include="DLSS\DlssStabilizer.h" />
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowCommon.h" />
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowD3D11.h" />
@@ -137,6 +136,7 @@
     <ClInclude Include="IVideoRenderer.h" />
     <ClInclude Include="MediaSampleSideData.h" />
     <ClInclude Include="PropPage.h" />
+    <ClInclude Include="SettingsPage\SettingsPage.h" />
     <ClInclude Include="renbase2.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="Shaders.h" />
