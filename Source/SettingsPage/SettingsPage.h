@@ -65,11 +65,6 @@ private:
 	Settings_t m_SetsPP;
 	int m_oldSDRDisplayNits = SDR_NITS_DEF;
 
-	// What the renderer is doing right now, watched by the timer: it decides part of
-	// the greying, and nothing else tells the page when it changes.
-	unsigned m_uVPUse = 0;
-	bool m_bRendererActive = false;
-
 	bool m_bActivated = false;
 	HWND m_hHint = nullptr;
 
@@ -115,9 +110,8 @@ private:
 		}
 	}
 
-	// Nothing tells a page that the renderer changed under it -- the toggle key can
-	// switch DLSS while this is open, and what the processor is really doing moves
-	// with the film.
+	// Nothing tells a page that the renderer changed under it, and the toggle key
+	// can switch DLSS 5 NR while this is open.
 	static constexpr UINT_PTR kRefreshTimer = 1;
 
 	void AddHint(int id, LPCWSTR text);

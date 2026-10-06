@@ -45,6 +45,7 @@
 #include <vector>
 #include <atomic>
 #include <commctrl.h>
+#include "../../Source/SettingsPage/Greying.h"
 #include <map>
 #include <thread>
 #include <vector>
@@ -100,6 +101,7 @@ static bool g_bToggleWindow = false;   // --toggle --fswitch: paused, the window
 static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
 static int g_frameSeconds = 0;         // --frame N: the page inside a real property frame
 static bool g_bThemedHost = false;     // --themed: and a player that paints it
+static bool g_bGreying = false;        // --greying: the rules alone, without a film
 static int g_pageSection = -1;         // --section N: which one to show, or the page's own choice
 static bool g_bPageApply = false;      // --apply: press Apply before closing it
 // The picture is fed as NV12 wherever the hardware video processor has to be able
@@ -694,6 +696,95 @@ static int ParseLate(const std::wstring& text)
 
 #include "file_graph.inl"
 
+// --vpuse: what the hardware video processor is really doing with the film at hand,
+// and what the page would therefore grey. The settings that grey each other are
+// decided from both, so a film that keeps the processor out of the chain -- Dolby
+// Vision does -- or one that needs no resizing at all moves the whole page.
+static void ReportVPUse(IVideoRenderer* pVR)
+{
+	if (!pVR) {
+		return;
+	}
+	Settings_t sets;
+	pVR->GetSettings(sets);
+	const bool bActive = pVR->GetActive();
+	const unsigned use = bActive ? pVR->GetVideoProcessorUse() : 0;
+	printf("\n-- the video processor, and what the page makes of it\n");
+	printf("   renderer active   : %s\n", bActive ? "yes" : "no");
+	printf("   processor use     : 0x%X (%s%s%s)\n", use,
+		(use & VPUSE_Converting) ? "converting " : "",
+		(use & VPUSE_Resizing) ? "resizing" : "",
+		use ? "" : "not in the chain at all");
+	printf("   settings          : d3d11 %d, vpscale %d, prepass %d, dlssNR %d, dlssSR %d\n",
+		(int)sets.bUseD3D11, (int)sets.bVPScaling, (int)sets.bVPReplaceChroma,
+		(int)sets.bDlssNR, (int)sets.bDlssSR);
+
+	const auto say = [](const char* what, const Greying& g) {
+		printf("   %-18s chroma %-6s upscaling %-6s downscaling %-6s 50%% %-6s superres %s\n",
+			what,
+			g.bChromaList ? "live" : "GREYED",
+			g.bUpscalingList ? "live" : "GREYED",
+			g.bDownscalingList ? "live" : "GREYED",
+			g.bAt50pct ? "live" : "GREYED",
+			g.bSuperRes ? "live" : "GREYED");
+	};
+	say("as it stands  :", GreyingFor(sets, true, true));
+
+	// The one the user reaches for: the chroma replacement is what Super Resolution
+	// is said to wait on, so the page has to answer differently with it turned round.
+	Settings_t flipped = sets;
+	flipped.bVPReplaceChroma = !sets.bVPReplaceChroma;
+	char what[64] = {};
+	sprintf_s(what, "prepass %s :", flipped.bVPReplaceChroma ? "on " : "off");
+	say(what, GreyingFor(flipped, true, true));
+}
+
+// --greying: what the page greys, for every state the renderer can be in and with
+// the chroma pre-pass both ways. No film and no window: the rules are pure, and the
+// states that matter are exactly the ones a film to hand will not produce on demand
+// -- a 4K picture on a 4K screen leaves the processor nothing to resize, and a Dolby
+// Vision one keeps it out of the chain altogether.
+static int ShowGreying()
+{
+	const struct { const char* what; bool bActive; unsigned use; } states[] = {
+		{ "nothing playing",              false, 0 },
+		{ "converting and resizing",      true,  VPUSE_Converting | VPUSE_Resizing },
+		{ "converting, nothing to resize",true,  VPUSE_Converting },
+		{ "resizing, chroma by shaders",  true,  VPUSE_Resizing },
+		{ "not in the chain (Dolby Vision)", true, 0 },
+	};
+
+	printf("what the page greys, for the settings a default install has\n");
+	printf("(Direct3D 11, every format to the processor, use it for resizing, no DLSS)\n\n");
+	printf("%-34s %-8s %-7s %-10s %-12s %-7s\n",
+		"the processor is", "prepass", "chroma", "upscaling", "downscaling", "superres");
+
+	for (const auto& st : states) {
+		for (const bool bPrepass : { false, true }) {
+			Settings_t sets;   // the defaults, which is what a fresh install runs
+			sets.bUseD3D11 = true;
+			sets.bVPScaling = true;
+			sets.VPFmts.bNV12 = sets.VPFmts.bP01x = sets.VPFmts.bYUY2 = sets.VPFmts.bOther = true;
+			sets.bDlssNR = sets.bDlssSR = false;
+			sets.bVPReplaceChroma = bPrepass;
+			// The state is printed and not passed: that it no longer enters into the
+			// answer is the thing this table is for.
+			const Greying g = GreyingFor(sets, true, true);
+			printf("%-34s %-8s %-7s %-10s %-12s %-7s\n",
+				bPrepass ? "" : st.what,
+				bPrepass ? "on" : "off",
+				g.bChromaList ? "live" : "GREYED",
+				g.bUpscalingList ? "live" : "GREYED",
+				g.bDownscalingList ? "live" : "GREYED",
+				g.bSuperRes ? "live" : "GREYED");
+		}
+	}
+	printf("\nSuper Resolution has to answer the prepass box: a line that reads the same\n"
+	       "with it on and off is one the user cannot get back. And the five rows have\n"
+	       "to read alike, or the page moves under the user when the film changes.\n");
+	return 0;
+}
+
 static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE source, SIZE window, int seconds)
 {
 	Result result;
@@ -898,6 +989,9 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	result.statsAll = text;
 	result.scalingLine = StatsLine(text, L"Scaling       : ");
 	result.prescaleTimes = StatsLine(text, L"Prescale (ms) : ");
+	if (g_filmFile) {
+		ReportVPUse(pVR);
+	}
 	if (g_filmFile) {
 		// Two renderers can only be compared on the same picture, and playback never
 		// stops on the same frame twice. Paused and seeked again, the frame shown is
@@ -1558,6 +1652,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bScalers = true;
 			source.cx &= ~1; // NV12
 			source.cy &= ~1;
+		} else if (!wcscmp(argv[i], L"--greying")) {
+			g_bGreying = true;
 		} else if (!wcscmp(argv[i], L"--themed")) {
 			g_bThemedHost = true;
 		} else if (!wcscmp(argv[i], L"--apply")) {
@@ -1637,6 +1733,10 @@ int wmain(int argc, wchar_t* argv[])
 	if (!IsWindowVisible(hwnd)) {
 		printf("the test window could not be shown\n");
 		return 1;
+	}
+
+	if (g_bGreying) {
+		return ShowGreying();
 	}
 
 	if (g_frameSeconds > 0) {

@@ -25,6 +25,7 @@
 #include "../../Include/FilterInterfaces.h"
 #include <uxtheme.h>
 #include "SettingsPage.h"
+#include "Greying.h"
 
 #pragma comment(lib, "uxtheme.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -727,54 +728,19 @@ void CVRSettingsPPage::EnableControls()
 	Enable(IDC_SLIDER2, m_SetsPP.bConvertToSdr);
 	Enable(IDC_EDIT_DISPLAYMAX, m_SetsPP.bHdrLocalToneMapping);
 
-	// What the video processor takes, the shaders never see. It converts the formats
-	// ticked in Source, chroma upsampling included, and resizes as well when "Use the
-	// video processor for resizing" is on -- except while DLSS 5 NR or DLSS Super
-	// Resolution runs, which keeps it at the source size and hands the resizing back
-	// to the shaders. DLSS Super Resolution enlarges in its place, so the Upscaling
-	// method then only stands in where it cannot run.
-	// "Replace the video processor's chroma upsampling" gives the chroma of a
-	// progressive 4:2:0/4:2:2 picture back to the shaders, and only the chroma: the
-	// processor is handed a 4:4:4 picture and goes on converting and resizing it.
-	// While something plays, the renderer also says what it is really doing with it,
-	// and a list is only greyed when both agree that it has nothing to do.
-	const bool bAllVPFormats = m_SetsPP.VPFmts.bNV12 && m_SetsPP.VPFmts.bP01x
-		&& m_SetsPP.VPFmts.bYUY2 && m_SetsPP.VPFmts.bOther;
-	const bool bVPAvailable = !(m_SetsPP.bUseD3D11 && !IsWindows8OrGreater());
-	const bool bDlssPass = m_SetsPP.bUseD3D11 && (m_SetsPP.bDlssNR || m_SetsPP.bDlssSR);
-	const bool bChromaToShaders = m_SetsPP.bUseD3D11 && m_SetsPP.bVPReplaceChroma;
-	const bool bVPTakesPicture = bAllVPFormats && bVPAvailable;
-	const bool bVPConverts = bVPTakesPicture && !bChromaToShaders
-		&& (!m_bRendererActive || (m_uVPUse & VPUSE_Converting));
-	const bool bVPResizes = bVPTakesPicture && m_SetsPP.bVPScaling && !bDlssPass
-		&& (!m_bRendererActive || (m_uVPUse & VPUSE_Resizing));
-
-	const BOOL bChromaList = !bVPConverts;
-	const BOOL bDownscalingList = !bVPResizes;
-	const BOOL bUpscalingList = !bVPResizes && !(m_SetsPP.bUseD3D11 && m_SetsPP.bDlssSR);
-	Enable(IDC_STATIC40, bChromaList);
-	Enable(IDC_COMBO5, bChromaList);
-	Enable(IDC_STATIC39, bUpscalingList);
-	Enable(IDC_COMBO2, bUpscalingList);
-	Enable(IDC_STATIC41, bDownscalingList);
-	Enable(IDC_COMBO3, bDownscalingList);
-	Enable(IDC_CHECK6, bUpscalingList || bDownscalingList);
-
-	// RTX Video Super Resolution lives inside the processor and only does something
-	// while the processor is the one enlarging the picture -- which is what "Use the
-	// video processor for resizing" gives it, and what a DLSS pass takes away. It
-	// also needs a subsampled picture: the driver leaves a 4:4:4 one untouched, so it
-	// can do nothing while the chroma replacement is really handing one over.
-#ifdef _WIN64
-	const bool bChromaReplacedNow = bChromaToShaders
-		&& (!m_bRendererActive || !(m_uVPUse & VPUSE_Converting));
-	const BOOL bSuperRes = m_SetsPP.bUseD3D11 && IsWindows10OrGreater()
-		&& bVPResizes && !bChromaReplacedNow;
-#else
-	const BOOL bSuperRes = FALSE; // the extension is x64 only
-#endif
-	Enable(IDC_STATIC7, bSuperRes);
-	Enable(IDC_COMBO8, bSuperRes);
+	// The five that decide each other, worked out in Greying.h so the bench can put
+	// the same question to them without a film and without a page.
+	const Greying grey = GreyingFor(m_SetsPP, IsWindows8OrGreater() != FALSE,
+		IsWindows10OrGreater() != FALSE);
+	Enable(IDC_STATIC40, grey.bChromaList);
+	Enable(IDC_COMBO5, grey.bChromaList);
+	Enable(IDC_STATIC39, grey.bUpscalingList);
+	Enable(IDC_COMBO2, grey.bUpscalingList);
+	Enable(IDC_STATIC41, grey.bDownscalingList);
+	Enable(IDC_COMBO3, grey.bDownscalingList);
+	Enable(IDC_CHECK6, grey.bAt50pct);
+	Enable(IDC_STATIC7, grey.bSuperRes);
+	Enable(IDC_COMBO8, grey.bSuperRes);
 
 	// The sharpening pass is a Direct3D 11 one, and its intensity says nothing
 	// while no method is chosen.
@@ -828,8 +794,6 @@ HRESULT CVRSettingsPPage::OnActivate()
 	m_pVideoRenderer->GetSettings(m_SetsPP);
 	m_oldSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
 	m_bDlssNRSeen = m_SetsPP.bDlssNR;
-	m_bRendererActive = m_pVideoRenderer->GetActive();
-	m_uVPUse = m_bRendererActive ? m_pVideoRenderer->GetVideoProcessorUse() : 0;
 
 	HWND hTabs = ::GetDlgItem(m_hwnd, IDC_SECTION_TABS);
 
@@ -932,9 +896,8 @@ HRESULT CVRSettingsPPage::OnActivate()
 		AddHint(hint.id, hint.text);
 	}
 
-	// Nothing tells this page that the renderer moved under it: the toggle key can
-	// switch DLSS while it is open, and what the processor is doing moves with the
-	// film.
+	// Nothing tells this page that the renderer moved under it, and the toggle key
+	// can switch DLSS 5 NR while it is open.
 	SetTimer(kRefreshTimer, 500);
 
 	// From here on an edit is the user's: SetDirty does nothing before this, so
@@ -983,24 +946,20 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 	}
 
 	if ((uMsg == WM_TIMER && wParam == kRefreshTimer || uMsg == WM_SHOWWINDOW && wParam) && m_pVideoRenderer) {
-		// What the renderer is doing with the picture decides part of the greying,
-		// and the toggle key can switch DLSS 5 NR while this page is open. Nothing
-		// else of the user's edits is touched.
+		// The toggle key can switch DLSS 5 NR while this page is open, and that is
+		// the only thing about the renderer the page still has to watch: what it
+		// greys follows the settings, not the film at hand.
 		Settings_t current;
 		m_pVideoRenderer->GetSettings(current);
-		const bool bActive = m_pVideoRenderer->GetActive();
-		const unsigned uVPUse = bActive ? m_pVideoRenderer->GetVideoProcessorUse() : 0;
 		// Only a change the page did not make is the toggle key's: comparing against
 		// what the page holds would undo a tick that has not been applied yet.
 		const bool bToggled = (current.bDlssNR != m_bDlssNRSeen);
-		if (bToggled || bActive != m_bRendererActive || uVPUse != m_uVPUse || uMsg == WM_SHOWWINDOW) {
+		if (bToggled || uMsg == WM_SHOWWINDOW) {
 			if (bToggled) {
 				m_bDlssNRSeen = current.bDlssNR;
 				m_SetsPP.bDlssNR = current.bDlssNR;
 				SetCheck(IDC_CHECK20, m_SetsPP.bDlssNR);
 			}
-			m_bRendererActive = bActive;
-			m_uVPUse = uVPUse;
 			EnableControls();
 		}
 	}

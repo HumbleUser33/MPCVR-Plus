@@ -494,18 +494,29 @@ do and no chroma line appears; the processor line says so:
 
     VideoProcessor: D3D11 VP, output to R10G10B10A2_UNORM, converts chroma
 
-The main page greys a list that is out of service for that reason, on what the filter is
-actually doing: **Chroma upsampling** while the video processor converts, **Upscaling** and
-**Downscaling** while it also resizes (*Use for resizing*, which DLSS 5 NR and DLSS SR suspend
-on their own), and **Upscaling** while DLSS SR enlarges. A list that a Dolby Vision or YCgCo
-picture sends back to the shaders stays available.
+The settings page greys a list that is out of service for that reason: **Chroma upsampling**
+while the video processor converts, **Upscaling** and **Downscaling** while it also resizes
+(*Use for resizing*, which DLSS 5 NR and DLSS SR suspend on their own), and **Upscaling**
+while DLSS SR enlarges.
+
+It reads those from the settings and from nothing else. The renderer can say what it is doing
+with the picture at hand, and the page used to listen; that read well and worked badly. A 4K
+film on a 4K screen leaves the processor nothing to resize, and a Dolby Vision one keeps it
+out of the chain altogether, so the page moved under you as the film changed -- and it put
+*Request Super Resolution* out of reach, because with the processor out of the chain it greyed
+whatever the pre-pass box said, and that box is the one it is supposed to answer. These are
+settings for every film there will ever be, so the film playing now does not get a vote. The
+cost is that on a Dolby Vision, YCgCo or RGB picture, which the shaders handle whatever is
+ticked, **Chroma upsampling** reads as greyed although it is in fact the method in use; the
+statistics line is the place to read what is really happening.
 
 *Use for resizing* decides the resizing and nothing else -- the chroma is the business of the
 format boxes and of *Replace VP chroma upsampling*. What it also decides is whether
 **Request Super Resolution** can do anything at all: that extension lives inside the video
 processor and only acts while the processor is the one enlarging the picture, so it greys
 without it, greys while a DLSS pass has taken the enlarging back, and greys while the chroma
-pre-pass is really handing the processor a 4:4:4 picture it will not touch. The driver is
+pre-pass is on, because the processor is then handed a 4:4:4 picture the driver will not
+touch. The driver is
 still asked for it exactly as upstream asks -- nothing is taken away from it here -- but a
 control that cannot change the picture should say so rather than look available, and the
 statistics read `D3D11 (No Super Resolution when chroma by shaders)`.
@@ -784,7 +795,7 @@ And under the Chroma upsampling list:
 |---|---|---|
 | Sharpening | Disabled | *Adaptive-Sharpen* or *Unsharp + Clamp*, run after the resize, so it also reaches a film already at the screen's size. See above for what each is worth. Needs Direct3D 11 |
 | Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Disabled |
-| Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Request Super Resolution* greys while this is in service, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
+| Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Request Super Resolution* greys while this is ticked, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
 
 **Default** on the **DLSS 5 NR** tab resets the tuning, from Style to Disable temporal history, motion
 settings and the DLSS SR preset; it leaves Enable, Use DLSS SR, the key, both DLL paths and
@@ -971,6 +982,7 @@ filter may then switch the display's own HDR state, which is not what is being m
 ```
 playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.976] [--only N]
 playback_test.exe --scalers       each Upscaling and Chroma upsampling method (--vp: hardware)
+playback_test.exe --greying       what the page greys, for every state the renderer can be in
 playback_test.exe --mainpage 10   the settings page for 10 s, --click <id> clicks one control
 playback_test.exe --mainpage 10 --section 4   on one of the seven tabs; --apply presses Apply
 playback_test.exe --frame 10      the page in a real property frame, as a player puts it up
