@@ -42,7 +42,8 @@ You supply it yourself. The filter looks for it, in order:
 3. `<filter directory>\dlss\`
 4. one and two directories above the filter
 
-The **DLSS 5** property page has a **DLL** field and a browse button if you keep it elsewhere.
+The **DLSS 5 NR** tab of the settings page has a **DLL** field and a browse button if you keep
+it elsewhere.
 `nvngx_dlss.dll`, for DLSS Super Resolution, is searched the same way and has its own field;
 it must keep its name, because the driver's NGX runtime loads it by name from that folder.
 
@@ -209,9 +210,9 @@ repeated pictures (variable frame rates, 25p stored as 50p) handled like the per
 
 ## DLSS Super Resolution (experimental)
 
-**Use DLSS SR 4.5 for upscaling (Experimental)**, on the DLSS page, enlarges the picture with
-DLSS Super Resolution instead of the **Upscaling** method of the main page, which is then
-greyed. It is independent of DLSS 5 NR: another DLL, another session, and it works with NR on
+**Use DLSS SR 4.5 for upscaling (Experimental)**, on the **Scaling** tab beside the other
+enlargers, enlarges the picture with DLSS Super Resolution instead of the **Upscaling** method,
+which is then greyed. It is independent of DLSS 5 NR: another DLL, another session, and it works with NR on
 or off. When NR runs before upscaling, SR takes its output.
 
 **How it runs.** Unlike the NR snippet, this feature runs on Direct3D 11 through the display
@@ -785,7 +786,7 @@ And under the Chroma upsampling list:
 | Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Disabled |
 | Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Request Super Resolution* greys while this is in service, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
 
-**Default** on the DLSS page resets the tuning, from Style to Disable temporal history, motion
+**Default** on the **DLSS 5 NR** tab resets the tuning, from Style to Disable temporal history, motion
 settings and the DLSS SR preset; it leaves Enable, Use DLSS SR, the key, both DLL paths and
 render ahead, which belongs to the Settings page, alone. Applying the page sends only what was
 changed on it, so it never undoes the toggle key or the main page, and the main page leaves
@@ -936,8 +937,9 @@ one — a wrong pass shows up as a large difference. It also saves the same pict
 statistics drawn over it, as `scalers_<n>_stats.bmp`, which is how the overlay's box is checked.
 `--vp` leaves the hardware video processor the formats it is set for, to see it convert.
 
-`--mainpage` and `--dlsspage` show a property page of the built filter for a few seconds and
-save it as `proppage.bmp`, without a player; `--click <id>` then clicks one control and saves
+`--mainpage` shows the settings page of the built filter for a few seconds and saves it as
+`proppage.bmp`, without a player; `--section N` opens one of the seven tabs, and with no
+`--section` the page says which tab it came back to on its own; `--click <id>` then clicks one control and saves
 the page again as `proppage_clicked.bmp`, which is how the greying is checked. `--mainpage`
 also prints the *Chroma upsampling* and *Upscaling* lists as the page really built them, each
 entry with the number it carries and which one is selected: a picture says nothing about that,
@@ -969,8 +971,10 @@ filter may then switch the display's own HDR state, which is not what is being m
 ```
 playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.976] [--only N]
 playback_test.exe --scalers       each Upscaling and Chroma upsampling method (--vp: hardware)
-playback_test.exe --dlsspage 10   shows the filter's DLSS page for 10 s instead
-playback_test.exe --mainpage 10   the same for the Settings page, --click <id> clicks one control
+playback_test.exe --mainpage 10   the settings page for 10 s, --click <id> clicks one control
+playback_test.exe --mainpage 10 --section 4   on one of the seven tabs; --apply presses Apply
+playback_test.exe --frame 10      the page in a real property frame, as a player puts it up
+playback_test.exe --frame 10 --themed   and with a player painting its controls over it
 playback_test.exe --chroma <png>  each chroma upsampler, the hardware one included, against 4:4:4
 playback_test.exe --chroma10 <png> the same in 10 bits: P010 against Y410 (--interlaced: who converts)
 playback_test.exe --toggle       each setting changed in full playback, as the player does

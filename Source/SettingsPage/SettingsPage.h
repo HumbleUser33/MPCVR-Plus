@@ -21,12 +21,11 @@
 #pragma once
 
 #include "../IVideoRenderer.h"
-#include <vector>
 
 // CVRSettingsPPage
 //
-// The one settings page: a list of sections on the left, the section's own child
-// dialog on the right. It replaces upstream's Settings page and the fork's DLSS
+// The one settings page: a row of tabs across the top, the section's own child
+// dialog filling the page under them. It replaces upstream's Settings page and the fork's DLSS
 // page, and owns every field of Settings_t between them -- which is why neither
 // the cross-page timer dance nor CopyDlssSettings is needed here.
 //
@@ -79,10 +78,6 @@ private:
 	bool m_bDlssNRSeen = false;
 
 	HWND m_hSections[SECTION_COUNT] = {};
-	// What answered for each control the page paints when it last took it over. A
-	// player that themes the sheet puts its own procedure there, and comparing is
-	// the only way to find out: there is no message for it.
-	std::vector<std::pair<HWND, WNDPROC>> m_painted;
 	int m_iSection = SECTION_Source;
 
 	static INT_PTR CALLBACK SectionProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -98,9 +93,6 @@ private:
 
 	int  SectionOf(HWND hDlg) const;
 	void ShowSection(int section);
-	void DressUp();            // fonts, colours, and the controls we draw ourselves
-	void TakeBackPainting();   // the window procedures of the controls we paint
-	bool PaintingWasTakenAway() const;
 	void FillCombos();
 	void SetControls();
 	void EnableControls();
@@ -127,9 +119,6 @@ private:
 	// switch DLSS while this is open, and what the processor is really doing moves
 	// with the film.
 	static constexpr UINT_PTR kRefreshTimer = 1;
-	// Fires once, to put our own painting back on top of a player that themed the
-	// sheet after the page came up.
-	static constexpr UINT_PTR kDressTimer = 2;
 
 	void AddHint(int id, LPCWSTR text);
 };

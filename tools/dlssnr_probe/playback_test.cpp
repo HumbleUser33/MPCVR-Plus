@@ -44,6 +44,7 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <commctrl.h>
 #include <map>
 #include <thread>
 #include <vector>
@@ -1016,7 +1017,7 @@ static bool CaptureWindow(HWND hwnd, std::vector<BYTE>& bgra, int& w, int& h)
 	return ok;
 }
 
-// --dlsspage N, --mainpage N: one of the filter's property pages in the window for N
+// --mainpage N: the filter's settings page in the window for N
 // seconds, to look at -- the greying and the layout without going through a player.
 // Which of the controls that grey each other are live, and how the two scaling lists
 // were built. A picture of the page says nothing about either, and a control that is
@@ -1131,12 +1132,15 @@ static BOOL CALLBACK FindFrameWindow(HWND hwnd, LPARAM param)
 }
 
 // --themed: a player that paints the property sheet it put the page in. MPC-HC does
-// this, and the page came back wrong from a user's machine while it came back right
-// from here -- because nothing here had ever done it. So here it is: every label,
-// check box and list in the frame has its window procedure taken and paints its own
-// background, ignoring whatever the dialog answers to WM_CTLCOLORSTATIC. The colours
-// are the ones read off that user's screenshot, so this reproduces what they saw and
-// not a guess at it.
+// this: it takes the window procedure of every label, check box and list, and from
+// then on they paint their own background and ignore whatever the dialog answers to
+// WM_CTLCOLORSTATIC. The colours below were read off a user's screenshot, so this is
+// what that player really does and not a guess at it.
+//
+// The page no longer argues with any of that -- it is drawn in the system's own
+// furniture now, and a player that recolours the system is welcome to recolour it.
+// What this checks is that the page still reads and still works underneath: the
+// picture it leaves behind is the evidence.
 static const COLORREF kPlayerBack = RGB(25, 25, 25);
 static const COLORREF kPlayerText = RGB(220, 220, 220);
 static const COLORREF kPlayerSel  = RGB(119, 119, 119);
@@ -1234,21 +1238,8 @@ static int StillTheirs()
 static void PaintLikeAPlayer(HWND frame)
 {
 	EnumChildWindows(frame, TakeOverOne, 0);
-	const int grabbed = (int)g_taken.size();
 	printf("a player took %d controls over, and holds %d of them\n",
-		grabbed, StillTheirs());
-	const DWORD t0 = GetTickCount();
-	int held = grabbed;
-	while (held && GetTickCount() - t0 < 5000) {
-		Sleep(25);
-		held = StillTheirs();
-	}
-	if (held) {
-		printf("five seconds on, the player still holds %d of %d\n", held, grabbed);
-	} else {
-		printf("the page had every one of them back %u ms later\n",
-			(unsigned)(GetTickCount() - t0));
-	}
+		(int)g_taken.size(), StillTheirs());
 }
 
 // settleMs is how long the page is given before the shutter. The first picture
@@ -1303,9 +1294,7 @@ static int ShowPropertyFrame(HMODULE hFilter, HWND hwndOurs, int seconds, const 
 		if (hunt.found) {
 			if (g_bThemedHost) {
 				PaintLikeAPlayer(hunt.found);
-				ShootFrame(hunt.found, dir + L"\\propframe_taken.bmp", 200);
-				Sleep(800);
-				ShootFrame(hunt.found, dir + L"\\propframe_back.bmp");
+				ShootFrame(hunt.found, dir + L"\\propframe_themed.bmp");
 			} else {
 				ShootFrame(hunt.found, dir + L"\\propframe.bmp");
 			}
@@ -1361,19 +1350,26 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 	pPage->Activate(hwnd, &page, FALSE);
 	pPage->Show(SW_SHOW);
 	if (const HWND hDlg = GetWindow(hwnd, GW_CHILD)) {
-		if (const HWND hList = GetDlgItem(hDlg, 1254)) {   // IDC_NAV
+		if (const HWND hTabs = GetDlgItem(hDlg, 1254)) {   // IDC_SECTION_TABS
 			if (g_pageSection >= 0) {
-				SendMessageW(hList, LB_SETCURSEL, g_pageSection, 0);
-				SendMessageW(hDlg, WM_COMMAND, MAKEWPARAM(1254, LBN_SELCHANGE), (LPARAM)hList);
+				TabCtrl_SetCurSel(hTabs, g_pageSection);
+				// SetCurSel does not notify, so the page is told the way a click
+				// would have told it.
+				NMHDR nm = { hTabs, 1254, (UINT)TCN_SELCHANGE };
+				SendMessageW(hDlg, WM_NOTIFY, 1254, (LPARAM)&nm);
 			}
 			// Without --section, say which one the page chose for itself: it is
 			// supposed to come back where it was last left.
-			const LRESULT at = SendMessageW(hList, LB_GETCURSEL, 0, 0);
+			const int at = TabCtrl_GetCurSel(hTabs);
 			wchar_t name[64] = {};
-			if (at != LB_ERR) {
-				SendMessageW(hList, LB_GETTEXT, at, (LPARAM)name);
+			if (at >= 0) {
+				TCITEMW item = {};
+				item.mask = TCIF_TEXT;
+				item.pszText = name;
+				item.cchTextMax = (int)std::size(name);
+				TabCtrl_GetItem(hTabs, at, &item);
 			}
-			wprintf(L"section %d: %s\n", (int)at, name);
+			wprintf(L"section %d: %s\n", at, name);
 		}
 	}
 	printf("property page %ldx%ld shown for %d s\n", info.size.cx, info.size.cy, seconds);

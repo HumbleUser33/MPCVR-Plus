@@ -105,48 +105,6 @@ static const struct {
 };
 
 
-// ---------------------------------------------------------------- the look
-//
-// A property page is a child of the player's own frame, so the frame draws the
-// tabs and the buttons and we draw everything inside. Flat surfaces, one accent,
-// a hairline where a group box used to be, and the switches drawn rather than
-// the system's check boxes -- but drawn *around* the real control, which keeps
-// its state, its keyboard and its accessibility. An owner-draw button would have
-// cost all three.
-//
-// Windows' own dark mode is followed. The theme names below are not documented;
-// where they stop working the page is light in places and still works, which is
-// why nothing depends on them.
-
-struct Theme {
-	COLORREF bg;        // the content surface
-	COLORREF panel;     // the list down the side
-	COLORREF text;
-	COLORREF textDim;   // descriptions, headings
-	COLORREF textOff;   // greyed
-	COLORREF line;      // hairlines, and a switch that is off
-	COLORREF accent;
-	COLORREF onAccent;
-};
-
-static Theme  g_th = {};
-static bool   g_bDark = false;
-static int    g_pagesDressed = 0;   // how many pages the brushes below belong to
-static HBRUSH g_hbrBg = nullptr;
-static HBRUSH g_hbrPanel = nullptr;
-static HBRUSH g_hbrAccent = nullptr;
-static HBRUSH g_hbrLine = nullptr;
-static HFONT  g_hTitleFont = nullptr;
-static HFONT  g_hHeadFont = nullptr;
-
-#include "cards.inc"
-// The one-line descriptions at the top of each section.
-static const int g_descriptions[] = {
-	IDC_STATIC_DESC_SOURCE, IDC_STATIC_DESC_CHROMA, IDC_STATIC_DESC_SCALING,
-	IDC_STATIC_DESC_DETAIL, IDC_STATIC_DESC_DLSSNR, IDC_STATIC_DESC_HDR,
-	IDC_STATIC_DESC_PRESENT,
-};
-
 // Which section was being looked at when the page was last closed. It lives
 // beside the settings but is not one of them: Settings_t is append-only and
 // shared with upstream, and where the user had scrolled to is nobody's setting.
@@ -169,511 +127,6 @@ static void RememberSection(int section)
 	const DWORD value = (DWORD)section;
 	RegSetKeyValueW(HKEY_CURRENT_USER, kRegKey, kRegSection, REG_DWORD, &value, sizeof(value));
 }
-
-static bool SystemUsesDarkApps()
-{
-	DWORD value = 1;
-	DWORD size = sizeof(value);
-	if (RegGetValueW(HKEY_CURRENT_USER,
-			L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-			L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS) {
-		return value == 0;
-	}
-	return false;   // no key, no dark mode: light is the safe answer
-}
-
-// Windows only hands out the dark variants of the common controls -- the boxes,
-// the lists, the buttons -- to a process that has asked for them, through an entry
-// point uxtheme exports by ordinal and does not name. Where it is missing, on an
-// older Windows or a future one that moved it, nothing happens and those controls
-// stay light: the page is then less dark than it could be, and never broken.
-static void AllowDarkModeForThisProcess()
-{
-	static bool bAsked = false;
-	if (bAsked) {
-		return;
-	}
-	bAsked = true;
-	const HMODULE hUx = LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-	if (!hUx) {
-		return;
-	}
-	// 135 is AllowDarkModeForApp(BOOL) on Windows 10 1809 and SetPreferredAppMode
-	// on 1903 and later; 1 means "allow dark" to both of them.
-	using PFN_PreferredAppMode = int(WINAPI*)(int);
-	using PFN_RefreshColours = void(WINAPI*)();
-	if (const auto pfnMode = (PFN_PreferredAppMode)GetProcAddress(hUx, MAKEINTRESOURCEA(135))) {
-		pfnMode(1);
-	}
-	if (const auto pfnRefresh = (PFN_RefreshColours)GetProcAddress(hUx, MAKEINTRESOURCEA(104))) {
-		pfnRefresh();
-	}
-	// Kept loaded on purpose: the policy belongs to the process, not to this call.
-}
-
-static void FreeTheme()
-{
-	for (HBRUSH* p : { &g_hbrBg, &g_hbrPanel, &g_hbrAccent, &g_hbrLine }) {
-		if (*p) {
-			DeleteObject(*p);
-			*p = nullptr;
-		}
-	}
-	for (HFONT* p : { &g_hTitleFont, &g_hHeadFont }) {
-		if (*p) {
-			DeleteObject(*p);
-			*p = nullptr;
-		}
-	}
-}
-
-static void LoadTheme(HWND hRef)
-{
-	// Freeing them while another page is still drawing with them would leave it
-	// painting through dangling handles, which is a page with no surfaces at all.
-	if (g_pagesDressed <= 1) {
-		FreeTheme();
-	}
-	g_bDark = SystemUsesDarkApps();
-	if (g_bDark) {
-		AllowDarkModeForThisProcess();
-	}
-	if (g_bDark) {
-		g_th = { RGB(32, 32, 32), RGB(43, 43, 43), RGB(255, 255, 255), RGB(165, 165, 165),
-				 RGB(110, 110, 110), RGB(64, 64, 64), RGB(76, 194, 255), RGB(0, 0, 0) };
-	} else {
-		g_th = { RGB(255, 255, 255), RGB(243, 243, 243), RGB(26, 26, 26), RGB(99, 99, 99),
-				 RGB(160, 160, 160), RGB(224, 224, 224), RGB(0, 95, 184), RGB(255, 255, 255) };
-	}
-	g_hbrBg     = CreateSolidBrush(g_th.bg);
-	g_hbrPanel  = CreateSolidBrush(g_th.panel);
-	g_hbrAccent = CreateSolidBrush(g_th.accent);
-	g_hbrLine   = CreateSolidBrush(g_th.line);
-
-	// Two sizes derived from the dialog's own font, so they follow the host's DPI
-	// rather than a number of pixels picked here.
-	LOGFONTW lf = {};
-	if (HFONT hDlgFont = (HFONT)SendMessageW(hRef, WM_GETFONT, 0, 0)) {
-		GetObjectW(hDlgFont, sizeof(lf), &lf);
-	}
-	if (!lf.lfHeight) {
-		lf.lfHeight = -12;
-		wcscpy_s(lf.lfFaceName, L"Segoe UI");
-	}
-	LOGFONTW lfTitle = lf;
-	lfTitle.lfHeight = (LONG)(lf.lfHeight * 1.35);
-	lfTitle.lfWeight = FW_SEMIBOLD;
-	g_hTitleFont = CreateFontIndirectW(&lfTitle);
-	LOGFONTW lfHead = lf;
-	lfHead.lfWeight = FW_SEMIBOLD;
-	g_hHeadFont = CreateFontIndirectW(&lfHead);
-}
-
-// A rounded rectangle without a pen of its own.
-static void FillRound(HDC hdc, const RECT& rc, COLORREF colour, int radius)
-{
-	HBRUSH hbr = CreateSolidBrush(colour);
-	HPEN hpen = CreatePen(PS_SOLID, 1, colour);
-	HGDIOBJ oldBr = SelectObject(hdc, hbr);
-	HGDIOBJ oldPen = SelectObject(hdc, hpen);
-	RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, radius, radius);
-	SelectObject(hdc, oldBr);
-	SelectObject(hdc, oldPen);
-	DeleteObject(hbr);
-	DeleteObject(hpen);
-}
-
-// The check boxes are drawn as switches. The control underneath is still a plain
-// auto check box: it keeps its state, its space bar and its notifications, and
-// only its painting is taken over.
-static LRESULT CALLBACK SwitchProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
-	UINT_PTR idSubclass, DWORD_PTR refData)
-{
-	switch (uMsg) {
-	case WM_NCDESTROY:
-		RemoveWindowSubclass(hWnd, SwitchProc, idSubclass);
-		break;
-
-	case WM_ERASEBKGND:
-		return 1;   // WM_PAINT fills it
-
-	case WM_PAINT: {
-		PAINTSTRUCT ps = {};
-		HDC hdc = BeginPaint(hWnd, &ps);
-		RECT rc = {};
-		GetClientRect(hWnd, &rc);
-		FillRect(hdc, &rc, g_hbrPanel);
-
-		const bool bOn = SendMessageW(hWnd, BM_GETCHECK, 0, 0) == BST_CHECKED;
-		const bool bEnabled = IsWindowEnabled(hWnd) != FALSE;
-
-		// The switch is as tall as the row allows, up to a sensible ceiling, and
-		// twice as wide as it is tall.
-		const int h = std::min<int>(rc.bottom - rc.top, MulDiv(14, GetDeviceCaps(hdc, LOGPIXELSY), 96));
-		const int top = rc.top + ((rc.bottom - rc.top) - h) / 2;
-		const RECT track = { rc.left, top, rc.left + h * 2, top + h };
-		const COLORREF trackColour = !bEnabled ? g_th.line : (bOn ? g_th.accent : g_th.line);
-		FillRound(hdc, track, trackColour, h);
-
-		const int pad = std::max(2, h / 7);
-		const int knob = h - pad * 2;
-		const int knobLeft = bOn ? (track.right - pad - knob) : (track.left + pad);
-		const RECT knobRc = { knobLeft, top + pad, knobLeft + knob, top + pad + knob };
-		COLORREF knobColour = bOn ? g_th.onAccent : g_th.textDim;
-		if (!bEnabled) {
-			knobColour = g_th.textOff;
-		}
-		FillRound(hdc, knobRc, knobColour, knob);
-
-		wchar_t label[256] = {};
-		GetWindowTextW(hWnd, label, (int)std::size(label));
-		RECT rcText = { track.right + MulDiv(8, GetDeviceCaps(hdc, LOGPIXELSX), 96), rc.top, rc.right, rc.bottom };
-		SetBkMode(hdc, TRANSPARENT);
-		SetTextColor(hdc, bEnabled ? g_th.text : g_th.textOff);
-		HGDIOBJ oldFont = SelectObject(hdc, (HFONT)SendMessageW(hWnd, WM_GETFONT, 0, 0));
-		DrawTextW(hdc, label, -1, &rcText,
-			DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-		if (GetFocus() == hWnd) {
-			RECT rcFocus = rcText;
-			DrawTextW(hdc, label, -1, &rcFocus,
-				DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_CALCRECT | DT_NOPREFIX);
-			InflateRect(&rcFocus, 2, 1);
-			rcFocus.top = rc.top;
-			rcFocus.bottom = rc.bottom;
-			DrawFocusRect(hdc, &rcFocus);
-		}
-		SelectObject(hdc, oldFont);
-		EndPaint(hWnd, &ps);
-		return 0;
-	}
-
-	// The state changes before we are asked to paint again, and a switch that
-	// slides only on the next mouse move looks broken.
-	case BM_SETCHECK:
-	case WM_LBUTTONUP:
-	case WM_KEYUP:
-	case WM_SETFOCUS:
-	case WM_KILLFOCUS:
-	case WM_ENABLE: {
-		const LRESULT r = DefSubclassProc(hWnd, uMsg, wParam, lParam);
-		InvalidateRect(hWnd, nullptr, FALSE);
-		return r;
-	}
-	}
-	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
-}
-
-// One row of the list down the side: a pill in the accent colour behind the section
-// being looked at, and the name. Drawn from the dialog while the list still reports
-// to it, and from the list's own painting once the page has had to take it back.
-static void DrawNavItem(HDC hdc, const RECT& rcItem, LPCWSTR name, bool bSel)
-{
-	RECT rc = rcItem;
-	FillRect(hdc, &rc, g_hbrPanel);
-	RECT pill = rc;
-	InflateRect(&pill, -2, -1);
-	if (bSel) {
-		FillRound(hdc, pill, g_th.accent, (pill.bottom - pill.top) / 2);
-	}
-	RECT rcText = pill;
-	rcText.left += MulDiv(12, GetDeviceCaps(hdc, LOGPIXELSX), 96);
-	SetBkMode(hdc, TRANSPARENT);
-	SetTextColor(hdc, bSel ? g_th.onAccent : g_th.text);
-	DrawTextW(hdc, name, -1, &rcText,
-		DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-}
-
-// A player is free to paint the property sheet it puts us in, and at least one does:
-// it takes the window procedure of the controls once the page is up, and from then on
-// they paint their own background and ignore the colour the page hands them in answer
-// to WM_CTLCOLORSTATIC. There is no arguing with that from the dialog -- the only way
-// to paint a control is to hold its procedure, and the last one to take it holds it.
-// So the page paints its own labels and its own list, the same way it already paints
-// its own switches, and takes them back whenever it finds them gone.
-static constexpr DWORD_PTR kLabelOnCard = 1;   // the surface under the text
-static constexpr DWORD_PTR kLabelDim    = 2;   // the one-line description of a section
-
-static LRESULT CALLBACK LabelProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
-	UINT_PTR idSubclass, DWORD_PTR refData)
-{
-	switch (uMsg) {
-	case WM_NCDESTROY:
-		RemoveWindowSubclass(hWnd, LabelProc, idSubclass);
-		break;
-
-	case WM_ERASEBKGND:
-		return 1;   // WM_PAINT fills it
-
-	case WM_PAINT: {
-		PAINTSTRUCT ps = {};
-		HDC hdc = BeginPaint(hWnd, &ps);
-		RECT rc = {};
-		GetClientRect(hWnd, &rc);
-		FillRect(hdc, &rc, (refData & kLabelOnCard) ? g_hbrPanel : g_hbrBg);
-
-		wchar_t text[512] = {};
-		GetWindowTextW(hWnd, text, (int)std::size(text));
-		// Read back from the control so the page keeps whatever the layout asked
-		// for, rather than a second opinion about it kept somewhere here.
-		const LONG style = GetWindowLongW(hWnd, GWL_STYLE);
-		UINT format = DT_NOPREFIX | DT_WORDBREAK;
-		if ((style & SS_TYPEMASK) == SS_RIGHT) {
-			format |= DT_RIGHT;
-		} else if ((style & SS_TYPEMASK) == SS_CENTER) {
-			format |= DT_CENTER;
-		}
-		if (style & SS_CENTERIMAGE) {
-			format = (format & ~DT_WORDBREAK) | DT_VCENTER | DT_SINGLELINE;
-		}
-		if (style & SS_ENDELLIPSIS) {
-			format |= DT_END_ELLIPSIS;
-		}
-		SetBkMode(hdc, TRANSPARENT);
-		SetTextColor(hdc, !IsWindowEnabled(hWnd) ? g_th.textOff
-			: ((refData & kLabelDim) ? g_th.textDim : g_th.text));
-		HGDIOBJ oldFont = nullptr;
-		if (HFONT hFont = (HFONT)SendMessageW(hWnd, WM_GETFONT, 0, 0)) {
-			oldFont = SelectObject(hdc, hFont);
-		}
-		DrawTextW(hdc, text, -1, &rc, format);
-		if (oldFont) {
-			SelectObject(hdc, oldFont);
-		}
-		EndPaint(hWnd, &ps);
-		return 0;
-	}
-
-	// Greying and a new reading both change what is on screen, and neither of them
-	// repaints a control that paints itself.
-	case WM_ENABLE:
-	case WM_SETTEXT: {
-		const LRESULT r = DefSubclassProc(hWnd, uMsg, wParam, lParam);
-		InvalidateRect(hWnd, nullptr, FALSE);
-		return r;
-	}
-	}
-	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
-}
-
-static LRESULT CALLBACK NavProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
-	UINT_PTR idSubclass, DWORD_PTR refData)
-{
-	switch (uMsg) {
-	case WM_NCDESTROY:
-		RemoveWindowSubclass(hWnd, NavProc, idSubclass);
-		break;
-
-	case WM_ERASEBKGND:
-		return 1;
-
-	case WM_PAINT: {
-		PAINTSTRUCT ps = {};
-		HDC hdc = BeginPaint(hWnd, &ps);
-		RECT rc = {};
-		GetClientRect(hWnd, &rc);
-		FillRect(hdc, &rc, g_hbrPanel);
-		HGDIOBJ oldFont = nullptr;
-		if (HFONT hFont = (HFONT)SendMessageW(hWnd, WM_GETFONT, 0, 0)) {
-			oldFont = SelectObject(hdc, hFont);
-		}
-		const int count = (int)SendMessageW(hWnd, LB_GETCOUNT, 0, 0);
-		const int sel = (int)SendMessageW(hWnd, LB_GETCURSEL, 0, 0);
-		for (int i = 0; i < count; i++) {
-			RECT item = {};
-			if (SendMessageW(hWnd, LB_GETITEMRECT, i, (LPARAM)&item) == LB_ERR) {
-				continue;
-			}
-			wchar_t name[64] = {};
-			SendMessageW(hWnd, LB_GETTEXT, i, (LPARAM)name);
-			DrawNavItem(hdc, item, name, i == sel);
-		}
-		if (oldFont) {
-			SelectObject(hdc, oldFont);
-		}
-		EndPaint(hWnd, &ps);
-		return 0;
-	}
-
-	// The row moves before the list is asked to paint again, by mouse, by key and
-	// by the page putting it back where it was left.
-	case LB_SETCURSEL:
-	case WM_LBUTTONDOWN:
-	case WM_KEYDOWN: {
-		const LRESULT r = DefSubclassProc(hWnd, uMsg, wParam, lParam);
-		InvalidateRect(hWnd, nullptr, FALSE);
-		return r;
-	}
-	}
-	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
-}
-
-// Everything the look needs doing once the controls exist.
-void CVRSettingsPPage::DressUp()
-{
-	g_pagesDressed++;
-	LoadTheme(m_hwnd);
-
-	if (HWND h = ::GetDlgItem(m_hwnd, IDC_STATIC_TITLE)) {
-		SendMessageW(h, WM_SETFONT, (WPARAM)g_hTitleFont, TRUE);
-	}
-	for (const int id : g_cardTitles) {
-		if (HWND h = Item(id)) {
-			SendMessageW(h, WM_SETFONT, (WPARAM)g_hHeadFont, TRUE);
-		}
-	}
-
-	// The boxes, the lists and the sliders are drawn by Windows, and are only told
-	// which way round. The theme names are undocumented: when they do nothing the
-	// control simply stays light, which is why the failure is invisible, not ugly.
-	if (g_bDark) {
-		for (HWND hSection : m_hSections) {
-			if (!hSection) {
-				continue;
-			}
-			for (HWND h = ::GetWindow(hSection, GW_CHILD); h; h = ::GetWindow(h, GW_HWNDNEXT)) {
-				wchar_t cls[32] = {};
-				::GetClassNameW(h, cls, (int)std::size(cls));
-				const bool bCheck = !_wcsicmp(cls, L"Button")
-					&& (::GetWindowLongW(h, GWL_STYLE) & BS_TYPEMASK) == BS_AUTOCHECKBOX;
-				if (bCheck || !_wcsicmp(cls, L"Static")) {
-					continue;   // painted below, by us
-				}
-				SetWindowTheme(h, (!_wcsicmp(cls, L"ComboBox") || !_wcsicmp(cls, L"Edit"))
-					? L"DarkMode_CFD" : L"DarkMode_Explorer", nullptr);
-			}
-		}
-		if (HWND h = ::GetDlgItem(m_hwnd, IDC_BUTTON1)) {
-			SetWindowTheme(h, L"DarkMode_Explorer", nullptr);
-		}
-	}
-
-	TakeBackPainting();
-}
-
-// Which surface a label sits on and how it reads, worked out the same way the answer
-// to WM_CTLCOLORSTATIC is: the one-line description of a section sits on the page,
-// everything else in a section sits on a card.
-static DWORD_PTR LabelFlags(HWND hCtrl, bool bInSection)
-{
-	const int id = ::GetDlgCtrlID(hCtrl);
-	bool bDim = false;
-	for (const int d : g_descriptions) {
-		bDim = bDim || (id == d);
-	}
-	return (bDim ? kLabelDim : 0) | ((bInSection && !bDim) ? kLabelOnCard : 0);
-}
-
-// The controls the page paints rather than Windows. Holding the window procedure is
-// what makes the painting ours, so this is written to be run again as often as it
-// takes: whoever took the procedure last is the one that paints.
-void CVRSettingsPPage::TakeBackPainting()
-{
-	const auto take = [this](HWND h, SUBCLASSPROC proc, DWORD_PTR data) {
-		// Asking comctl32 a second time does not help. It keeps its own note of
-		// having subclassed the window, so once a host has written its procedure
-		// straight into GWLP_WNDPROC, adding to the chain rearranges a chain nobody
-		// calls any more. What has to go back is the procedure itself, and the only
-		// one who knows which that was is whoever put the subclass on -- so the page
-		// writes it down the first time and restores it afterwards.
-		for (auto& held : m_painted) {
-			if (held.first != h) {
-				continue;
-			}
-			if ((WNDPROC)::GetWindowLongPtrW(h, GWLP_WNDPROC) != held.second) {
-				::SetWindowLongPtrW(h, GWLP_WNDPROC, (LONG_PTR)held.second);
-			}
-			return;
-		}
-		SetWindowSubclass(h, proc, 1, data);
-		m_painted.emplace_back(h, (WNDPROC)::GetWindowLongPtrW(h, GWLP_WNDPROC));
-	};
-
-	for (HWND h = ::GetWindow(m_hwnd, GW_CHILD); h; h = ::GetWindow(h, GW_HWNDNEXT)) {
-		wchar_t cls[32] = {};
-		::GetClassNameW(h, cls, (int)std::size(cls));
-		if (::GetDlgCtrlID(h) == IDC_NAV) {
-			take(h, NavProc, 0);
-		} else if (!_wcsicmp(cls, L"Static")) {
-			take(h, LabelProc, LabelFlags(h, false));
-		}
-	}
-	for (HWND hSection : m_hSections) {
-		if (!hSection) {
-			continue;
-		}
-		for (HWND h = ::GetWindow(hSection, GW_CHILD); h; h = ::GetWindow(h, GW_HWNDNEXT)) {
-			wchar_t cls[32] = {};
-			::GetClassNameW(h, cls, (int)std::size(cls));
-			if (!_wcsicmp(cls, L"Static")) {
-				take(h, LabelProc, LabelFlags(h, true));
-			} else if (!_wcsicmp(cls, L"Button")
-					&& (::GetWindowLongW(h, GWL_STYLE) & BS_TYPEMASK) == BS_AUTOCHECKBOX) {
-				take(h, SwitchProc, 0);
-			}
-		}
-	}
-}
-
-// Nothing announces that a host has taken a control over, so the page looks: what
-// answers for the control is no longer what the page left there.
-bool CVRSettingsPPage::PaintingWasTakenAway() const
-{
-	for (const auto& held : m_painted) {
-		if (::IsWindow(held.first)
-				&& (WNDPROC)::GetWindowLongPtrW(held.first, GWLP_WNDPROC) != held.second) {
-			return true;
-		}
-	}
-	return false;
-}
-
-// What a dialog of ours answers when Windows asks what colour something is.
-static INT_PTR ColourMessage(UINT uMsg, WPARAM wParam, LPARAM lParam, bool bOnCard)
-{
-	switch (uMsg) {
-	case WM_CTLCOLORDLG:
-		return (INT_PTR)g_hbrBg;
-
-	case WM_CTLCOLORBTN:
-		return (INT_PTR)(bOnCard ? g_hbrPanel : g_hbrBg);
-
-	// A writable box sends this one and a read-only box sends WM_CTLCOLORSTATIC,
-	// so both have to be answered or the two look nothing like each other.
-	case WM_CTLCOLOREDIT: {
-		const HDC hdc = (HDC)wParam;
-		SetBkMode(hdc, OPAQUE);
-		SetBkColor(hdc, bOnCard ? g_th.panel : g_th.bg);
-		SetTextColor(hdc, ::IsWindowEnabled((HWND)lParam) ? g_th.text : g_th.textOff);
-		return (INT_PTR)(bOnCard ? g_hbrPanel : g_hbrBg);
-	}
-
-	case WM_CTLCOLORSTATIC: {
-		const HDC hdc = (HDC)wParam;
-		const HWND hCtrl = (HWND)lParam;
-		const int id = ::GetDlgCtrlID(hCtrl);
-		bool bDim = false;
-		for (const int d : g_descriptions) {
-			bDim = bDim || (id == d);
-		}
-			SetBkMode(hdc, TRANSPARENT);
-		// A read-only edit is a static as far as this message is concerned, and it
-		// is the only one that wants the surface drawn under it.
-		wchar_t cls[16] = {};
-		::GetClassNameW(hCtrl, cls, (int)std::size(cls));
-		const bool bEdit = !_wcsicmp(cls, L"Edit");
-		SetTextColor(hdc, !::IsWindowEnabled(hCtrl) ? g_th.textOff
-			: (bDim ? g_th.textDim : g_th.text));
-		if (bEdit) {
-			SetBkMode(hdc, OPAQUE);
-			SetBkColor(hdc, bOnCard ? g_th.panel : g_th.bg);
-		}
-		// The one-line description sits on the page; the rest sits on a card.
-		return (INT_PTR)((bOnCard && !bDim) ? g_hbrPanel : g_hbrBg);
-	}
-	}
-	return 0;
-}
-
 
 // One line of what it does, one of what it needs. The measurements and the
 // reasoning are in README-DLSS5.md; a tooltip that has to be read twice is one
@@ -986,6 +439,21 @@ int CVRSettingsPPage::SectionOf(HWND hDlg) const
 void CVRSettingsPPage::ShowSection(int section)
 {
 	m_iSection = section;
+	// Called both ways: by the tab the user clicked, and by the page coming back to
+	// the section it was left on. The second one has to move the tab itself.
+	if (HWND hTabs = ::GetDlgItem(m_hwnd, IDC_SECTION_TABS)) {
+		const int count = TabCtrl_GetItemCount(hTabs);
+		for (int i = 0; i < count; i++) {
+			TCITEMW item = {};
+			item.mask = TCIF_PARAM;
+			if (TabCtrl_GetItem(hTabs, i, &item) && (int)item.lParam == section) {
+				if (TabCtrl_GetCurSel(hTabs) != i) {
+					TabCtrl_SetCurSel(hTabs, i);
+				}
+				break;
+			}
+		}
+	}
 	for (int i = 0; i < SECTION_COUNT; i++) {
 		if (m_hSections[i]) {
 			::ShowWindow(m_hSections[i], (i == section) ? SW_SHOW : SW_HIDE);
@@ -1363,11 +831,9 @@ HRESULT CVRSettingsPPage::OnActivate()
 	m_bRendererActive = m_pVideoRenderer->GetActive();
 	m_uVPUse = m_bRendererActive ? m_pVideoRenderer->GetVideoProcessorUse() : 0;
 
-	// Where the sections go, in the page's own units, so the host's font decides.
-	RECT rcContent = { 112, 26, 412, 318 };
-	MapDialogRect(m_hwnd, &rcContent);
+	HWND hTabs = ::GetDlgItem(m_hwnd, IDC_SECTION_TABS);
 
-	HWND hList = ::GetDlgItem(m_hwnd, IDC_NAV);
+	int tab = 0;
 	for (const auto& s : g_sections) {
 #ifndef _WIN64
 		if (s.section == SECTION_DlssNR) {
@@ -1380,13 +846,35 @@ HRESULT CVRSettingsPPage::OnActivate()
 			continue;
 		}
 		m_hSections[s.section] = hSection;
-		::SetWindowPos(hSection, nullptr, rcContent.left, rcContent.top,
-			rcContent.right - rcContent.left, rcContent.bottom - rcContent.top,
-			SWP_NOZORDER | SWP_NOACTIVATE);
-		if (hList) {
-			const LRESULT index = SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)s.name);
-			if (index != LB_ERR) {
-				SendMessageW(hList, LB_SETITEMDATA, index, s.section);
+		// Without this the child dialog paints its own flat grey over the tab's
+		// background, and the page reads as a dialog stuck on top of a tab control
+		// rather than as its page.
+		EnableThemeDialogTexture(hSection, ETDT_ENABLETAB);
+		if (hTabs) {
+			TCITEMW item = {};
+			item.mask = TCIF_TEXT | TCIF_PARAM;
+			item.pszText = (LPWSTR)s.name;
+			// The section, not the tab's position: on x86 the DLSS tab is not there
+			// at all and the two stop agreeing.
+			item.lParam = s.section;
+			TabCtrl_InsertItem(hTabs, tab++, &item);
+		}
+	}
+
+	// Where the pages go, asked of the tab control itself so nothing here has to
+	// know how tall a row of tabs is in the host's font or at the host's scaling --
+	// and asked only now, because an empty tab control has no row to leave room for
+	// and hands back very nearly the rectangle it was given.
+	if (hTabs) {
+		RECT rcContent = {};
+		::GetWindowRect(hTabs, &rcContent);
+		::MapWindowPoints(nullptr, m_hwnd, (POINT*)&rcContent, 2);
+		TabCtrl_AdjustRect(hTabs, FALSE, &rcContent);
+		for (HWND hSection : m_hSections) {
+			if (hSection) {
+				::SetWindowPos(hSection, HWND_TOP, rcContent.left, rcContent.top,
+					rcContent.right - rcContent.left, rcContent.bottom - rcContent.top,
+					SWP_NOACTIVATE);
 			}
 		}
 	}
@@ -1431,23 +919,13 @@ HRESULT CVRSettingsPPage::OnActivate()
 	SetControls();
 	EnableControls();
 	SetDlgItemTextW(IDC_EDIT2, GetNameAndVersion());
-	DressUp();
 
 	{
 		int wanted = LastSectionLookedAt();
 		if (wanted < 0 || wanted >= SECTION_COUNT || !m_hSections[wanted]) {
 			wanted = SECTION_Source;
 		}
-		if (hList) {
-			const LRESULT count = SendMessageW(hList, LB_GETCOUNT, 0, 0);
-			for (LRESULT i = 0; i < count; i++) {
-				if ((int)SendMessageW(hList, LB_GETITEMDATA, i, 0) == wanted) {
-					SendMessageW(hList, LB_SETCURSEL, i, 0);
-					break;
-				}
-			}
-		}
-		ShowSection(wanted);
+		ShowSection(wanted);   // which moves the tab to match
 	}
 
 	for (const auto& hint : g_hints) {
@@ -1459,11 +937,6 @@ HRESULT CVRSettingsPPage::OnActivate()
 	// film.
 	SetTimer(kRefreshTimer, 500);
 
-	// A player that paints the property sheet in its own colours does it once the
-	// page is up, which would leave its check boxes over our switches. Asking again
-	// a moment later puts ours back outermost; it costs one tick and nothing after.
-	SetTimer(kDressTimer, 700);
-
 	// From here on an edit is the user's: SetDirty does nothing before this, so
 	// filling the controls in above does not light the Apply button.
 	m_bActivated = true;
@@ -1474,8 +947,6 @@ HRESULT CVRSettingsPPage::OnActivate()
 HRESULT CVRSettingsPPage::OnDeactivate()
 {
 	KillTimer(kRefreshTimer);
-	KillTimer(kDressTimer);
-	m_painted.clear();   // the windows go with the page, and the notes with them
 	RememberSection(m_iSection);
 
 	// The page's dialog is destroyed right after this, and its children with it.
@@ -1491,10 +962,6 @@ HRESULT CVRSettingsPPage::OnDeactivate()
 		::DestroyWindow(m_hHint);
 		m_hHint = nullptr;
 	}
-	if (--g_pagesDressed <= 0) {
-		g_pagesDressed = 0;
-		FreeTheme();
-	}
 	m_bActivated = false;
 
 	return S_OK;
@@ -1502,67 +969,16 @@ HRESULT CVRSettingsPPage::OnDeactivate()
 
 INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	if (const INT_PTR colour = ColourMessage(uMsg, wParam, lParam, false)) {
-		return colour;
-	}
-
-	// The list down the side is ours to draw: a pill in the accent colour behind
-	// the section being looked at, and nothing else.
-	if (uMsg == WM_MEASUREITEM) {
-		auto* mis = (MEASUREITEMSTRUCT*)lParam;
-		if (mis->CtlID == IDC_NAV) {
-			RECT rc = { 0, 0, 0, 13 };   // one row, in the page's own units
-			MapDialogRect(m_hwnd, &rc);
-			mis->itemHeight = rc.bottom;
+	if (uMsg == WM_NOTIFY) {
+		const auto* nm = (const NMHDR*)lParam;
+		if (nm->idFrom == IDC_SECTION_TABS && nm->code == TCN_SELCHANGE) {
+			TCITEMW item = {};
+			item.mask = TCIF_PARAM;
+			const int at = TabCtrl_GetCurSel(nm->hwndFrom);
+			if (at >= 0 && TabCtrl_GetItem(nm->hwndFrom, at, &item)) {
+				ShowSection((int)item.lParam);
+			}
 			return (INT_PTR)TRUE;
-		}
-	}
-	if (uMsg == WM_DRAWITEM) {
-		const auto* dis = (const DRAWITEMSTRUCT*)lParam;
-		if (dis->CtlID == IDC_NAV && (int)dis->itemID >= 0) {
-			wchar_t name[64] = {};
-			SendMessageW(dis->hwndItem, LB_GETTEXT, dis->itemID, (LPARAM)name);
-			DrawNavItem(dis->hDC, dis->rcItem, name, (dis->itemState & ODS_SELECTED) != 0);
-			return (INT_PTR)TRUE;
-		}
-	}
-	if (uMsg == WM_CTLCOLORLISTBOX) {
-		return (INT_PTR)g_hbrPanel;
-	}
-	// Windows says so when the user switches light and dark while this is open.
-	if (uMsg == WM_SETTINGCHANGE && lParam
-			&& !wcscmp((const wchar_t*)lParam, L"ImmersiveColorSet")) {
-		DressUp();
-		::InvalidateRect(m_hwnd, nullptr, TRUE);
-		for (HWND hSection : m_hSections) {
-			if (hSection) {
-				::InvalidateRect(hSection, nullptr, TRUE);
-			}
-		}
-	}
-
-	if (uMsg == WM_TIMER && wParam == kDressTimer) {
-		KillTimer(kDressTimer);
-		g_pagesDressed--;        // DressUp counts itself, and this is the same page
-		DressUp();
-		::InvalidateRect(m_hwnd, nullptr, TRUE);
-		for (HWND hSection : m_hSections) {
-			if (hSection) {
-				::InvalidateRect(hSection, nullptr, TRUE);
-			}
-		}
-		return (INT_PTR)TRUE;
-	}
-
-	// A player that themes the property sheet does it on its own schedule, and some
-	// of it lands after the page is up. Nothing says so, so the page looks.
-	if (uMsg == WM_TIMER && wParam == kRefreshTimer && PaintingWasTakenAway()) {
-		TakeBackPainting();
-		::InvalidateRect(m_hwnd, nullptr, TRUE);
-		for (HWND hSection : m_hSections) {
-			if (hSection) {
-				::InvalidateRect(hSection, nullptr, TRUE);
-			}
 		}
 	}
 
@@ -1593,14 +1009,6 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 		const int nID = LOWORD(wParam);
 		const int action = HIWORD(wParam);
 
-		if (action == LBN_SELCHANGE && nID == IDC_NAV) {
-			HWND hList = ::GetDlgItem(m_hwnd, IDC_NAV);
-			const LRESULT index = hList ? SendMessageW(hList, LB_GETCURSEL, 0, 0) : LB_ERR;
-			if (index != LB_ERR) {
-				ShowSection((int)SendMessageW(hList, LB_GETITEMDATA, index, 0));
-			}
-			return (INT_PTR)1;
-		}
 		if (action == BN_CLICKED && nID == IDC_BUTTON1) {
 			// Back to the defaults, except the DLSS tuning, which has its own button
 			// in its own section -- the same split the two old pages had.
@@ -1619,37 +1027,6 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 
 INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	if (const INT_PTR colour = ColourMessage(uMsg, wParam, lParam, true)) {
-		return colour;
-	}
-
-	// The page, then the cards on it. Painted here rather than in WM_PAINT so the
-	// surfaces land under the controls instead of over them.
-	if (uMsg == WM_ERASEBKGND) {
-		const HDC hdc = (HDC)wParam;
-		RECT rc = {};
-		::GetClientRect(hDlg, &rc);
-		FillRect(hdc, &rc, g_hbrBg);
-		const int section = SectionOf(hDlg);
-		const int radius = MulDiv(10, GetDeviceCaps(hdc, LOGPIXELSX), 96);
-		for (const auto& card : g_cards) {
-			if (card.section != section) {
-				continue;
-			}
-			RECT rcCard = { card.rc.left, card.rc.top, card.rc.right, card.rc.bottom };
-			MapDialogRect(hDlg, &rcCard);
-			FillRound(hdc, rcCard, g_th.panel, radius);
-			// In the light theme the card is barely lighter than the page, so it
-			// needs an edge to be a card at all; in the dark one it does not.
-			if (!g_bDark) {
-				HBRUSH hbr = CreateSolidBrush(g_th.line);
-				FrameRect(hdc, &rcCard, hbr);
-				DeleteObject(hbr);
-			}
-		}
-		return (INT_PTR)TRUE;
-	}
-
 	if (uMsg == WM_COMMAND) {
 		const int nID = LOWORD(wParam);
 		const int action = HIWORD(wParam);

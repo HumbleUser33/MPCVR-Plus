@@ -156,7 +156,7 @@ notice its absence.
 | Temporal stabilizer on Optical Flow | `Source/DLSS/DlssStabilizer.cpp`, `DlssOpticalFlow.cpp` | `--tstab`, `--tstabport` |
 | DLSS Super Resolution 4.5, with its own motion | `Source/DLSS/DlssSR.cpp`, `DlssMotionMask.cpp` | `--tsr`, `--tsrport`, `--tsrstill` |
 | Render ahead | `Source/DX11VideoProcessor.cpp` | `playback_test --seconds` |
-| The DLSS settings page | `Source/DLSS/DlssPropPage.cpp` | `playback_test --dlsspage` |
+| The settings page, seven tabs in one | `Source/SettingsPage/` | `playback_test --mainpage`, `--frame` |
 | mpv prescalers: FSRCNNX 8/16, RAVU-zoom, ArtCNN, the AR entries | `Source/Upscale/`, `Shaders/mpv/` | `--tmpvport`, `--tupscale`, `--scalers` |
 | Chroma: Jinc (EWA), RAVU-zoom, FSRCNNX 8 AR | `Source/Shaders.cpp`, `Source/DX11VideoProcessor.cpp` | `--tchroma`, `--chroma`, `--chroma10` |
 | 4:4:4 pre-pass ("Replace VP chroma upsampling") | `Source/DX11VideoProcessor.cpp`, `Source/Shaders.cpp` | `shader444_test`, `--chroma10`, `vp444_probe` |

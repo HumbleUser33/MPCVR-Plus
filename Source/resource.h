@@ -228,7 +228,7 @@
 #define IDC_SHARPEN                     1251
 #define IDC_STATIC_SHARPEN_LEVEL        1252
 #define IDC_SHARPEN_LEVEL               1253
-#define IDC_NAV                         1254
+#define IDC_SECTION_TABS                1254
 #define IDC_STATIC_DESC_SOURCE          1255
 #define IDC_STATIC_DESC_CHROMA          1256
 #define IDC_STATIC_DESC_SCALING         1257
@@ -238,7 +238,6 @@
 #define IDC_STATIC_DESC_PRESENT         1261
 #define IDC_SHARPEN_LEVEL_TEXT          1262
 #define IDC_STATIC_HEAD_STATS           1263
-#define IDC_STATIC_TITLE                1264
 #define IDC_CARD_DECODING               1265
 #define IDC_CARD_CHROMA                 1266
 #define IDC_CARD_RESIZING               1267
