@@ -491,6 +491,7 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_iDlssNRMotion        = config.iDlssNRMotion;
 	m_bDlssNRMotionVectors = config.bDlssNRMotionVectors;
 	m_bDlssSR              = config.bDlssSR;
+	m_bDlssSRDlaa          = config.bDlssSRDlaa;
 	m_iDlssSRPreset        = config.iDlssSRPreset;
 	m_strDlssSRDllPath     = config.szDlssSRDllPath;
 
@@ -1365,18 +1366,23 @@ void CDX11VideoProcessor::UpdateScalingStrings()
 		w1 = m_srcRectWidth;
 		h1 = m_srcRectHeight;
 	}
-	// DLSS Super Resolution takes over when the picture grows on both axes.
-	const bool bDlssSR = m_bDlssSRActive && w2 > w1 && h2 > h1;
-	const wchar_t* upscaling = bDlssSR ? L"DLSS SR" : s_Upscaling11ResIDs[m_iUpscaling].description;
+	// DLSS Super Resolution takes over when the picture grows on both axes, and with
+	// DLAA when it does not grow at all.
+	const bool bDlaa = m_bDlssSRActive && m_bDlssSRDlaa && w1 == w2 && h1 == h2;
+	const bool bDlssSR = bDlaa || (m_bDlssSRActive && w2 > w1 && h2 > h1);
+	const wchar_t* upscaling = bDlaa ? L"DLSS SR (DLAA)"
+		: bDlssSR ? L"DLSS SR" : s_Upscaling11ResIDs[m_iUpscaling].description;
 	// An mpv prescaler only where it runs; Catmull-Rom does the job elsewhere.
 	if (!bDlssSR && MpvLumaShader(m_iUpscaling) && !m_MpvLuma.Applies(w1, h1, w2, h2)) {
 		upscaling = L"Catmull-Rom";
 	}
-	m_strShaderX = (w1 == w2) ? nullptr
+	// Nothing is normally said about an axis that does not change size; DLAA is the
+	// one pass worth naming there, since the whole point of it is that it runs anyway.
+	m_strShaderX = (w1 == w2) ? (bDlaa ? upscaling : nullptr)
 		: (w1 > k * w2)
 		? s_Downscaling11ResIDs[m_iDownscaling].description
 		: upscaling;
-	m_strShaderY = (h1 == h2) ? nullptr
+	m_strShaderY = (h1 == h2) ? (bDlaa ? upscaling : nullptr)
 		: (h1 > k * h2)
 		? s_Downscaling11ResIDs[m_iDownscaling].description
 		: upscaling;
@@ -4379,15 +4385,22 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	const UINT inW = rSrc.Width(), inH = rSrc.Height();
 	UINT outW = bTurned ? dstRect.Height() : dstRect.Width();
 	UINT outH = bTurned ? dstRect.Width() : dstRect.Height();
-	if (!inW || !inH || outW <= inW || outH <= inH) {
-		return S_FALSE;   // DLSS only enlarges; the renderer's downscalers do the rest
+	// DLAA: the picture is already the size it will be shown at, and DLSS runs on it
+	// anyway -- same network, same cost, nothing enlarged. CDlssSR::QualityModeFor
+	// already asks NGX for NGX_PERFQUALITY_DLAA at a ratio of one; what was missing
+	// was letting the pass get that far.
+	const bool bDlaa = m_bDlssSRDlaa && outW == inW && outH == inH;
+	if (!inW || !inH || (!bDlaa && (outW <= inW || outH <= inH))) {
+		return S_FALSE;   // DLSS enlarges, or holds the size; the downscalers do the rest
 	}
 
-	// Past four times the source the output stops there, and the resize shaders
-	// cover what is left (measured: 4.5x still runs, but nothing films need).
-	const double reach = std::min({ 4.0 * inW / outW, 4.0 * inH / outH, 7680.0 / outW, 4320.0 / outH, 1.0 });
-	outW = std::max<UINT>(inW + 1, (UINT)std::lround(outW * reach));
-	outH = std::max<UINT>(inH + 1, (UINT)std::lround(outH * reach));
+	if (!bDlaa) {
+		// Past four times the source the output stops there, and the resize shaders
+		// cover what is left (measured: 4.5x still runs, but nothing films need).
+		const double reach = std::min({ 4.0 * inW / outW, 4.0 * inH / outH, 7680.0 / outW, 4320.0 / outH, 1.0 });
+		outW = std::max<UINT>(inW + 1, (UINT)std::lround(outW * reach));
+		outH = std::max<UINT>(inH + 1, (UINT)std::lround(outH * reach));
+	}
 
 	const unsigned preset = (unsigned)m_iDlssSRPreset;
 	if (!m_DlssSR.MatchesFeature(inW, inH, outW, outH, preset)) {
@@ -5163,6 +5176,12 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		}
 		if (config.bDlssSR != m_bDlssSR) {
 			m_bDlssSR = config.bDlssSR;
+			bUpdateSR = true;
+		}
+		if (config.bDlssSRDlaa != m_bDlssSRDlaa) {
+			// The feature was made for one pair of sizes, and DLAA is another pair.
+			m_bDlssSRDlaa = config.bDlssSRDlaa;
+			m_DlssSR.ReleaseFeature();
 			bUpdateSR = true;
 		}
 		m_iDlssSRPreset = config.iDlssSRPreset;

@@ -212,6 +212,11 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Needs nvngx_dlss.dll and an RTX card. Works with or without\n"
 		"DLSS 5 NR.\n"
 		"Experimental: moving subjects can still shimmer on grainy film." },
+	{ IDC_CHECK28,
+		L"DLSS also runs when the picture is already the size it is shown at,\n"
+		"rebuilding it without enlarging it -- the same network and the same\n"
+		"cost. Games call it DLAA.\n"
+		"Needs Use DLSS SR." },
 	{ IDC_COMBO15,
 		L"Which DLSS model to use. Automatic picks it from the scale.\n"
 		"Live only while DLSS Super Resolution is ticked." },
@@ -701,6 +706,7 @@ void CVRSettingsPPage::SetControls()
 	SetText(IDC_EDIT7, m_SetsPP.szDlssNRDllPath);
 
 	SetCheck(IDC_CHECK25, m_SetsPP.bDlssSR);
+	SetCheck(IDC_CHECK28, m_SetsPP.bDlssSRDlaa);
 	Combo_SelectData(Item(IDC_COMBO15), m_SetsPP.iDlssSRPreset);
 	SetText(IDC_EDIT9, m_SetsPP.szDlssSRDllPath);
 }
@@ -785,7 +791,7 @@ void CVRSettingsPPage::EnableControls()
 	for (const int id : { IDC_CHECK25, IDC_STATIC35, IDC_STATIC37, IDC_EDIT9, IDC_BUTTON4 }) {
 		Enable(id, bD3D11);
 	}
-	for (const int id : { IDC_STATIC36, IDC_COMBO15 }) {
+	for (const int id : { IDC_STATIC36, IDC_COMBO15, IDC_CHECK28 }) {
 		Enable(id, bD3D11 && m_SetsPP.bDlssSR);
 	}
 }
@@ -1025,6 +1031,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK23, &m_SetsPP.bDlssNRAfterUpscale,  false },
 				{ IDC_CHECK24, &m_SetsPP.bDlssNRMotionVectors, false },
 				{ IDC_CHECK25, &m_SetsPP.bDlssSR,              true  },
+				{ IDC_CHECK28, &m_SetsPP.bDlssSRDlaa,          false },
 				{ IDC_CHECK26, &m_SetsPP.bDlssRenderAhead,     false },
 				{ IDC_CHECK27, &m_SetsPP.bVPReplaceChroma,     true  },
 			};

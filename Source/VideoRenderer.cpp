@@ -90,6 +90,7 @@
 #define OPT_DlssSR                         L"DlssSRUpscaling"
 #define OPT_DlssSRPreset                   L"DlssSRPreset"
 #define OPT_DlssSRDllPath                  L"DlssSRDllPath"
+#define OPT_DlssSRDlaa                     L"DlssSRDlaa"
 #define OPT_DlssRenderAhead                L"DlssRenderAhead"
 
 static std::atomic_int g_nInstance = 0;
@@ -381,6 +382,9 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 		// DLSS Super Resolution, x64 as well: the NGX runtime has no 32-bit build.
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSR, dw)) {
 			m_Sets.bDlssSR = !!dw;
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSRDlaa, dw)) {
+			m_Sets.bDlssSRDlaa = !!dw;
 		}
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSRPreset, dw)) {
 			m_Sets.iDlssSRPreset = ((int)dw >= DLSSSR_PRESET_J && (int)dw <= DLSSSR_PRESET_M) ? (int)dw : DLSSSR_PRESET_DEF;
@@ -1748,6 +1752,7 @@ STDMETHODIMP CMpcVideoRenderer::SaveSettings()
 		key.SetDWORDValue(OPT_DlssNRToggleKey,     m_Sets.iDlssNRToggleKey);
 		key.SetStringValue(OPT_DlssNRDllPath,      m_Sets.szDlssNRDllPath);
 		key.SetDWORDValue(OPT_DlssSR,              m_Sets.bDlssSR);
+		key.SetDWORDValue(OPT_DlssSRDlaa,          m_Sets.bDlssSRDlaa);
 		key.SetDWORDValue(OPT_DlssSRPreset,        m_Sets.iDlssSRPreset);
 		key.SetStringValue(OPT_DlssSRDllPath,      m_Sets.szDlssSRDllPath);
 #endif

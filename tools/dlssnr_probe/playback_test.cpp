@@ -101,6 +101,7 @@ static bool g_bToggleWindow = false;   // --toggle --fswitch: paused, the window
 static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
 static int g_frameSeconds = 0;         // --frame N: the page inside a real property frame
 static bool g_bThemedHost = false;     // --themed: and a player that paints it
+static bool g_bDlaa = false;           // --dlaa: let DLSS SR run without enlarging
 static bool g_bGreying = false;        // --greying: the rules alone, without a film
 static std::vector<int> g_hoverIds;     // --hover <id>: put the pointer on it and read the tip
 static int g_pageSection = -1;         // --section N: which one to show, or the page's own choice
@@ -834,6 +835,10 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	sets.iHdrToggleDisplay = HDRTD_Disabled;
 	sets.bDlssNR = config.bNR;
 	sets.bDlssSR = config.bSR;
+	// --dlaa: DLSS Super Resolution at the picture's own size. It only shows itself
+	// when the window is the size of the source, which is the one case the ordinary
+	// runs never produce -- they enlarge.
+	sets.bDlssSRDlaa = g_bDlaa;
 	sets.bDlssRenderAhead = config.bAhead;
 	if (config.iUpscaling >= 0) {
 		sets.iUpscaling = config.iUpscaling;
@@ -1772,6 +1777,8 @@ int wmain(int argc, wchar_t* argv[])
 			source.cy &= ~1;
 		} else if (!wcscmp(argv[i], L"--greying")) {
 			g_bGreying = true;
+		} else if (!wcscmp(argv[i], L"--dlaa")) {
+			g_bDlaa = true;
 		} else if (!wcscmp(argv[i], L"--themed")) {
 			g_bThemedHost = true;
 		} else if (!wcscmp(argv[i], L"--apply")) {

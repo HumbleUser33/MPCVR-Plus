@@ -215,6 +215,27 @@ enlargers, enlarges the picture with DLSS Super Resolution instead of the **Upsc
 which is then greyed. It is independent of DLSS 5 NR: another DLL, another session, and it works with NR on
 or off. When NR runs before upscaling, SR takes its output.
 
+**Also run when no enlarging is needed (DLAA).** DLSS only enlarges, so a film already at the
+screen's size -- 4K on a 4K screen -- never reached it at all. With this ticked it runs there
+too, at the picture's own size, rebuilding it without changing its scale; `QualityModeFor`
+asks NGX for `NGX_PERFQUALITY_DLAA` at a ratio of one, which is the mode games call DLAA. The
+statistics line says so: `DLSS SR : 3840x2160->3840x2160 DLAA/M`. Off, the same film reads
+`DLSS SR : initialised` and no pass runs.
+
+It costs a whole DLSS pass at the screen's size, which is the most expensive place to put one.
+Measured here on an RTX 3050, with `playback_test --dlaa --size WxH --window WxH`, per frame:
+
+| picture | DLSS SR | optical flow | fits 41.7 ms (24 fps)? |
+|---|---|---|---|
+| 1280x720 | 12.6 ms | 3.3 ms | yes, sync -7.0 ms, 0 skipped |
+| 1920x1080 | 14.0 ms | 2.7 ms | yes, sync -6.3 ms, 0 skipped |
+| 3840x2160 | 70.0 ms | 4.5 ms | **no**, sync ran out to +4.3 s |
+
+So on this card it is for 1080p and below, and 4K DLAA is out of reach; a faster card moves
+that line. Render ahead cannot rescue it -- it hides latency, not a pass that takes longer
+than a frame. The honest check is the statistics box: *skipped* staying at 0 and the sync
+offset staying put.
+
 **How it runs.** Unlike the NR snippet, this feature runs on Direct3D 11 through the display
 driver's NGX runtime (`_nvngx.dll`), which loads `nvngx_dlss.dll` itself: no second device,
 no shared textures, no waits (`Source/DLSS/DlssSR.cpp`). Every call into NGX runs in a
@@ -792,7 +813,8 @@ it serves the luma prescalers as much as DLSS, so it sits on the **Settings** pa
 | Motion | NVIDIA Optical Flow | Or *Shader detector (still areas)*. Applies on the next picture |
 | Send the motion vectors to DLSS | off | Optical Flow only. Steadier, but the network renders differently around moving objects |
 | Disable temporal history | off | Forces `DLSSNR.Reset` every frame. The stabilizer is not affected |
-| Use DLSS SR 4.5 for upscaling (Experimental) | off | See above: not perfect yet. Greys the main page's Upscaling list while it is on |
+| Use DLSS SR 4.5 for upscaling (Experimental) | off | See above: not perfect yet. Greys the Upscaling list while it is on |
+| Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p. Needs *Use DLSS SR* |
 | Preset (DLSS SR) | Automatic | Or J, K, L, M. Applies on the next picture |
 | DLL (DLSS SR) | empty | `nvngx_dlss.dll` or its folder. Empty means search next to the filter and up |
 
@@ -1004,6 +1026,7 @@ filter may then switch the display's own HDR state, which is not what is being m
 playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.976] [--only N]
 playback_test.exe --scalers       each Upscaling and Chroma upsampling method (--vp: hardware)
 playback_test.exe --greying       what the page greys, for every state the renderer can be in
+playback_test.exe --dlaa --size 1920x1080 --window 1920x1080   DLSS SR with nothing to enlarge
 playback_test.exe --mainpage 10 --hover 1042   the tip that comes up on a control, greyed or not
 playback_test.exe --mainpage 10   the settings page for 10 s, --click <id> clicks one control
 playback_test.exe --mainpage 10 --section 4   on one of the seven tabs; --apply presses Apply

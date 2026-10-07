@@ -243,6 +243,11 @@ struct Settings_t {
 	int iSharpen;
 	int iSharpenLevel;
 
+	// DLSS Super Resolution at the picture's own size: the network runs and nothing
+	// is enlarged, which is what games call DLAA. Only reached when the picture is
+	// already exactly the size it is shown at, so it costs nothing anywhere else.
+	bool bDlssSRDlaa;
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -314,6 +319,7 @@ struct Settings_t {
 		iDlssNRToggleKey                = VK_F12;
 		szDlssNRDllPath[0]              = L'\0';
 		bDlssSR                         = false;
+		bDlssSRDlaa                     = false;
 		iDlssSRPreset                   = DLSSSR_PRESET_DEF;
 		szDlssSRDllPath[0]              = L'\0';
 		bDlssRenderAhead                = true;
@@ -341,6 +347,7 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 	dst.iDlssNRToggleKey      = src.iDlssNRToggleKey;
 	wcscpy_s(dst.szDlssNRDllPath, src.szDlssNRDllPath);
 	dst.bDlssSR               = src.bDlssSR;
+	dst.bDlssSRDlaa           = src.bDlssSRDlaa;
 	dst.iDlssSRPreset         = src.iDlssSRPreset;
 	wcscpy_s(dst.szDlssSRDllPath, src.szDlssSRDllPath);
 	// bDlssRenderAhead is not here: it belongs to the main page, which sets it for

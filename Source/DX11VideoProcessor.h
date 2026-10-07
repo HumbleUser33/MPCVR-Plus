@@ -232,7 +232,8 @@ private:
 	CDlssSR m_DlssSR;
 	std::wstring m_strDlssSRDllPath;
 	bool m_bDlssSR = false;             // user setting
-	bool m_bDlssSRActive = false;       // setting AND the NGX session is up
+	bool m_bDlssSRActive = false;
+	bool m_bDlssSRDlaa = false;   // run it at the picture's own size as well       // setting AND the NGX session is up
 	int  m_iDlssSRPreset = DLSSSR_PRESET_DEF;
 	CDlssStabilizer m_DlssSRMotion;     // Optical Flow vectors for DLSS SR, drawn to the global motion
 	bool m_bDlssSRNewPicture = false;   // the next pass sees a new picture, not a redraw
