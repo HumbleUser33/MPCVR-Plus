@@ -1,9 +1,13 @@
-﻿# MPC Video Renderer + DLSS 5 Neural Rendering
+﻿# MPCVR-Plus
 
 A fork of [Aleksoid1978/VideoRenderer](https://github.com/Aleksoid1978/VideoRenderer)
-that adds an optional NVIDIA **DLSS 5 Neural Rendering** pass to the Direct3D 11
-pipeline. Nothing else changes: with the option off, the renderer behaves exactly
-as upstream does.
+with more features: upscalers and chroma upsampling chosen by measurement, a 4:4:4
+pre-pass before the hardware video processor, sharpening, render ahead to hold the
+audio clock, a rebuilt settings page — and, optionally, NVIDIA **DLSS 5 neural
+reconstruction** and **DLSS Super Resolution**.
+
+Every one of them is optional and off by default. With all of them off the renderer
+behaves exactly as upstream does, bit for bit.
 
 **→ [What it does, what it needs, how to build it](README-DLSS5.md)**
 

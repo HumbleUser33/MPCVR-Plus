@@ -1,10 +1,28 @@
-# DLSS 5 Neural Rendering for MPC Video Renderer
+# MPCVR-Plus
 
-A fork of [Aleksoid1978/VideoRenderer](https://github.com/Aleksoid1978/VideoRenderer) that adds
-an optional NVIDIA **DLSS 5 Neural Rendering** pass (NGX feature 18) to the Direct3D 11
-video pipeline, with a temporal stabilizer made for video, and an experimental option to
-enlarge the picture with **DLSS Super Resolution** (NGX feature 1) instead of the resize
-shaders.
+A fork of [Aleksoid1978/VideoRenderer](https://github.com/Aleksoid1978/VideoRenderer) with more
+features. Every one of them is optional and off by default, and with all of them off the
+rendering is bit-identical to upstream.
+
+| | |
+|---|---|
+| **Scaling** | six upscalers chosen by measurement — ArtCNN C4F16 DS, FSRCNNX 8/16, RAVU-zoom and the anti-ringing versions — with both lists ordered best first |
+| **Chroma** | three more methods, and a 4:4:4 pre-pass that hands the hardware video processor a full picture: +7 dB of colour on 10-bit film |
+| **Detail** | sharpening after the resize, two methods and five calibrated levels |
+| **DLSS 5 NR** | NVIDIA neural reconstruction (NGX feature 18) with a temporal stabilizer made for video |
+| **DLSS SR** | DLSS Super Resolution 4.5 for enlarging, and DLAA at native size (experimental) |
+| **Presentation** | render ahead, so none of it drifts off the audio clock |
+| **Settings** | one page, seven tabs, in the order the picture travels through them |
+
+It was called MPCVR-DLSS5 until 1.7, when DLSS 5 stopped being the whole of it. The branch is
+still `dlss5`, so the filter reports itself as `0.10.8.xxxx.dlss5`.
+
+## The two DLSS passes
+
+The fork adds an optional NVIDIA **DLSS 5 Neural Rendering** pass (NGX feature 18) to the
+Direct3D 11 video pipeline, with a temporal stabilizer made for video, and an experimental
+option to enlarge the picture with **DLSS Super Resolution** (NGX feature 1) instead of the
+resize shaders.
 
 Neither pass is a denoiser. Feature 18 **reconstructs the picture**: it rebuilds detail and
 edges, and what it takes out of the grain and the compression noise is a consequence of that,
