@@ -499,16 +499,34 @@ while the video processor converts, **Upscaling** and **Downscaling** while it a
 (*Use for resizing*, which DLSS 5 NR and DLSS SR suspend on their own), and **Upscaling**
 while DLSS SR enlarges.
 
-It reads those from the settings and from nothing else. The renderer can say what it is doing
-with the picture at hand, and the page used to listen; that read well and worked badly. A 4K
-film on a 4K screen leaves the processor nothing to resize, and a Dolby Vision one keeps it
-out of the chain altogether, so the page moved under you as the film changed -- and it put
-*Request Super Resolution* out of reach, because with the processor out of the chain it greyed
-whatever the pre-pass box said, and that box is the one it is supposed to answer. These are
-settings for every film there will ever be, so the film playing now does not get a vote. The
-cost is that on a Dolby Vision, YCgCo or RGB picture, which the shaders handle whatever is
-ticked, **Chroma upsampling** reads as greyed although it is in fact the method in use; the
-statistics line is the place to read what is really happening.
+It reads those from the settings and from nothing else, with one exception given below. The
+renderer can also say what it is doing with the picture at hand, and the page used to listen;
+that read well and worked badly. A 4K film on a 4K screen leaves the processor nothing to
+resize, so the page moved under you as the film changed -- and it put *Request Super
+Resolution* out of reach, because it greyed whatever the pre-pass box said, and that box is
+the one it is supposed to answer. These are settings for every film there will ever be, so the
+film playing now does not get a vote.
+
+### The exception: Dolby Vision
+
+Dolby Vision is not a matter of degree. The picture carries Dolby Vision's own colour and its
+own reshaping, which a fixed-function video processor cannot convert, so the renderer hands
+the whole chain to the shaders and the processor is not in it at all
+(`DX11VideoProcessor.cpp`, `disableD3D11VP`). While that is what is playing, the page says so:
+*Use the video processor for resizing* greys, with a line under it explaining why, and
+**Request Super Resolution** greys with it -- that extension lives inside the processor.
+**Chroma upsampling**, **Upscaling** and **Downscaling** stay live, because on such a picture
+the shaders really are doing all three.
+
+There is no way round it from here. The driver exposes Super Resolution as an extension of the
+Direct3D 11 video processor and nowhere else, and a Dolby Vision picture cannot go through
+that processor. What there is, for a source that carries an HDR10 base layer under the Dolby
+Vision one -- profile 8.1 and the AV1 profile 10.1, which most releases use -- is a choice:
+leave **Prefer Dolby Vision over PQ and HLG** off and the renderer ignores the Dolby Vision
+layer, plays the HDR10 base layer, keeps the video processor, and Super Resolution works. Turn
+it on and you get Dolby Vision's dynamic metadata and lose the processor with everything in
+it. Profile 5 carries no base layer, so there the Dolby Vision path is the only one and the
+choice does not arise.
 
 *Use for resizing* decides the resizing and nothing else -- the chroma is the business of the
 format boxes and of *Replace VP chroma upsampling*. What it also decides is whether

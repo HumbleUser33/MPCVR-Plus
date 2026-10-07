@@ -711,9 +711,10 @@ static void ReportVPUse(IVideoRenderer* pVR)
 	const unsigned use = bActive ? pVR->GetVideoProcessorUse() : 0;
 	printf("\n-- the video processor, and what the page makes of it\n");
 	printf("   renderer active   : %s\n", bActive ? "yes" : "no");
-	printf("   processor use     : 0x%X (%s%s%s)\n", use,
+	printf("   processor use     : 0x%X (%s%s%s%s)\n", use,
 		(use & VPUSE_Converting) ? "converting " : "",
-		(use & VPUSE_Resizing) ? "resizing" : "",
+		(use & VPUSE_Resizing) ? "resizing " : "",
+		(use & VPUSE_DoViByShaders) ? "out of the chain: Dolby Vision" : "",
 		use ? "" : "not in the chain at all");
 	printf("   settings          : d3d11 %d, vpscale %d, prepass %d, dlssNR %d, dlssSR %d\n",
 		(int)sets.bUseD3D11, (int)sets.bVPScaling, (int)sets.bVPReplaceChroma,
@@ -728,7 +729,7 @@ static void ReportVPUse(IVideoRenderer* pVR)
 			g.bAt50pct ? "live" : "GREYED",
 			g.bSuperRes ? "live" : "GREYED");
 	};
-	say("as it stands  :", GreyingFor(sets, true, true));
+	say("as it stands  :", GreyingFor(sets, true, true, (use & VPUSE_DoViByShaders) != 0));
 
 	// The one the user reaches for: the chroma replacement is what Super Resolution
 	// is said to wait on, so the page has to answer differently with it turned round.
@@ -736,7 +737,7 @@ static void ReportVPUse(IVideoRenderer* pVR)
 	flipped.bVPReplaceChroma = !sets.bVPReplaceChroma;
 	char what[64] = {};
 	sprintf_s(what, "prepass %s :", flipped.bVPReplaceChroma ? "on " : "off");
-	say(what, GreyingFor(flipped, true, true));
+	say(what, GreyingFor(flipped, true, true, (use & VPUSE_DoViByShaders) != 0));
 }
 
 // --greying: what the page greys, for every state the renderer can be in and with
@@ -751,13 +752,14 @@ static int ShowGreying()
 		{ "converting and resizing",      true,  VPUSE_Converting | VPUSE_Resizing },
 		{ "converting, nothing to resize",true,  VPUSE_Converting },
 		{ "resizing, chroma by shaders",  true,  VPUSE_Resizing },
-		{ "not in the chain (Dolby Vision)", true, 0 },
+		{ "not in the chain (Dolby Vision)", true, VPUSE_DoViByShaders },
 	};
 
 	printf("what the page greys, for the settings a default install has\n");
 	printf("(Direct3D 11, every format to the processor, use it for resizing, no DLSS)\n\n");
 	printf("%-34s %-8s %-7s %-10s %-12s %-7s\n",
 		"the processor is", "prepass", "chroma", "upscaling", "downscaling", "superres");
+	printf("(and the resizing box itself, which greys only for Dolby Vision)\n\n");
 
 	for (const auto& st : states) {
 		for (const bool bPrepass : { false, true }) {
@@ -769,19 +771,23 @@ static int ShowGreying()
 			sets.bVPReplaceChroma = bPrepass;
 			// The state is printed and not passed: that it no longer enters into the
 			// answer is the thing this table is for.
-			const Greying g = GreyingFor(sets, true, true);
-			printf("%-34s %-8s %-7s %-10s %-12s %-7s\n",
+			const Greying g = GreyingFor(sets, true, true, (st.use & VPUSE_DoViByShaders) != 0);
+			printf("%-34s %-8s %-7s %-10s %-12s %-7s  box %s\n",
 				bPrepass ? "" : st.what,
 				bPrepass ? "on" : "off",
 				g.bChromaList ? "live" : "GREYED",
 				g.bUpscalingList ? "live" : "GREYED",
 				g.bDownscalingList ? "live" : "GREYED",
-				g.bSuperRes ? "live" : "GREYED");
+				g.bSuperRes ? "live" : "GREYED",
+				g.bVPResizingBox ? "live" : "GREYED");
 		}
 	}
 	printf("\nSuper Resolution has to answer the prepass box: a line that reads the same\n"
-	       "with it on and off is one the user cannot get back. And the five rows have\n"
-	       "to read alike, or the page moves under the user when the film changes.\n");
+	       "with it on and off is one the user cannot get back. The first four rows have\n"
+	       "to read alike, or the page moves under the user as the film changes. The\n"
+	       "Dolby Vision row is meant to differ: the processor is not in the chain at\n"
+	       "all there, so everything inside it is out and everything the shaders do is\n"
+	       "theirs again.\n");
 	return 0;
 }
 

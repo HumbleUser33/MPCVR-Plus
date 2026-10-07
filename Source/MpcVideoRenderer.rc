@@ -173,16 +173,17 @@ STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
 FONT 8, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
     LTEXT           "Everything that changes the size of the picture. Only one enlarger runs at a time.",IDC_STATIC_DESC_SCALING,7,4,446,8
-    GROUPBOX        "Resizing",IDC_CARD_RESIZING,7,16,222,124
+    GROUPBOX        "Resizing",IDC_CARD_RESIZING,7,16,222,144
     CONTROL         "Use the video processor for resizing",IDC_CHECK5,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,30,208,10
-    LTEXT           "Request Super Resolution",IDC_STATIC7,22,48,96,8
-    COMBOBOX        IDC_COMBO8,140,46,82,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "Greyed while the chroma replacement is on: the driver leaves the 4:4:4 picture it then receives untouched.",IDC_STATIC_SUPERRES_NOTE,22,62,200,20
-    LTEXT           "Upscaling",IDC_STATIC39,14,88,46,8
-    COMBOBOX        IDC_COMBO2,64,86,158,170,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "Downscaling",IDC_STATIC41,14,106,46,8
-    COMBOBOX        IDC_COMBO3,64,104,158,100,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL         "Use the ""Upscaling"" method to reduce the frame to 50%",IDC_CHECK6,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,122,208,10
+    LTEXT           "Not available while Dolby Vision is active: the processor cannot convert that picture, so the shaders carry all of it -- and Super Resolution lives in the processor.",IDC_STATIC_VPDOVI_NOTE,22,42,200,24
+    LTEXT           "Request Super Resolution",IDC_STATIC7,22,70,96,8
+    COMBOBOX        IDC_COMBO8,140,68,82,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Greyed while the chroma replacement is on: the driver leaves the 4:4:4 picture it then receives untouched.",IDC_STATIC_SUPERRES_NOTE,22,84,200,20
+    LTEXT           "Upscaling",IDC_STATIC39,14,108,46,8
+    COMBOBOX        IDC_COMBO2,64,106,158,170,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Downscaling",IDC_STATIC41,14,126,46,8
+    COMBOBOX        IDC_COMBO3,64,124,158,100,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Use the ""Upscaling"" method to reduce the frame to 50%",IDC_CHECK6,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,142,208,10
     GROUPBOX        "NVIDIA DLSS Super Resolution",IDC_STATIC35,235,16,218,84
     CONTROL         "Use DLSS SR 4.5 for upscaling (experimental)",IDC_CHECK25,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,242,30,204,10
     LTEXT           "Preset",IDC_STATIC36,242,48,28,8

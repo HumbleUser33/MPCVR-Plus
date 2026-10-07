@@ -41,9 +41,16 @@
 // out of reach -- with the processor out of the chain it greyed whatever the chroma
 // pre-pass box said, and that box is the one it is supposed to answer. These are
 // settings for every film there will ever be, so the film playing now does not get
-// a vote.
+// a vote -- with one exception, and it is a deliberate one. Dolby Vision is not a
+// matter of degree: the picture carries Dolby Vision's own colour and its own
+// reshaping, which a fixed-function processor cannot convert, so the renderer hands
+// the whole chain to the shaders and the processor is not in it at all. Everything
+// inside the processor can then do nothing, and everything the shaders do is theirs
+// again -- which is a different page, not a shade of the same one. bDoViNow says so,
+// and the page tells the user why in a line under the box.
 
 struct Greying {
+	bool bVPResizingBox;     // "Use the video processor for resizing"
 	bool bChromaList;        // Chroma upsampling, and its label
 	bool bUpscalingList;     // Upscaling, and its label
 	bool bDownscalingList;   // Downscaling, and its label
@@ -51,7 +58,7 @@ struct Greying {
 	bool bSuperRes;          // Request Super Resolution, and its label
 };
 
-inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10)
+inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDoViNow)
 {
 	// What the video processor takes, the shaders never see. It converts the formats
 	// ticked in Source, chroma upsampling included, and resizes as well when "Use the
@@ -67,11 +74,12 @@ inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10)
 	const bool bVPAvailable = !(s.bUseD3D11 && !bWin8);   // no D3D11 VP on Windows 7
 	const bool bDlssPass = s.bUseD3D11 && (s.bDlssNR || s.bDlssSR);
 	const bool bChromaToShaders = s.bUseD3D11 && s.bVPReplaceChroma;
-	const bool bVPTakesPicture = bAllVPFormats && bVPAvailable;
+	const bool bVPTakesPicture = bAllVPFormats && bVPAvailable && !bDoViNow;
 	const bool bVPConverts = bVPTakesPicture && !bChromaToShaders;
 	const bool bVPResizes = bVPTakesPicture && s.bVPScaling && !bDlssPass;
 
 	Greying g = {};
+	g.bVPResizingBox = !bDoViNow;
 	g.bChromaList = !bVPConverts;
 	g.bDownscalingList = !bVPResizes;
 	g.bUpscalingList = !bVPResizes && !(s.bUseD3D11 && s.bDlssSR);

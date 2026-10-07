@@ -731,7 +731,8 @@ void CVRSettingsPPage::EnableControls()
 	// The five that decide each other, worked out in Greying.h so the bench can put
 	// the same question to them without a film and without a page.
 	const Greying grey = GreyingFor(m_SetsPP, IsWindows8OrGreater() != FALSE,
-		IsWindows10OrGreater() != FALSE);
+		IsWindows10OrGreater() != FALSE, m_bDoViByShaders);
+	Enable(IDC_CHECK5, grey.bVPResizingBox);
 	Enable(IDC_STATIC40, grey.bChromaList);
 	Enable(IDC_COMBO5, grey.bChromaList);
 	Enable(IDC_STATIC39, grey.bUpscalingList);
@@ -794,6 +795,7 @@ HRESULT CVRSettingsPPage::OnActivate()
 	m_pVideoRenderer->GetSettings(m_SetsPP);
 	m_oldSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
 	m_bDlssNRSeen = m_SetsPP.bDlssNR;
+	m_bDoViByShaders = (m_pVideoRenderer->GetVideoProcessorUse() & VPUSE_DoViByShaders) != 0;
 
 	HWND hTabs = ::GetDlgItem(m_hwnd, IDC_SECTION_TABS);
 
@@ -946,15 +948,18 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 	}
 
 	if ((uMsg == WM_TIMER && wParam == kRefreshTimer || uMsg == WM_SHOWWINDOW && wParam) && m_pVideoRenderer) {
-		// The toggle key can switch DLSS 5 NR while this page is open, and that is
-		// the only thing about the renderer the page still has to watch: what it
-		// greys follows the settings, not the film at hand.
+		// Two things about the renderer still move the page: the toggle key, which can
+		// switch DLSS 5 NR while this is open, and a film that turns out to be Dolby
+		// Vision, which takes the processor out of the chain. Nothing else -- the rest
+		// of the greying follows the settings.
 		Settings_t current;
 		m_pVideoRenderer->GetSettings(current);
+		const bool bDoVi = (m_pVideoRenderer->GetVideoProcessorUse() & VPUSE_DoViByShaders) != 0;
 		// Only a change the page did not make is the toggle key's: comparing against
 		// what the page holds would undo a tick that has not been applied yet.
 		const bool bToggled = (current.bDlssNR != m_bDlssNRSeen);
-		if (bToggled || uMsg == WM_SHOWWINDOW) {
+		if (bToggled || bDoVi != m_bDoViByShaders || uMsg == WM_SHOWWINDOW) {
+			m_bDoViByShaders = bDoVi;
 			if (bToggled) {
 				m_bDlssNRSeen = current.bDlssNR;
 				m_SetsPP.bDlssNR = current.bDlssNR;

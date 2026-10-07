@@ -354,6 +354,12 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 enum :unsigned {
 	VPUSE_Converting = 1,
 	VPUSE_Resizing   = 2,
+	// Dolby Vision is the one thing that keeps the processor out of the chain
+	// altogether rather than merely idle: the picture carries Dolby Vision's own
+	// colour and its own reshaping, which a fixed-function processor cannot convert,
+	// so the shaders take all of it. Reported whether or not the processor is up,
+	// because the page has to tell "out of the chain" from "nothing to do".
+	VPUSE_DoViByShaders = 4,
 };
 
 interface __declspec(uuid("1AB00F10-5F55-42AC-B53F-38649F11BE3E"))

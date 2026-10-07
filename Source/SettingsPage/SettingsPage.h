@@ -65,6 +65,11 @@ private:
 	Settings_t m_SetsPP;
 	int m_oldSDRDisplayNits = SDR_NITS_DEF;
 
+	// Dolby Vision is the one thing about the film the page still watches: it takes
+	// the processor out of the chain, which is a different page and not a shade of
+	// the same one. [[Greying.h]] says what it changes.
+	bool m_bDoViByShaders = false;
+
 	bool m_bActivated = false;
 	HWND m_hHint = nullptr;
 

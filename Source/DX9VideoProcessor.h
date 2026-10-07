@@ -171,10 +171,11 @@ public:
 	HRESULT GetVPInfo(std::wstring& str) override;
 	unsigned GetVideoProcessorUse() override
 	{
+		const unsigned dovi = m_Dovi.bValid ? VPUSE_DoViByShaders : 0;
 		if (!m_DXVA2VP.IsReady()) {
-			return 0;
+			return dovi;
 		}
-		return VPUSE_Converting | ((m_bVPScaling && !m_bVPScalingUseShaders) ? VPUSE_Resizing : 0);
+		return dovi | VPUSE_Converting | ((m_bVPScaling && !m_bVPScalingUseShaders) ? VPUSE_Resizing : 0);
 	}
 
 	// Settings

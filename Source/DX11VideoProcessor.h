@@ -447,14 +447,18 @@ public:
 	HRESULT GetVPInfo(std::wstring& str) override;
 	unsigned GetVideoProcessorUse() override
 	{
+		// Said first and said anyway: with Dolby Vision the processor is not merely
+		// idle, it is not in the chain, and the page greys different things for the
+		// two cases.
+		const unsigned dovi = m_Dovi.bValid ? VPUSE_DoViByShaders : 0;
 		if (!m_D3D11VP.IsReady()) {
-			return 0;
+			return dovi;
 		}
 		// It only resizes while no DLSS pass has taken that back from it (UpdateTexures).
 		const bool bResizes = m_bVPScaling && !m_bVPScalingUseShaders && !m_bDlssNRActive && !m_bDlssSRActive;
 		// With the chroma rebuilt before it, the processor is handed 4:4:4 and the
 		// chroma list is the shaders', so it is not the one converting chroma.
-		return (m_bChromaReplacedVP ? 0 : VPUSE_Converting) | (bResizes ? VPUSE_Resizing : 0);
+		return dovi | (m_bChromaReplacedVP ? 0 : VPUSE_Converting) | (bResizes ? VPUSE_Resizing : 0);
 	}
 
 	// Settings
