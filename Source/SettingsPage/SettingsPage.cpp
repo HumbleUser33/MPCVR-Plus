@@ -216,6 +216,9 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		L"DLSS also runs when the picture is already the size it is shown at,\n"
 		"rebuilding it without enlarging it -- the same network and the same\n"
 		"cost. Games call it DLAA.\n"
+		"A whole DLSS pass at the output size: measured 14 ms a frame at 1080p\n"
+		"on an RTX 3050 and 70 ms at 4K, where a 24 fps film allows 41.7.\n"
+		"Watch skipped and the sync offset in the statistics.\n"
 		"Needs Use DLSS SR." },
 	{ IDC_COMBO15,
 		L"Which DLSS model to use. Automatic picks it from the scale.\n"
@@ -791,7 +794,7 @@ void CVRSettingsPPage::EnableControls()
 	for (const int id : { IDC_CHECK25, IDC_STATIC35, IDC_STATIC37, IDC_EDIT9, IDC_BUTTON4 }) {
 		Enable(id, bD3D11);
 	}
-	for (const int id : { IDC_STATIC36, IDC_COMBO15, IDC_CHECK28 }) {
+	for (const int id : { IDC_STATIC36, IDC_COMBO15, IDC_CHECK28, IDC_STATIC_DLAA_NOTE }) {
 		Enable(id, bD3D11 && m_SetsPP.bDlssSR);
 	}
 }

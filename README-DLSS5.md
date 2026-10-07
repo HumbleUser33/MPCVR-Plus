@@ -210,7 +210,8 @@ repeated pictures (variable frame rates, 25p stored as 50p) handled like the per
 
 ## DLSS Super Resolution (experimental)
 
-**Use DLSS SR 4.5 for upscaling (Experimental)**, on the **Scaling** tab beside the other
+**Use DLSS SR 4.5 for upscaling**, in the **NVIDIA DLSS Super Resolution (experimental)**
+box on the **Scaling** tab beside the other
 enlargers, enlarges the picture with DLSS Super Resolution instead of the **Upscaling** method,
 which is then greyed. It is independent of DLSS 5 NR: another DLL, another session, and it works with NR on
 or off. When NR runs before upscaling, SR takes its output.
@@ -813,7 +814,7 @@ it serves the luma prescalers as much as DLSS, so it sits on the **Settings** pa
 | Motion | NVIDIA Optical Flow | Or *Shader detector (still areas)*. Applies on the next picture |
 | Send the motion vectors to DLSS | off | Optical Flow only. Steadier, but the network renders differently around moving objects |
 | Disable temporal history | off | Forces `DLSSNR.Reset` every frame. The stabilizer is not affected |
-| Use DLSS SR 4.5 for upscaling (Experimental) | off | See above: not perfect yet. Greys the Upscaling list while it is on |
+| Use DLSS SR 4.5 for upscaling | off | See above: not perfect yet, which is why the box it sits in says so. Greys the Upscaling list while it is on |
 | Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p. Needs *Use DLSS SR* |
 | Preset (DLSS SR) | Automatic | Or J, K, L, M. Applies on the next picture |
 | DLL (DLSS SR) | empty | `nvngx_dlss.dll` or its folder. Empty means search next to the filter and up |
