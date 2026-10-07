@@ -179,9 +179,12 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	// Scaling
 	{ IDC_CHECK5,
 		L"The hardware video processor resizes instead of the shaders.\n"
-		"Fast, and lower quality than the lists below.\n"
-		"Request Super Resolution needs it. DLSS takes the resizing back\n"
-		"while it runs." },
+		"Fast, and lower quality than the lists below. Request Super\n"
+		"Resolution needs it, and DLSS takes the resizing back while it runs.\n"
+		"Greyed while Dolby Vision plays: the processor cannot convert that\n"
+		"picture, so the shaders take all of it. Leaving Prefer Dolby Vision\n"
+		"over PQ and HLG off keeps the processor on a file that also carries\n"
+		"an HDR10 layer." },
 	{ IDC_COMBO8,
 		L"The driver sharpens as the processor enlarges.\n"
 		"Needs \"Use the video processor for resizing\" ticked, and greys\n"
@@ -895,7 +898,7 @@ HRESULT CVRSettingsPPage::OnActivate()
 	}
 
 	for (const auto& hint : g_hints) {
-		AddHint(hint.id, hint.text);
+		AddHint(hint.id, hint.text, (UINT_PTR)&hint);
 	}
 
 	// Nothing tells this page that the renderer moved under it, and the toggle key
@@ -1304,7 +1307,7 @@ HRESULT CVRSettingsPPage::OnApplyChanges()
 	return S_OK;
 }
 
-void CVRSettingsPPage::AddHint(int id, LPCWSTR text)
+void CVRSettingsPPage::AddHint(int id, LPCWSTR text, UINT_PTR tag)
 {
 	HWND hItem = Item(id);
 	if (!hItem) {
@@ -1313,10 +1316,35 @@ void CVRSettingsPPage::AddHint(int id, LPCWSTR text)
 	if (!m_hHint) {
 		m_hHint = CreateHintWindow(m_Dlg, 15000);
 	}
-	TOOLINFOW ti = { sizeof(TOOLINFOW) };
+	const HWND hParent = ::GetParent(hItem);
+
+	// Not sizeof(TOOLINFOW): that includes lpReserved, and a comctl32 that predates
+	// it refuses the whole call rather than ignore the tail -- silently, which is how
+	// a page ends up with every tooltip missing and nothing to show for it.
+	TOOLINFOW ti = { TTTOOLINFOW_V2_SIZE };
 	ti.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
-	ti.hwnd = ::GetParent(hItem);
+	ti.hwnd = hParent;
 	ti.uId = (UINT_PTR)hItem;
 	ti.lpszText = const_cast<LPWSTR>(text);
 	SendMessageW(m_hHint, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+
+	// A greyed control is given no mouse at all, so the tool above never fires for
+	// one -- and a greyed control is exactly the one whose tip says why it is greyed.
+	// The same text goes in a second time as a rectangle on the dialog, which does
+	// get the mouse there. The two cannot both fire: whichever of the control and the
+	// dialog is being given the mouse is the one holding a tool under the pointer.
+	//
+	// uId only has to be unique among the tools on this dialog, and the tools above
+	// have taken the window handles. The address of the hint's own row in the table
+	// is unique, outlives the page, and is not a window handle.
+	RECT rc = {};
+	::GetWindowRect(hItem, &rc);
+	::MapWindowPoints(nullptr, hParent, (POINT*)&rc, 2);
+	TOOLINFOW area = { TTTOOLINFOW_V2_SIZE };
+	area.uFlags = TTF_SUBCLASS;
+	area.hwnd = hParent;
+	area.uId = tag;
+	area.rect = rc;
+	area.lpszText = const_cast<LPWSTR>(text);
+	SendMessageW(m_hHint, TTM_ADDTOOLW, 0, (LPARAM)&area);
 }

@@ -102,6 +102,7 @@ static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
 static int g_frameSeconds = 0;         // --frame N: the page inside a real property frame
 static bool g_bThemedHost = false;     // --themed: and a player that paints it
 static bool g_bGreying = false;        // --greying: the rules alone, without a film
+static std::vector<int> g_hoverIds;     // --hover <id>: put the pointer on it and read the tip
 static int g_pageSection = -1;         // --section N: which one to show, or the page's own choice
 static bool g_bPageApply = false;      // --apply: press Apply before closing it
 // The picture is fed as NV12 wherever the hardware video processor has to be able
@@ -1137,6 +1138,108 @@ static HWND FindItem(HWND hRoot, int id)
     return nullptr;
 }
 
+// --hover <id>, repeatable: what tip the page has ready for a control, and whether
+// it actually comes up under the pointer. Worth a mode of its own because a tooltip
+// that never appears compiles perfectly, and the ones that matter most sit on greyed
+// controls -- which Windows gives no mouse at all, so a tool registered on the
+// control itself can never fire for one.
+static HWND FindTooltip(bool* pbVisible)
+{
+	struct Hunt { HWND found; } hunt = { nullptr };
+	EnumThreadWindows(GetCurrentThreadId(), [](HWND hwnd, LPARAM param) -> BOOL {
+		wchar_t cls[64] = {};
+		GetClassNameW(hwnd, cls, (int)std::size(cls));
+		if (!_wcsicmp(cls, TOOLTIPS_CLASSW)) {
+			((Hunt*)param)->found = hwnd;
+			return FALSE;
+		}
+		return TRUE;
+	}, (LPARAM)&hunt);
+	if (pbVisible) {
+		*pbVisible = hunt.found && IsWindowVisible(hunt.found);
+	}
+	return hunt.found;
+}
+
+static void FirstLine(wchar_t* text)
+{
+	if (wchar_t* nl = wcschr(text, L'\n')) {
+		*nl = 0;
+	}
+}
+
+static void HoverControls(HWND hDlg, const std::vector<int>& ids)
+{
+	const HWND hTip = FindTooltip(nullptr);
+	printf("\n-- the tips the page has ready\n");
+	if (!hTip) {
+		printf("   no tooltip window at all\n");
+		return;
+	}
+	// There can be more than one on the thread: a combo box or a tab control may keep
+	// its own, and the page's is the one with the tools in it.
+	EnumThreadWindows(GetCurrentThreadId(), [](HWND hwnd, LPARAM) -> BOOL {
+		wchar_t cls[64] = {};
+		GetClassNameW(hwnd, cls, (int)std::size(cls));
+		if (!_wcsicmp(cls, TOOLTIPS_CLASSW)) {
+			printf("   tooltip %p: %d tools, owner %p\n", (void*)hwnd,
+				(int)SendMessageW(hwnd, TTM_GETTOOLCOUNT, 0, 0),
+				(void*)GetWindow(hwnd, GW_OWNER));
+		}
+		return TRUE;
+	}, 0);
+
+	for (const int id : ids) {
+		const HWND h = FindItem(hDlg, id);
+		if (!h) {
+			printf("  %-5d not on the page\n", id);
+			continue;
+		}
+		const HWND hParent = GetParent(h);
+		RECT rc = {};
+		GetWindowRect(h, &rc);
+		POINT centre = { (rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2 };
+
+		// What the control itself has, and what the dialog has over the same spot:
+		// the second is the one a greyed control depends on.
+		wchar_t onCtrl[1024] = {}, onDlg[1024] = {};
+		POINT inCtrl = centre, inDlg = centre;
+		ScreenToClient(h, &inCtrl);
+		ScreenToClient(hParent, &inDlg);
+		TTHITTESTINFOW hit = {};
+		hit.ti.cbSize = sizeof(TOOLINFOW);
+		hit.hwnd = h;
+		hit.pt = inCtrl;
+		hit.ti.lpszText = onCtrl;
+		const bool bOnCtrl = SendMessageW(hTip, TTM_HITTESTW, 0, (LPARAM)&hit) != 0;
+		TTHITTESTINFOW hit2 = {};
+		hit2.ti.cbSize = sizeof(TOOLINFOW);
+		hit2.hwnd = hParent;
+		hit2.pt = inDlg;
+		hit2.ti.lpszText = onDlg;
+		const bool bOnDlg = SendMessageW(hTip, TTM_HITTESTW, 0, (LPARAM)&hit2) != 0;
+		FirstLine(onCtrl);
+		FirstLine(onDlg);
+
+		// And then for real, with the pointer, which is the only thing the user does.
+		SetCursorPos(centre.x, centre.y);
+		Pump(1200);
+		bool bUp = false;
+		wchar_t shown[1024] = {};
+		if (const HWND hNow = FindTooltip(&bUp)) {
+			GetWindowTextW(hNow, shown, (int)std::size(shown));
+		}
+		FirstLine(shown);
+		SetCursorPos(rc.left - 60, rc.top - 60);
+		Pump(500);
+
+		wprintf(L"  %-5d %-7s on the control: %-3s  on the dialog: %-3s  came up: %s\n",
+			id, IsWindowEnabled(h) ? L"live" : L"GREYED",
+			bOnCtrl ? L"yes" : L"no", bOnDlg ? L"yes" : L"no",
+			bUp ? shown : L"(nothing)");
+	}
+}
+
 static void DumpPageState(HWND hwnd, const char* when)
 {
     const HWND hDlg = GetWindow(hwnd, GW_CHILD);
@@ -1472,6 +1575,13 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 			wprintf(L"section %d: %s\n", at, name);
 		}
 	}
+	if (!g_hoverIds.empty()) {
+		if (const HWND hDlg = GetWindow(hwnd, GW_CHILD)) {
+			SetForegroundWindow(hwnd);
+			Pump(300);
+			HoverControls(hDlg, g_hoverIds);
+		}
+	}
 	printf("property page %ldx%ld shown for %d s\n", info.size.cx, info.size.cy, seconds);
 	fflush(stdout);
 	Pump(700);
@@ -1625,6 +1735,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_frameSeconds = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--section")) {
 			g_pageSection = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--hover")) {
+			g_hoverIds.push_back(_wtoi(argv[i + 1]));
 		} else if (!wcscmp(argv[i], L"--click")) {
 			clickControls.push_back(_wtoi(argv[i + 1]));
 		} else if (!wcscmp(argv[i], L"--filter")) {

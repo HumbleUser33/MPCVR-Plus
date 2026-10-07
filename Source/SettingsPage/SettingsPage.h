@@ -119,5 +119,6 @@ private:
 	// can switch DLSS 5 NR while this is open.
 	static constexpr UINT_PTR kRefreshTimer = 1;
 
-	void AddHint(int id, LPCWSTR text);
+	// tag: a value unique among this dialog's tools and never a window handle.
+	void AddHint(int id, LPCWSTR text, UINT_PTR tag);
 };

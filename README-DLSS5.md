@@ -499,6 +499,9 @@ while the video processor converts, **Upscaling** and **Downscaling** while it a
 (*Use for resizing*, which DLSS 5 NR and DLSS SR suspend on their own), and **Upscaling**
 while DLSS SR enlarges.
 
+Every option carries a tooltip, and a greyed one carries it too -- that is the one worth
+reading, since it says why the option is greyed.
+
 It reads those from the settings and from nothing else, with one exception given below. The
 renderer can also say what it is doing with the picture at hand, and the page used to listen;
 that read well and worked badly. A 4K film on a 4K screen leaves the processor nothing to
@@ -1001,6 +1004,7 @@ filter may then switch the display's own HDR state, which is not what is being m
 playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.976] [--only N]
 playback_test.exe --scalers       each Upscaling and Chroma upsampling method (--vp: hardware)
 playback_test.exe --greying       what the page greys, for every state the renderer can be in
+playback_test.exe --mainpage 10 --hover 1042   the tip that comes up on a control, greyed or not
 playback_test.exe --mainpage 10   the settings page for 10 s, --click <id> clicks one control
 playback_test.exe --mainpage 10 --section 4   on one of the seven tabs; --apply presses Apply
 playback_test.exe --frame 10      the page in a real property frame, as a player puts it up
