@@ -723,12 +723,11 @@ static void ReportVPUse(IVideoRenderer* pVR)
 		(int)sets.bDlssNR, (int)sets.bDlssSR);
 
 	const auto say = [](const char* what, const Greying& g) {
-		printf("   %-18s chroma %-6s upscaling %-6s downscaling %-6s 50%% %-6s superres %s\n",
+		printf("   %-18s chroma %-6s upscaling %-6s downscaling %-6s superres %s\n",
 			what,
 			g.bChromaList ? "live" : "GREYED",
 			g.bUpscalingList ? "live" : "GREYED",
 			g.bDownscalingList ? "live" : "GREYED",
-			g.bAt50pct ? "live" : "GREYED",
 			g.bSuperRes ? "live" : "GREYED");
 	};
 	say("as it stands  :", GreyingFor(sets, true, true, (use & VPUSE_DoViByShaders) != 0));

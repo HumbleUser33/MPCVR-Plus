@@ -1004,6 +1004,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 #include "sharpen_suite.inl"
 #include "chroma_suite.inl"
 #include "mpv_port_suite.inl"
+#include "downscale_port_suite.inl"
 #include "sr_suite.inl"
 #include "sr_still_suite.inl"
 #include "pipeline_suite.inl"
@@ -1088,6 +1089,7 @@ int wmain(int argc, wchar_t** argv)
 	const bool temporalChroma = hasArg(L"--tchroma");
 	const bool temporalSharpen = hasArg(L"--tsharpen");
 	const bool temporalMpvPort = hasArg(L"--tmpvport");
+	const bool temporalDownPort = hasArg(L"--tdownport");
 	const bool temporalSR = hasArg(L"--tsr");
 	const bool temporalSRQuality = hasArg(L"--tsrq");
 	const bool temporalSRStill = hasArg(L"--tsrstill");
@@ -1106,7 +1108,7 @@ int wmain(int argc, wchar_t** argv)
 		}
 	}
 	if (temporal || temporalOracle || temporalDetect || temporalBench || temporalPort || temporalEffect || temporalFlow
-			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline) {
+			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalDownPort || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
 			if (!wcscmp(argv[i], L"--srrefs")) {
@@ -1118,6 +1120,7 @@ int wmain(int argc, wchar_t** argv)
 			: temporalSRStill ? temporal::RunSRStill(dev, ctx, srDllPath.c_str(), srRefs)
 			: temporalSRQuality ? temporal::RunSRQuality(dev, ctx, srDllPath.c_str(), srRefs)
 			: temporalSR ? temporal::RunSR(dev, ctx, dlss, srDllPath.c_str())
+			: temporalDownPort ? temporal::RunDownscalePort(dev, ctx)
 			: temporalUpscaleCost ? temporal::RunUpscaleCost(dev, ctx)
 			: temporalMpvPort ? temporal::RunMpvPort(dev, ctx, srRefs)
 			: temporalSharpen ? temporal::RunSharpen(dev, ctx, srRefs)

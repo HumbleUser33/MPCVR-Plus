@@ -481,10 +481,29 @@ the way Bicubic sharp (1.125) and Lanczos (1.011) do -- and it still rejects mor
 than either. Bilinear rejects most of all and pays for it by giving away a fifth of the detail
 at a quarter of Nyquist. Hamming remains the default because it is upstream's.
 
-These numbers are computed from the kernel definitions by numeric integration, not measured
-through the shipped shader; the shaders are a direct transcription of those definitions, one
-`filter()` function each. A port check that compares the shader's own output against the kernel
-on the GPU is not written yet.
+Those numbers are computed from the kernel definitions by numeric integration. That the
+shipped shaders really are those kernels is a separate question, and `dlssnr_harness
+--tdownport` is the one that asks it: it loads the compiled objects the filter embeds -- not
+the source rebuilt for the occasion -- runs them on the GPU through the renderer's own constant
+block and point sampler, and compares against the same convolution worked out on the CPU in
+double, with the same clamping at the edges and the same rounding to half between the two
+passes. All seven agree with their kernels to about one step of half over 50,000 to 100,000
+values at each of three ratios.
+
+Two things it has to be careful about, and both are stated in its output. A tap landing exactly
+on a branch point of its kernel is a tie: the shader decides it in float from an interpolated
+coordinate and the reference decides it in double from an arithmetic one, and for Box, whose
+interval is half-open at 0.5, that moves a whole texel. Those pixels are set aside and counted
+rather than judged, and at a ratio of exactly two every tap of every kernel is one, which is
+why the ratios tested are beside it and not on it. And what a weighted sum is known to depends
+on how much it cancels, so the tolerance scales with sum|w| over |sum w| -- Lanczos and the two
+bicubics give their taps both signs.
+
+One thing it found and nobody has explained: at 1.11x, 262 of 112,896 of Lanczos's values sit
+further out than rounding accounts for here, by up to 1.3 % of scale, where the taps are
+nowhere near a branch point and the sum barely cancels. It is two orders below anything a
+mistyped coefficient would do, so the check does not call it a failure -- it prints it, which
+is the honest state of it.
 
 ### Anti-ringing
 

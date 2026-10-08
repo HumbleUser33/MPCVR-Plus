@@ -592,6 +592,12 @@ public:
 	// overshoots the size. Not one of the compared methods.
 	const Method& Downscaler() const { return m_downscaler; }
 
+	// The downscalers as they ship -- the compiled objects the filter embeds as
+	// resources, loaded rather than built again from source. --tdownport puts these
+	// against the kernels they are supposed to be.
+	int ShippedCount() const { return (int)m_shipped.size(); }
+	const Method& Shipped(int i) const { return m_shipped[i]; }
+
 	// Two separable passes, or one for the single-pass shaders, exactly as
 	// ResizeShaderPass does: the intermediate is destination width by source height.
 	bool Resize(ID3D11Device* dev, ID3D11DeviceContext* ctx, const Method& method,
@@ -622,6 +628,7 @@ private:
 	CComPtr<ID3D11Buffer>       m_cbEasu;
 	std::vector<CComPtr<ID3D11PixelShader>> m_ps;   // pairs: X then Y, or one for single-pass
 	std::vector<Method> m_methods;
+	std::vector<Method> m_shipped;
 	Method m_downscaler = { "Hamming", -1, false };
 	Target m_intermediate;
 	UINT m_interW = 0, m_interH = 0;
@@ -734,6 +741,31 @@ bool CUpscalePasses::Init(ID3D11Device* dev, std::string& error)
 		m_downscaler.index = (int)m_ps.size();
 		m_ps.push_back(x);
 		m_ps.push_back(y);
+	}
+
+	// And the objects that actually ship, by the names compile_shaders.cmd writes.
+	// A missing one is not an error here: the shaders may simply not be built yet,
+	// and --tdownport says which it found.
+	{
+		static const struct { const char* name; const wchar_t* file; } shipped[] = {
+			{ "Box",           L"box"           },
+			{ "Bilinear",      L"bilinear"      },
+			{ "Hamming",       L"hamming"       },
+			{ "Bicubic",       L"bicubic05"     },
+			{ "Bicubic sharp", L"bicubic15"     },
+			{ "Lanczos",       L"lanczos"       },
+			{ "Spline36",      L"spline36"      },
+		};
+		for (const auto& e : shipped) {
+			CComPtr<ID3D11PixelShader> x, y;
+			const std::wstring base = std::wstring(L"..\\..\\_bin\\shaders\\ps_downscaler_") + e.file;
+			if (!LoadCso(dev, (base + L"_x.cso").c_str(), x) || !LoadCso(dev, (base + L"_y.cso").c_str(), y)) {
+				continue;
+			}
+			m_shipped.push_back({ e.name, (int)m_ps.size(), false });
+			m_ps.push_back(x);
+			m_ps.push_back(y);
+		}
 	}
 
 	D3D11_SAMPLER_DESC sd = {};
