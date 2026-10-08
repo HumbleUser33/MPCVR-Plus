@@ -203,8 +203,9 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Direct3D 11." },
 	{ IDC_COMBO3,
 		L"Reduces when the shaders do the resizing, at every ratio.\n"
-		"Spline36 is the one to pick: six taps like Lanczos, and it keeps\n"
-		"more definition for the same want of aliasing.\n"
+		"Listed best measured first. The top three are close and differ in\n"
+		"taste: Spline36 rings least, Bicubic sharp adds contrast, Lanczos\n"
+		"sits between them. The last four let far more aliasing through.\n"
 		"Greyed while the video processor resizes." },
 	{ IDC_CHECK25,
 		L"Enlarges with NVIDIA DLSS Super Resolution instead of the\n"
@@ -553,15 +554,16 @@ void CVRSettingsPPage::FillCombos()
 	Combo_AddData(Item(IDC_COMBO2), L"Jinc2m",             UPSCALE_Jinc2);
 	Combo_AddData(Item(IDC_COMBO2), L"Nearest-neighbor",   UPSCALE_Nearest);
 
-	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Box");
-	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Bilinear");
-	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Hamming");
-	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Bicubic");
-	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Bicubic sharp");
-	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Lanczos");
-	// Appended rather than placed by quality: this list saves the position it is
-	// sitting on, so anywhere else would move everybody's saved setting.
-	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Spline36");
+	// Best measured first (dlssnr_harness --tdownscale), and it carries its value as
+	// item data so that order is free to change: it used to save the position it sat
+	// on, which is why it could not be sorted before.
+	Combo_AddData(Item(IDC_COMBO3), L"Lanczos",       DOWNSCALE_Lanczos);
+	Combo_AddData(Item(IDC_COMBO3), L"Bicubic sharp", DOWNSCALE_BicubicSharp);
+	Combo_AddData(Item(IDC_COMBO3), L"Spline36",      DOWNSCALE_Spline36);
+	Combo_AddData(Item(IDC_COMBO3), L"Bicubic",       DOWNSCALE_Bicubic);
+	Combo_AddData(Item(IDC_COMBO3), L"Bilinear",      DOWNSCALE_Bilinear);
+	Combo_AddData(Item(IDC_COMBO3), L"Hamming",       DOWNSCALE_Hamming);
+	Combo_AddData(Item(IDC_COMBO3), L"Box",           DOWNSCALE_Box);
 
 	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Discard");
 	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Flip");
@@ -652,7 +654,7 @@ void CVRSettingsPPage::SetControls()
 	SetCheck(IDC_CHECK5,  m_SetsPP.bVPScaling);
 	Send(IDC_COMBO8, CB_SETCURSEL, m_SetsPP.iVPSuperRes, 0);
 	Combo_SelectData(Item(IDC_COMBO2), m_SetsPP.iUpscaling);
-	Send(IDC_COMBO3, CB_SETCURSEL, m_SetsPP.iDownscaling, 0);
+	Combo_SelectData(Item(IDC_COMBO3), m_SetsPP.iDownscaling);
 
 	Combo_SelectData(Item(IDC_COMBO5), m_SetsPP.iChromaScaling);
 	SetCheck(IDC_CHECK27, m_SetsPP.bVPReplaceChroma);
@@ -1115,7 +1117,6 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 			// Lists whose selected position is the value that gets saved. Their order
 			// must never change: it is what the registry holds.
 			const struct { int id; int* pValue; bool bEnables; } byPosition[] = {
-				{ IDC_COMBO3,  &m_SetsPP.iDownscaling,       false },
 				{ IDC_COMBO4,  &m_SetsPP.iSwapEffect,        false },
 				{ IDC_COMBO6,  &m_SetsPP.iResizeStats,       false },
 				{ IDC_COMBO7,  &m_SetsPP.iHdrToggleDisplay,  false },
@@ -1140,6 +1141,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 			// Lists that carry their value as item data, so they can be ordered freely.
 			const struct { int id; int* pValue; bool bEnables; } byData[] = {
 				{ IDC_COMBO2,  &m_SetsPP.iUpscaling,       false },
+				{ IDC_COMBO3,  &m_SetsPP.iDownscaling,     false },
 				{ IDC_COMBO5,  &m_SetsPP.iChromaScaling,   false },
 				{ IDC_COMBO11, &m_SetsPP.iDlssNRStyle,     false },
 				{ IDC_COMBO12, &m_SetsPP.iDlssNRPreset,    false },

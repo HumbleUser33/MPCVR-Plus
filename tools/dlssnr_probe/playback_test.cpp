@@ -1269,7 +1269,7 @@ static void DumpPageState(HWND hwnd, const char* when)
         printf("  %-30s %-7s%s\n", c.second, IsWindowEnabled(h) ? "live" : "GREYED",
             bCheck ? (SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED ? ", ticked" : ", unticked") : "");
     }
-    for (const auto& list : { std::pair{ 1045, "Chroma upsampling" }, std::pair{ 1042, "Upscaling" } }) {
+    for (const auto& list : { std::pair{ 1045, "Chroma upsampling" }, std::pair{ 1042, "Upscaling" }, std::pair{ 1043, "Downscaling" } }) {
         const HWND hCombo = FindItem(hDlg, list.first);
         if (!hCombo) {
             continue;

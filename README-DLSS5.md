@@ -459,36 +459,52 @@ its `spline36` kernel: six taps like Lanczos, in the same convolution downscaler
 rather than placed by quality, because that list saves the position it is sitting on and
 anything else would move every saved setting one along.
 
-A downscaler is judged on two things that pull against each other: how much of the detail it
-is allowed to keep it actually keeps, and how much of what it must throw away folds back as
-aliasing. The table is the frequency response of each kernel in cycles per output pixel, where
-the passband runs to 0.5 and everything above it folds. 1.000 is "kept whole"; above 1.000 is
-overshoot, which is ringing.
+A downscaler has two jobs that pull against each other. It must keep the detail that still
+fits in the smaller picture, and it must throw away the detail that no longer does -- because
+whatever it fails to throw away does not disappear, it folds back into the picture as moire,
+and it crawls when the picture moves. Nothing else about it matters much.
 
-| kernel | 0.125 | 0.250 | 0.400 | worst above 0.5 |
-|---|---|---|---|---|
-| Box | 0.974 | 0.900 | 0.757 | 0.624 |
-| Bilinear | 0.950 | 0.811 | 0.573 | **0.389** |
-| Hamming (default) | 0.969 | 0.881 | 0.720 | 0.582 |
-| Bicubic | 0.996 | 0.939 | 0.716 | 0.470 |
-| Bicubic sharp | 1.067 | 1.125 | 0.861 | 0.453 |
-| Lanczos | 1.004 | 1.011 | 0.823 | 0.466 |
-| **Spline36** | **1.000** | **0.995** | 0.792 | **0.452** |
+`dlssnr_harness --tdownscale` measures both on the shaders that ship, with no reference kernel
+anywhere: the test pictures are sinusoids whose correct reduction is known in closed form. One
+below the output's Nyquist should come back as itself, so what comes out says how much of it
+survived; one above it cannot exist at the smaller size at all, so the correct answer is flat
+and anything left is aliasing. A step edge gives the overshoot. 4K reduced by two, the
+frequencies in cycles per output pixel:
 
-Spline36 is the only one that is flat where it matters: 1.000 and 0.995 through the lower
-passband, so it neither softens the picture the way Hamming and Bicubic do nor invents contrast
-the way Bicubic sharp (1.125) and Lanczos (1.011) do -- and it still rejects more of what folds
-than either. Bilinear rejects most of all and pays for it by giving away a fifth of the detail
-at a quarter of Nyquist. Hamming remains the default because it is upstream's.
+| | 0.125 | 0.250 | 0.375 | 0.60 | 0.75 | 0.90 | halo | error |
+|---|---|---|---|---|---|---|---|---|
+| | *kept* | *kept* | *kept* | *folded* | *folded* | *folded* | | |
+| **Lanczos** | 1.003 | 1.010 | 0.881 | 0.178 | 0.010 | 0.004 | 0.045 | **0.087** |
+| **Bicubic sharp** | 1.063 | 1.118 | 0.936 | 0.136 | 0.118 | 0.044 | 0.075 | **0.097** |
+| **Spline36** | 1.000 | 0.993 | 0.856 | 0.200 | 0.007 | 0.004 | 0.040 | **0.101** |
+| Bicubic | 0.995 | 0.941 | 0.772 | 0.276 | 0.058 | 0.004 | 0.025 | 0.150 |
+| Bilinear | 0.962 | 0.853 | 0.691 | 0.346 | 0.146 | 0.024 | 0.000 | 0.208 |
+| Hamming *(default)* | 0.968 | 0.880 | 0.748 | 0.467 | 0.303 | 0.204 | 0.000 | 0.268 |
+| Box | 0.981 | 0.924 | 0.831 | 0.588 | 0.382 | 0.153 | 0.000 | 0.303 |
 
-Those numbers are computed from the kernel definitions by numeric integration. That the
-shipped shaders really are those kernels is a separate question, and `dlssnr_harness
---tdownport` is the one that asks it: it loads the compiled objects the filter embeds -- not
-the source rebuilt for the occasion -- runs them on the GPU through the renderer's own constant
-block and point sampler, and compares against the same convolution worked out on the CPU in
-double, with the same clamping at the edges and the same rounding to half between the two
-passes. All seven agree with their kernels to about one step of half over 50,000 to 100,000
-values at each of three ratios.
+`error` is the root mean square of all six, which weighs nothing by hand: a kernel that hands
+back more contrast than it was given is as wrong as one that loses some, and says so here
+instead of being rewarded for looking sharper. The list is in that order.
+
+**The top three are within fifteen per cent of each other and differ in taste rather than in
+worth.** Spline36 is the flattest in band -- 1.000 and 0.993, neither softening nor inventing
+-- and rings least of the three, and pays for it with the most folded. Bicubic sharp folds
+least and buys that with 1.118 at a quarter of Nyquist, which is contrast the source did not
+have, and with the worst halo of all seven. Lanczos sits between them and wins the arithmetic
+by a nose. Any of the three is a good answer; the four below are not close.
+
+**Hamming, which is the default, is sixth of seven**, and it is upstream's default rather than
+a measured choice. It lets through 0.467 of a signal at 0.60 and 0.204 at 0.90 -- four and
+fifty times what Lanczos does -- and that is the aliasing that crawls. The default is left
+where upstream put it; changing it is a decision for whoever ships the build.
+
+Nothing in the table is free of the shaders themselves, and that the shipped shaders really
+are the kernels they are written from is a separate question. `dlssnr_harness --tdownport` is
+the one that asks it: it loads the compiled objects the filter embeds -- not the source
+rebuilt for the occasion -- runs them on the GPU through the renderer's own constant block and
+point sampler, and compares against the same convolution worked out on the CPU in double, with
+the same clamping at the edges and the same rounding to half between the two passes. All seven
+agree to about one step of half over 50,000 to 100,000 values at each of three ratios.
 
 Two things it has to be careful about, and both are stated in its output. A tap landing exactly
 on a branch point of its kernel is a tie: the shader decides it in float from an interpolated
@@ -1119,6 +1135,8 @@ filter may then switch the display's own HDR state, which is not what is being m
 playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.976] [--only N]
 playback_test.exe --scalers       each Upscaling and Chroma upsampling method (--vp: hardware)
 playback_test.exe --greying       what the page greys, for every state the renderer can be in
+dlssnr_harness.exe --tdownscale  what each downscaler keeps and what it lets fold back
+dlssnr_harness.exe --tdownport   and that those shaders are the kernels they are written from
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio
 playback_test.exe --dlaa --size 1920x1080 --window 1920x1080   DLSS SR with nothing to enlarge
 playback_test.exe --mainpage 10 --hover 1042   the tip that comes up on a control, greyed or not

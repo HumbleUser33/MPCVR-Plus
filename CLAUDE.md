@@ -23,9 +23,10 @@ pre-pass before the hardware video processor. `README-DLSS5.md` is the manual.
   from `python Shaders\mpv\mpv_shaders.py renderer`.
 
 - **Settings are saved by name**, and the enum values in `Source/IVideoRenderer.h` are
-  append-only. The Upscaling and Chroma upsampling lists are shown in measured quality
-  order and carry their value as combo item data, so the display order can change without
-  moving anybody's saved setting.
+  append-only. The Upscaling, Downscaling and Chroma upsampling lists are shown in measured
+  quality order and carry their value as combo item data, so the display order can change
+  without moving anybody's saved setting. The lists that still save the position they sit on
+  are `IDC_COMBO4`, `6`, `7`, `8`, `9` and `IDC_SHARPEN`, and those must not be reordered.
 
 - **`IVideoRenderer` and `Settings_t` are append-only, at the end.** The interface keeps
   upstream's identifier, so a caller built against upstream's header finds methods by their
