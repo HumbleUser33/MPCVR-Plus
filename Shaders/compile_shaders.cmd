@@ -72,6 +72,8 @@ SET fxc_ps3=%fxcexe% /nologo /O2 /T ps_3_0
 %fxc_ps3% /Fo "%workdir%\downscaler_bicubic15_y.cso"     "d3d9\convolution.hlsl" /DFILTER=3 /DAXIS=1 /DA=-1.5
 %fxc_ps3% /Fo "%workdir%\downscaler_lanczos_x.cso"       "d3d9\convolution.hlsl" /DFILTER=4 /DAXIS=0
 %fxc_ps3% /Fo "%workdir%\downscaler_lanczos_y.cso"       "d3d9\convolution.hlsl" /DFILTER=4 /DAXIS=1
+%fxc_ps3% /Fo "%workdir%\downscaler_spline36_x.cso"      "d3d9\convolution.hlsl" /DFILTER=5 /DAXIS=0
+%fxc_ps3% /Fo "%workdir%\downscaler_spline36_y.cso"      "d3d9\convolution.hlsl" /DFILTER=5 /DAXIS=1
 
 %fxc_ps3% /Fo "%workdir%\convert_yuy2.cso"               "d3d9\convert_color.hlsl" /DC_YUY2=3
 
@@ -100,6 +102,8 @@ SET fxc_ps4=%fxcexe% /nologo /O2 /T ps_4_0
 %fxc_ps4% /Fo "%workdir%\ps_downscaler_bicubic15_y.cso"  "d3d11\ps_convolution.hlsl" /DFILTER=3 /DAXIS=1 /DA=-1.5
 %fxc_ps4% /Fo "%workdir%\ps_downscaler_lanczos_x.cso"    "d3d11\ps_convolution.hlsl" /DFILTER=4 /DAXIS=0
 %fxc_ps4% /Fo "%workdir%\ps_downscaler_lanczos_y.cso"    "d3d11\ps_convolution.hlsl" /DFILTER=4 /DAXIS=1
+%fxc_ps4% /Fo "%workdir%\ps_downscaler_spline36_x.cso"   "d3d11\ps_convolution.hlsl" /DFILTER=5 /DAXIS=0
+%fxc_ps4% /Fo "%workdir%\ps_downscaler_spline36_y.cso"   "d3d11\ps_convolution.hlsl" /DFILTER=5 /DAXIS=1
 
 %fxc_ps4% /Fo "%workdir%\ps_convert_yuy2.cso"            "d3d11\ps_convert_color.hlsl" /DC_YUY2=3
 

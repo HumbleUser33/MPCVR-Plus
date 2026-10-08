@@ -443,14 +443,48 @@ It costs the same at every ratio, because the work is the same: the network doub
 whatever the target is. At 1920x1038 to 2496x1349 on an RTX 3050, per frame — FSRCNNX 8 10.0
 ms, ArtCNN 19.5 ms, FSRCNNX 16 22.1 ms, RAVU-zoom 6.6 ms.
 
-**And they run while the picture is being reduced**, if *Use the "Upscaling" method to reduce
-the frame to 50%* is ticked — which is what that option says it does, and what it did not do
-before. Read the price first. The network still doubles the source, and the picture is then
-reduced from that, so a 4K film in a 1080p window has it working at 7680x4320 to produce
-1920x1080: **FSRCNNX 16 costs 93.4 ms a frame there**, against 22.1 enlarging, and playback
-falls apart — the sync offset ran out to +5 s with 18 frames late. RAVU-zoom costs 4.8 ms in
-the same place and is fine. Either pick a light network, or leave that option off, or watch
-*skipped* in the statistics box; nothing is decided behind your back any more.
+**They do not run while the picture is being reduced.** A 2x network asked to reduce has to
+double the source first and the picture is then brought down from that, which on a 4K film in
+a 1080p window had FSRCNNX 16 working at 7680x4320 for 93.4 ms a frame -- the sync offset ran
+out to +5 s with 18 frames late. The option that used to ask for it, *Use the "Upscaling"
+method to reduce the frame to 50%*, is gone with it: **the Downscaling method now reduces at
+every ratio**, which is the one thing it can be relied on to say.
+
+### Spline36, and what a downscaler is for
+
+The **Downscaling** list reduces whenever the shaders do the resizing, at every ratio. It
+gained **Spline36**, the piecewise cubic of Avisynth's `Spline36Resize`, which mpv carries as
+its `spline36` kernel: six taps like Lanczos, in the same convolution downscaler as the rest
+(`Shaders/resize/convolution_filters.hlsl`, `FILTER=5`). It is appended at the end of the list
+rather than placed by quality, because that list saves the position it is sitting on and
+anything else would move every saved setting one along.
+
+A downscaler is judged on two things that pull against each other: how much of the detail it
+is allowed to keep it actually keeps, and how much of what it must throw away folds back as
+aliasing. The table is the frequency response of each kernel in cycles per output pixel, where
+the passband runs to 0.5 and everything above it folds. 1.000 is "kept whole"; above 1.000 is
+overshoot, which is ringing.
+
+| kernel | 0.125 | 0.250 | 0.400 | worst above 0.5 |
+|---|---|---|---|---|
+| Box | 0.974 | 0.900 | 0.757 | 0.624 |
+| Bilinear | 0.950 | 0.811 | 0.573 | **0.389** |
+| Hamming (default) | 0.969 | 0.881 | 0.720 | 0.582 |
+| Bicubic | 0.996 | 0.939 | 0.716 | 0.470 |
+| Bicubic sharp | 1.067 | 1.125 | 0.861 | 0.453 |
+| Lanczos | 1.004 | 1.011 | 0.823 | 0.466 |
+| **Spline36** | **1.000** | **0.995** | 0.792 | **0.452** |
+
+Spline36 is the only one that is flat where it matters: 1.000 and 0.995 through the lower
+passband, so it neither softens the picture the way Hamming and Bicubic do nor invents contrast
+the way Bicubic sharp (1.125) and Lanczos (1.011) do -- and it still rejects more of what folds
+than either. Bilinear rejects most of all and pays for it by giving away a fifth of the detail
+at a quarter of Nyquist. Hamming remains the default because it is upstream's.
+
+These numbers are computed from the kernel definitions by numeric integration, not measured
+through the shipped shader; the shaders are a direct transcription of those definitions, one
+`filter()` function each. A port check that compares the shader's own output against the kernel
+on the GPU is not written yet.
 
 ### Anti-ringing
 

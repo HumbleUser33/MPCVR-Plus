@@ -56,7 +56,6 @@ protected:
 	int  m_iChromaScaling                  = CHROMA_CatmullRom;
 	int  m_iUpscaling                      = UPSCALE_Jinc2;      // interpolation
 	int  m_iDownscaling                    = DOWNSCALE_Hamming;  // convolution
-	bool m_bInterpolateAt50pct             = true;
 	bool m_bUseDither                      = true;
 	bool m_bDeintBlend                     = false;
 	int  m_iSwapEffect                     = SWAPEFFECT_Flip;

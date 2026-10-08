@@ -121,6 +121,10 @@
 #define IDF_PS_11_TEST                  900
 #define IDF_PS_11_SHARPEN_UNSHARP       1910
 #define IDF_PS_11_SHARPEN_ADAPTIVE      1911
+#define IDF_PS_11_CONVOL_SPLINE36_X     1912
+#define IDF_PS_11_CONVOL_SPLINE36_Y     1913
+#define IDF_PS_9_CONVOL_SPLINE36_X      1914
+#define IDF_PS_9_CONVOL_SPLINE36_Y      1915
 #define IDF_VS_11_MPV_HOOK              1950
 #define IDF_PS_11_MPV_LUMA              1951
 #define IDF_PS_11_MPV_COMBINE           1952

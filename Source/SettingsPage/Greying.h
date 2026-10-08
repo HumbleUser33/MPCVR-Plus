@@ -54,7 +54,6 @@ struct Greying {
 	bool bChromaList;        // Chroma upsampling, and its label
 	bool bUpscalingList;     // Upscaling, and its label
 	bool bDownscalingList;   // Downscaling, and its label
-	bool bAt50pct;           // "Use the Upscaling method to reduce the frame to 50%"
 	bool bSuperRes;          // Request Super Resolution, and its label
 };
 
@@ -83,7 +82,6 @@ inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDo
 	g.bChromaList = !bVPConverts;
 	g.bDownscalingList = !bVPResizes;
 	g.bUpscalingList = !bVPResizes && !(s.bUseD3D11 && s.bDlssSR);
-	g.bAt50pct = g.bUpscalingList || g.bDownscalingList;
 
 	// RTX Video Super Resolution lives inside the processor and only does something
 	// while the processor is the one enlarging the picture -- which is what "Use the

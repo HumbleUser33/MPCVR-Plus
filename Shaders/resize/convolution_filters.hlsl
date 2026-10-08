@@ -83,4 +83,27 @@ inline float filter(float x)
     return 0.0;
 }
 
+#elif (FILTER == 5)
+
+// spline36 -- the piecewise cubic of Avisynth's Spline36Resize, which mpv carries
+// as its spline36 kernel. Six taps like Lanczos, and it gives away less definition
+// for the same want of aliasing when a picture is being reduced.
+#define filter_support (3.0)
+inline float filter(float x)
+{
+    if (x < 0.0)
+        x = -x;
+    if (x < 1.0)
+        return ((13.0/11.0 * x - 453.0/209.0) * x - 3.0/209.0) * x + 1.0;
+    if (x < 2.0) {
+        x -= 1.0;
+        return ((-6.0/11.0 * x + 270.0/209.0) * x - 156.0/209.0) * x;
+    }
+    if (x < 3.0) {
+        x -= 2.0;
+        return ((1.0/11.0 * x - 45.0/209.0) * x + 26.0/209.0) * x;
+    }
+    return 0.0;
+}
+
 #endif

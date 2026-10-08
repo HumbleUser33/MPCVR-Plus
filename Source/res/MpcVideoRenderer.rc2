@@ -55,6 +55,8 @@ IDF_PS_9_CONVOL_BICUBIC15_X     FILE                    "..\\_bin\\shaders\\down
 IDF_PS_9_CONVOL_BICUBIC15_Y     FILE                    "..\\_bin\\shaders\\downscaler_bicubic15_y.cso"
 IDF_PS_9_CONVOL_LANCZOS_X       FILE                    "..\\_bin\\shaders\\downscaler_lanczos_x.cso"
 IDF_PS_9_CONVOL_LANCZOS_Y       FILE                    "..\\_bin\\shaders\\downscaler_lanczos_y.cso"
+IDF_PS_9_CONVOL_SPLINE36_X      FILE                    "..\\_bin\\shaders\\downscaler_spline36_x.cso"
+IDF_PS_9_CONVOL_SPLINE36_Y      FILE                    "..\\_bin\\shaders\\downscaler_spline36_y.cso"
 IDF_PS_9_HALFOU_TO_INTERLACE    FILE                    "..\\_bin\\shaders\\halfoverunder_to_interlace.cso"
 IDF_PS_9_FINAL_PASS             FILE                    "..\\_bin\\shaders\\final_pass.cso"
 
@@ -98,6 +100,8 @@ IDF_PS_11_CONVOL_BICUBIC15_X    FILE                    "..\\_bin\\shaders\\ps_d
 IDF_PS_11_CONVOL_BICUBIC15_Y    FILE                    "..\\_bin\\shaders\\ps_downscaler_bicubic15_y.cso"
 IDF_PS_11_CONVOL_LANCZOS_X      FILE                    "..\\_bin\\shaders\\ps_downscaler_lanczos_x.cso"
 IDF_PS_11_CONVOL_LANCZOS_Y      FILE                    "..\\_bin\\shaders\\ps_downscaler_lanczos_y.cso"
+IDF_PS_11_CONVOL_SPLINE36_X     FILE                    "..\\_bin\\shaders\\ps_downscaler_spline36_x.cso"
+IDF_PS_11_CONVOL_SPLINE36_Y     FILE                    "..\\_bin\\shaders\\ps_downscaler_spline36_y.cso"
 IDF_PS_11_HALFOU_TO_INTERLACE   FILE                    "..\\_bin\\shaders\\ps_halfoverunder_to_interlace.cso"
 IDF_PS_11_FINAL_PASS            FILE                    "..\\_bin\\shaders\\ps_final_pass.cso"
 IDF_PS_11_FINAL_PASS_10         FILE                    "..\\_bin\\shaders\\ps_final_pass_10.cso"

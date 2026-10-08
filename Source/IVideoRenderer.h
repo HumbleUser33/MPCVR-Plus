@@ -81,6 +81,10 @@ enum :int {
 	DOWNSCALE_Bicubic,
 	DOWNSCALE_BicubicSharp,
 	DOWNSCALE_Lanczos,
+	// Appended, and it stays last: the Downscaling list saves the position it sits
+	// on rather than a value of its own, so inserting above would move everybody's
+	// saved setting one along.
+	DOWNSCALE_Spline36,
 	DOWNSCALE_COUNT
 };
 

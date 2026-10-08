@@ -202,14 +202,10 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"same at all of them: it works at twice the source either way.\n"
 		"Direct3D 11." },
 	{ IDC_COMBO3,
-		L"Reduces when the shaders do the resizing.\n"
+		L"Reduces when the shaders do the resizing, at every ratio.\n"
+		"Spline36 is the one to pick: six taps like Lanczos, and it keeps\n"
+		"more definition for the same want of aliasing.\n"
 		"Greyed while the video processor resizes." },
-	{ IDC_CHECK6,
-		L"Down to half size, reduce with the Upscaling method above rather\n"
-		"than the Downscaling one. Sharper on 4K in a 1080p window.\n"
-		"A network pays dearly here: it runs at twice the source and the\n"
-		"picture is then reduced from that. FSRCNNX 16 on 4K to 1080p is\n"
-		"93 ms a frame on an RTX 3050, where RAVU-zoom is 5." },
 	{ IDC_CHECK25,
 		L"Enlarges with NVIDIA DLSS Super Resolution instead of the\n"
 		"Upscaling method, which then greys.\n"
@@ -563,6 +559,9 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Bicubic");
 	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Bicubic sharp");
 	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Lanczos");
+	// Appended rather than placed by quality: this list saves the position it is
+	// sitting on, so anywhere else would move everybody's saved setting.
+	Send(IDC_COMBO3, CB_ADDSTRING, 0, (LPARAM)L"Spline36");
 
 	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Discard");
 	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Flip");
@@ -654,7 +653,6 @@ void CVRSettingsPPage::SetControls()
 	Send(IDC_COMBO8, CB_SETCURSEL, m_SetsPP.iVPSuperRes, 0);
 	Combo_SelectData(Item(IDC_COMBO2), m_SetsPP.iUpscaling);
 	Send(IDC_COMBO3, CB_SETCURSEL, m_SetsPP.iDownscaling, 0);
-	SetCheck(IDC_CHECK6,  m_SetsPP.bInterpolateAt50pct);
 
 	Combo_SelectData(Item(IDC_COMBO5), m_SetsPP.iChromaScaling);
 	SetCheck(IDC_CHECK27, m_SetsPP.bVPReplaceChroma);
@@ -755,7 +753,6 @@ void CVRSettingsPPage::EnableControls()
 	Enable(IDC_COMBO2, grey.bUpscalingList);
 	Enable(IDC_STATIC41, grey.bDownscalingList);
 	Enable(IDC_COMBO3, grey.bDownscalingList);
-	Enable(IDC_CHECK6, grey.bAt50pct);
 	Enable(IDC_STATIC7, grey.bSuperRes);
 	Enable(IDC_COMBO8, grey.bSuperRes);
 
@@ -1019,7 +1016,6 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK3,  &m_SetsPP.bDeintDouble,         false },
 				{ IDC_CHECK4,  &m_SetsPP.VPFmts.bOther,        true  },
 				{ IDC_CHECK5,  &m_SetsPP.bVPScaling,           true  },
-				{ IDC_CHECK6,  &m_SetsPP.bInterpolateAt50pct,  false },
 				{ IDC_CHECK7,  &m_SetsPP.VPFmts.bNV12,         true  },
 				{ IDC_CHECK8,  &m_SetsPP.VPFmts.bP01x,         true  },
 				{ IDC_CHECK9,  &m_SetsPP.VPFmts.bYUY2,         true  },

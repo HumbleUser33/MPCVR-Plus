@@ -57,7 +57,8 @@ static const ScalingShaderResId s_Downscaling9ResIDs[DOWNSCALE_COUNT] = {
 	{IDF_PS_9_CONVOL_HAMMING_X,   IDF_PS_9_CONVOL_HAMMING_Y,   L"Hamming"      },
 	{IDF_PS_9_CONVOL_BICUBIC05_X, IDF_PS_9_CONVOL_BICUBIC05_Y, L"Bicubic"      },
 	{IDF_PS_9_CONVOL_BICUBIC15_X, IDF_PS_9_CONVOL_BICUBIC15_Y, L"Bicubic sharp"},
-	{IDF_PS_9_CONVOL_LANCZOS_X,   IDF_PS_9_CONVOL_LANCZOS_Y,   L"Lanczos"      }
+	{IDF_PS_9_CONVOL_LANCZOS_X,   IDF_PS_9_CONVOL_LANCZOS_Y,   L"Lanczos"      },
+	{IDF_PS_9_CONVOL_SPLINE36_X,  IDF_PS_9_CONVOL_SPLINE36_Y,  L"Spline36"     }
 };
 
 const UINT dither_size = 32;
@@ -289,7 +290,6 @@ CDX9VideoProcessor::CDX9VideoProcessor(CMpcVideoRenderer* pFilter, const Setting
 	m_iChromaScaling       = ChromaScaling9(config.iChromaScaling);
 	m_iUpscaling           = config.iUpscaling;
 	m_iDownscaling         = config.iDownscaling;
-	m_bInterpolateAt50pct  = config.bInterpolateAt50pct;
 	m_bUseDither           = config.bUseDither;
 	m_bDeintBlend          = config.bDeintBlend;
 	m_iSwapEffect          = config.iSwapEffect;
@@ -990,7 +990,6 @@ void CDX9VideoProcessor::UpdateScalingStrings()
 {
 	const int w2 = m_videoRect.Width();
 	const int h2 = m_videoRect.Height();
-	const int k = m_bInterpolateAt50pct ? 2 : 1;
 	int w1, h1;
 	if (m_iRotation == 90 || m_iRotation == 270) {
 		w1 = m_srcRectHeight;
@@ -1000,11 +999,11 @@ void CDX9VideoProcessor::UpdateScalingStrings()
 		h1 = m_srcRectHeight;
 	}
 	m_strShaderX = (w1 == w2) ? nullptr
-		: (w1 > k * w2)
+		: (w1 > w2)
 		? s_Downscaling9ResIDs[m_iDownscaling].description
 		: s_Upscaling9ResIDs[m_iUpscaling].description;
 	m_strShaderY = (h1 == h2) ? nullptr
-		: (h1 > k * h2)
+		: (h1 > h2)
 		? s_Downscaling9ResIDs[m_iDownscaling].description
 		: s_Upscaling9ResIDs[m_iUpscaling].description;
 }
@@ -1926,7 +1925,6 @@ void CDX9VideoProcessor::Configure(const Settings_t& config)
 	// settings that do not require preparation
 	m_bShowStats           = config.bShowStats;
 	m_bDeintDouble         = config.bDeintDouble;
-	m_bInterpolateAt50pct  = config.bInterpolateAt50pct;
 	m_bVBlankBeforePresent = config.bVBlankBeforePresent;
 	m_bAdjustPresentTime   = config.bAdjustPresentTime;
 	m_bDeintBlend          = config.bDeintBlend;
@@ -2459,7 +2457,6 @@ HRESULT CDX9VideoProcessor::ResizeShaderPass(IDirect3DTexture9* pTexture, IDirec
 	HRESULT hr = S_OK;
 	const int w2 = dstRect.Width();
 	const int h2 = dstRect.Height();
-	const int k = m_bInterpolateAt50pct ? 2 : 1;
 
 	int w1, h1;
 	IDirect3DPixelShader9* resizerX;
@@ -2467,17 +2464,17 @@ HRESULT CDX9VideoProcessor::ResizeShaderPass(IDirect3DTexture9* pTexture, IDirec
 	if (m_iRotation == 90 || m_iRotation == 270) {
 		w1 = srcRect.Height();
 		h1 = srcRect.Width();
-		resizerX = (w1 == w2) ? nullptr : (w1 > k * w2) ? m_pShaderDownscaleY.p : m_pShaderUpscaleY.p; // use Y scaling here
+		resizerX = (w1 == w2) ? nullptr : (w1 > w2) ? m_pShaderDownscaleY.p : m_pShaderUpscaleY.p; // use Y scaling here
 		if (resizerX) {
-			resizerY = (h1 == h2) ? nullptr : (h1 > k * h2) ? m_pShaderDownscaleY.p : m_pShaderUpscaleY.p;
+			resizerY = (h1 == h2) ? nullptr : (h1 > h2) ? m_pShaderDownscaleY.p : m_pShaderUpscaleY.p;
 		} else {
-			resizerY = (h1 == h2) ? nullptr : (h1 > k * h2) ? m_pShaderDownscaleX.p : m_pShaderUpscaleX.p; // use X scaling here
+			resizerY = (h1 == h2) ? nullptr : (h1 > h2) ? m_pShaderDownscaleX.p : m_pShaderUpscaleX.p; // use X scaling here
 		}
 	} else {
 		w1 = srcRect.Width();
 		h1 = srcRect.Height();
-		resizerX = (w1 == w2) ? nullptr : (w1 > k * w2) ? m_pShaderDownscaleX.p : m_pShaderUpscaleX.p;
-		resizerY = (h1 == h2) ? nullptr : (h1 > k * h2) ? m_pShaderDownscaleY.p : m_pShaderUpscaleY.p;
+		resizerX = (w1 == w2) ? nullptr : (w1 > w2) ? m_pShaderDownscaleX.p : m_pShaderUpscaleX.p;
+		resizerY = (h1 == h2) ? nullptr : (h1 > h2) ? m_pShaderDownscaleY.p : m_pShaderUpscaleY.p;
 	}
 
 	if (resizerX && resizerY) {

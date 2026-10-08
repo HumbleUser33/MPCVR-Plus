@@ -173,7 +173,7 @@ STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
 FONT 8, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
     LTEXT           "Everything that changes the size of the picture. Only one enlarger runs at a time.",IDC_STATIC_DESC_SCALING,7,4,446,8
-    GROUPBOX        "Resizing",IDC_CARD_RESIZING,7,16,222,130
+    GROUPBOX        "Resizing",IDC_CARD_RESIZING,7,16,222,116
     CONTROL         "Use the video processor for resizing",IDC_CHECK5,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,30,208,10
     LTEXT           "Not available while Dolby Vision is active.",IDC_STATIC_VPDOVI_NOTE,22,42,200,8
     LTEXT           "Request Super Resolution",IDC_STATIC7,22,56,96,8
@@ -183,7 +183,6 @@ BEGIN
     COMBOBOX        IDC_COMBO2,64,92,158,170,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT           "Downscaling",IDC_STATIC41,14,112,46,8
     COMBOBOX        IDC_COMBO3,64,110,158,100,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL         "Use the ""Upscaling"" method to reduce the frame to 50%",IDC_CHECK6,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,128,208,10
     GROUPBOX        "NVIDIA DLSS Super Resolution (experimental)",IDC_STATIC35,235,16,218,110
     CONTROL         "Use DLSS SR 4.5 for upscaling",IDC_CHECK25,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,242,30,204,10
     CONTROL         "Also run when no enlarging is needed (DLAA)",IDC_CHECK28,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,242,44,204,10
