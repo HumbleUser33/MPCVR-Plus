@@ -19,6 +19,7 @@
  */
 
 #include "stdafx.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <tuple>
@@ -356,6 +357,21 @@ bool CMpvShader::MakePlan(UINT inW, UINT inH, UINT outW, UINT outH, Plan& plan) 
 	std::vector<int> writerOfSlot(m_saveNames.size(), -1);
 	int writerOfPlane = -1;
 
+	// A shader's //!WHEN clause asks whether it is worth running at the size the
+	// window happens to want: FSRCNNX and ArtCNN want 1.3x before they will start,
+	// RAVU wants the picture to be growing at all. That is mpv's economy, and it is
+	// not this renderer's: here the method the user picked in the list is the method
+	// that runs, at any scale, including while the picture is being reduced -- which
+	// is what "use the Upscaling method to reduce the frame to 50%" says it does.
+	// Below those thresholds the network used to stand aside and Catmull-Rom took the
+	// whole picture, with the list still naming the network.
+	//
+	// So the question is put at the network's own scale -- twice the plane, which is
+	// what these shaders produce -- rather than at the window's. The two conditions
+	// the shaders carry are both "is it worth it" and never "can it", so nothing
+	// structural is bypassed, and OUTPUT is left alone everywhere else: some passes
+	// size themselves from it, and those must still land on the real target.
+	bool bAskingWhen = false;
 	for (size_t i = 0; i < count; i++) {
 		const Pass& pass = m_passes[i];
 		auto lookup = [&](const std::string& token, double& value) {
@@ -371,8 +387,8 @@ bool CMpvShader::MakePlan(UINT inW, UINT inH, UINT outW, UINT outH, Plan& plan) 
 			}
 			UINT w = 0, h = 0;
 			if (name == "OUTPUT") {
-				w = outW;
-				h = outH;
+				w = bAskingWhen ? std::max(outW, inW * 2) : outW;
+				h = bAskingWhen ? std::max(outH, inH * 2) : outH;
 			} else if (name == "HOOKED" || std::find(pass.hooks.begin(), pass.hooks.end(), name) != pass.hooks.end()) {
 				w = planeW;
 				h = planeH;
@@ -391,8 +407,13 @@ bool CMpvShader::MakePlan(UINT inW, UINT inH, UINT outW, UINT outH, Plan& plan) 
 		};
 
 		double when = 1.0;
-		if (!pass.when.empty() && !EvalRpn(pass.when, lookup, when)) {
-			return false;
+		if (!pass.when.empty()) {
+			bAskingWhen = true;
+			const bool bRead = EvalRpn(pass.when, lookup, when);
+			bAskingWhen = false;
+			if (!bRead) {
+				return false;
+			}
 		}
 		if (when == 0.0) {
 			continue;

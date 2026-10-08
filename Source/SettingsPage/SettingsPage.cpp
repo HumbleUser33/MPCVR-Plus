@@ -198,14 +198,18 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Resolution does. Listed best measured first.\n"
 		"AR holds what the network invented inside the source's range;\n"
 		"ArtCNN is the best and the dearest, about 13 ms 1080p to 4K.\n"
+		"A network runs at any enlargement, however small, and costs the\n"
+		"same at all of them: it works at twice the source either way.\n"
 		"Direct3D 11." },
 	{ IDC_COMBO3,
 		L"Reduces when the shaders do the resizing.\n"
 		"Greyed while the video processor resizes." },
 	{ IDC_CHECK6,
-		L"At exactly half size, reduce with the Upscaling method above\n"
-		"rather than the Downscaling one.\n"
-		"Sharper on 4K played in a 1080p window." },
+		L"Down to half size, reduce with the Upscaling method above rather\n"
+		"than the Downscaling one. Sharper on 4K in a 1080p window.\n"
+		"A network pays dearly here: it runs at twice the source and the\n"
+		"picture is then reduced from that. FSRCNNX 16 on 4K to 1080p is\n"
+		"93 ms a frame on an RTX 3050, where RAVU-zoom is 5." },
 	{ IDC_CHECK25,
 		L"Enlarges with NVIDIA DLSS Super Resolution instead of the\n"
 		"Upscaling method, which then greys.\n"

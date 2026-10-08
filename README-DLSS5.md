@@ -425,11 +425,32 @@ The colour comes from Catmull-Rom, which enlarges the picture as usual; the netw
 then replaces its own, by adding the difference to R, G and B alike, so chroma is untouched.
 Where the picture grows by more than the doubling (720p on a 4K screen) the resize shaders
 finish the job, and where it grows by less they reduce what the network doubled, as mpv does.
-Below 1.3× FSRCNNX and ArtCNN do not run at all, and RAVU-zoom needs the picture to grow on
-both axes; the statistics then name Catmull-Rom, which is what runs. They need Direct3D 11 at
-feature level 11.0 (the passes are shader model 5, ArtCNN's in compute); on Direct3D 9, on
-older hardware, and while DLSS Super Resolution is enlarging the picture, Catmull-Rom stands
-in.
+They need Direct3D 11 at feature level 11.0 (the passes are shader model 5, ArtCNN's in
+compute); on Direct3D 9, on older hardware, and while DLSS Super Resolution is enlarging the
+picture, Catmull-Rom stands in.
+
+**They run at any enlargement, however small.** Each of these shaders carries mpv's `//!WHEN`
+clause, which asks whether it is worth starting at the size the window happens to want:
+FSRCNNX and ArtCNN want 1.3× before they will, RAVU-zoom wants the picture to be growing at
+all. That is mpv's economy and it is not this renderer's. A film at 1920x1038 shown at
+2496x1349 is enlarged by exactly 1.3, and every one of them stood aside there while the list
+went on naming the network and Catmull-Rom took the whole picture. The question is now put at
+the network's own scale -- twice the plane, which is what they produce -- so the method named
+in the list is the method that runs (`CMpvShader::MakePlan`). Nothing structural is bypassed:
+both conditions these shaders carry are "is it worth it", never "can it".
+
+It costs the same at every ratio, because the work is the same: the network doubles the source
+whatever the target is. At 1920x1038 to 2496x1349 on an RTX 3050, per frame — FSRCNNX 8 10.0
+ms, ArtCNN 19.5 ms, FSRCNNX 16 22.1 ms, RAVU-zoom 6.6 ms.
+
+**And they run while the picture is being reduced**, if *Use the "Upscaling" method to reduce
+the frame to 50%* is ticked — which is what that option says it does, and what it did not do
+before. Read the price first. The network still doubles the source, and the picture is then
+reduced from that, so a 4K film in a 1080p window has it working at 7680x4320 to produce
+1920x1080: **FSRCNNX 16 costs 93.4 ms a frame there**, against 22.1 enlarging, and playback
+falls apart — the sync offset ran out to +5 s with 18 frames late. RAVU-zoom costs 4.8 ms in
+the same place and is fine. Either pick a light network, or leave that option off, or watch
+*skipped* in the statistics box; nothing is decided behind your back any more.
 
 ### Anti-ringing
 
@@ -1045,6 +1066,7 @@ filter may then switch the display's own HDR state, which is not what is being m
 playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.976] [--only N]
 playback_test.exe --scalers       each Upscaling and Chroma upsampling method (--vp: hardware)
 playback_test.exe --greying       what the page greys, for every state the renderer can be in
+playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio
 playback_test.exe --dlaa --size 1920x1080 --window 1920x1080   DLSS SR with nothing to enlarge
 playback_test.exe --mainpage 10 --hover 1042   the tip that comes up on a control, greyed or not
 playback_test.exe --mainpage 10   the settings page for 10 s, --click <id> clicks one control
