@@ -91,6 +91,8 @@
 #define OPT_DlssSRPreset                   L"DlssSRPreset"
 #define OPT_DlssSRDllPath                  L"DlssSRDllPath"
 #define OPT_DlssSRDlaa                     L"DlssSRDlaa"
+#define OPT_UpscalingSmall                 L"UpscalingSmall"
+#define OPT_UpscalingSmallFilter           L"UpscalingSmallFilter"
 #define OPT_DlssRenderAhead                L"DlssRenderAhead"
 
 static std::atomic_int g_nInstance = 0;
@@ -385,6 +387,12 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 		}
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSRDlaa, dw)) {
 			m_Sets.bDlssSRDlaa = !!dw;
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_UpscalingSmall, dw)) {
+			m_Sets.bUpscalingSmall = !!dw;
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_UpscalingSmallFilter, dw)) {
+			m_Sets.iUpscalingSmall = discard<int>(dw, UPSCALE_Jinc2, 0, UPSCALE_COUNT-1);
 		}
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSRPreset, dw)) {
 			m_Sets.iDlssSRPreset = ((int)dw >= DLSSSR_PRESET_J && (int)dw <= DLSSSR_PRESET_M) ? (int)dw : DLSSSR_PRESET_DEF;
@@ -1753,6 +1761,8 @@ STDMETHODIMP CMpcVideoRenderer::SaveSettings()
 		key.SetStringValue(OPT_DlssNRDllPath,      m_Sets.szDlssNRDllPath);
 		key.SetDWORDValue(OPT_DlssSR,              m_Sets.bDlssSR);
 		key.SetDWORDValue(OPT_DlssSRDlaa,          m_Sets.bDlssSRDlaa);
+		key.SetDWORDValue(OPT_UpscalingSmall,      m_Sets.bUpscalingSmall);
+		key.SetDWORDValue(OPT_UpscalingSmallFilter, m_Sets.iUpscalingSmall);
 		key.SetDWORDValue(OPT_DlssSRPreset,        m_Sets.iDlssSRPreset);
 		key.SetStringValue(OPT_DlssSRDllPath,      m_Sets.szDlssSRDllPath);
 #endif

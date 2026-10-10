@@ -102,6 +102,7 @@ static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
 static int g_frameSeconds = 0;         // --frame N: the page inside a real property frame
 static bool g_bThemedHost = false;     // --themed: and a player that paints it
 static bool g_bDlaa = false;           // --dlaa: let DLSS SR run without enlarging
+static int g_smallUpscaling = -1;      // --small N: another method under 5 %
 static bool g_bGreying = false;        // --greying: the rules alone, without a film
 static std::vector<int> g_hoverIds;     // --hover <id>: put the pointer on it and read the tip
 static int g_pageSection = -1;         // --section N: which one to show, or the page's own choice
@@ -838,6 +839,13 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	// when the window is the size of the source, which is the one case the ordinary
 	// runs never produce -- they enlarge.
 	sets.bDlssSRDlaa = g_bDlaa;
+	// --small N: the Upscaling method that stands in under five per cent, by its
+	// UPSCALE_ value. Without it the option is off, whatever the registry holds, so
+	// that every other run measures the method it names.
+	sets.bUpscalingSmall = g_smallUpscaling >= 0;
+	if (g_smallUpscaling >= 0) {
+		sets.iUpscalingSmall = g_smallUpscaling;
+	}
 	sets.bDlssRenderAhead = config.bAhead;
 	if (config.iUpscaling >= 0) {
 		sets.iUpscaling = config.iUpscaling;
@@ -1739,6 +1747,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_frameSeconds = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--section")) {
 			g_pageSection = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--small")) {
+			g_smallUpscaling = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--hover")) {
 			g_hoverIds.push_back(_wtoi(argv[i + 1]));
 		} else if (!wcscmp(argv[i], L"--click")) {

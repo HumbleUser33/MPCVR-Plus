@@ -468,6 +468,9 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_iSharpenLevel        = config.iSharpenLevel;
 	m_iChromaScaling       = config.iChromaScaling;
 	m_iUpscaling           = config.iUpscaling;
+	m_bUpscalingSmall      = config.bUpscalingSmall;
+	m_iUpscalingSmall      = config.iUpscalingSmall;
+	m_iUpscalingInUse      = config.iUpscaling;
 	m_iDownscaling         = config.iDownscaling;
 	m_bUseDither           = config.bUseDither;
 	m_bDeintBlend          = config.bDeintBlend;
@@ -1353,6 +1356,18 @@ void CDX11VideoProcessor::UpdateRenderRect()
 	UpdateScalingStrings();
 }
 
+// Which Upscaling method this picture gets. The user's, unless they asked for
+// another one on small enlargements and this is one: nothing shrinks, something
+// grows, and neither axis grows by five per cent. A network there doubles the
+// source to gain a handful of pixels, which is its whole cost for nothing visible.
+int CDX11VideoProcessor::UpscalingFor(int w1, int h1, int w2, int h2) const
+{
+	const bool bSmall = m_bUpscalingSmall && w1 > 0 && h1 > 0
+		&& w2 >= w1 && h2 >= h1 && (w2 > w1 || h2 > h1)
+		&& w2 * 100 < w1 * 105 && h2 * 100 < h1 * 105;
+	return bSmall ? m_iUpscalingSmall : m_iUpscaling;
+}
+
 void CDX11VideoProcessor::UpdateScalingStrings()
 {
 	const int w2 = m_videoRect.Width();
@@ -1365,14 +1380,25 @@ void CDX11VideoProcessor::UpdateScalingStrings()
 		w1 = m_srcRectWidth;
 		h1 = m_srcRectHeight;
 	}
+	// The sizes are known here and nowhere earlier, so this is where the method in
+	// use follows them. Loading the shaders comes back through this function, and
+	// finds the two agreeing the second time.
+	const int wanted = UpscalingFor(w1, h1, w2, h2);
+	if (wanted != m_iUpscalingInUse) {
+		m_iUpscalingInUse = wanted;
+		if (m_pDevice) {
+			UpdateUpscalingShaders();
+			return;
+		}
+	}
 	// DLSS Super Resolution takes over when the picture grows on both axes, and with
 	// DLAA when it does not grow at all.
 	const bool bDlaa = m_bDlssSRActive && m_bDlssSRDlaa && w1 == w2 && h1 == h2;
 	const bool bDlssSR = bDlaa || (m_bDlssSRActive && w2 > w1 && h2 > h1);
 	const wchar_t* upscaling = bDlaa ? L"DLSS SR (DLAA)"
-		: bDlssSR ? L"DLSS SR" : s_Upscaling11ResIDs[m_iUpscaling].description;
+		: bDlssSR ? L"DLSS SR" : s_Upscaling11ResIDs[m_iUpscalingInUse].description;
 	// An mpv prescaler only where it runs; Catmull-Rom does the job elsewhere.
-	if (!bDlssSR && MpvLumaShader(m_iUpscaling) && !m_MpvLuma.Applies(w1, h1, w2, h2)) {
+	if (!bDlssSR && MpvLumaShader(m_iUpscalingInUse) && !m_MpvLuma.Applies(w1, h1, w2, h2)) {
 		upscaling = L"Catmull-Rom";
 	}
 	// Nothing is normally said about an axis that does not change size; DLAA is the
@@ -3531,12 +3557,12 @@ void CDX11VideoProcessor::UpdateUpscalingShaders()
 	m_pShaderUpscaleX.Release();
 	m_pShaderUpscaleY.Release();
 
-	if (m_iUpscaling != UPSCALE_Nearest) {
-		EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pShaderUpscaleX, s_Upscaling11ResIDs[m_iUpscaling].shaderX));
-		if (m_iUpscaling == UPSCALE_Jinc2) {
+	if (m_iUpscalingInUse != UPSCALE_Nearest) {
+		EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pShaderUpscaleX, s_Upscaling11ResIDs[m_iUpscalingInUse].shaderX));
+		if (m_iUpscalingInUse == UPSCALE_Jinc2) {
 			m_pShaderUpscaleY = m_pShaderUpscaleX;
 		} else {
-			EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pShaderUpscaleY, s_Upscaling11ResIDs[m_iUpscaling].shaderY));
+			EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pShaderUpscaleY, s_Upscaling11ResIDs[m_iUpscalingInUse].shaderY));
 		}
 	}
 
@@ -3546,8 +3572,8 @@ void CDX11VideoProcessor::UpdateUpscalingShaders()
 
 void CDX11VideoProcessor::UpdateMpvLuma()
 {
-	const MpvShaderInfo* pInfo = m_pDevice ? MpvLumaShader(m_iUpscaling) : nullptr;
-	m_bMpvLumaAntiRing = MpvLumaAntiRing(m_iUpscaling);
+	const MpvShaderInfo* pInfo = m_pDevice ? MpvLumaShader(m_iUpscalingInUse) : nullptr;
+	m_bMpvLumaAntiRing = MpvLumaAntiRing(m_iUpscalingInUse);
 	if (m_MpvLuma.Info() == pInfo) {
 		return;
 	}
@@ -5278,8 +5304,17 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		changeBitmapShader = true;
 	}
 
-	if (config.iUpscaling != m_iUpscaling) {
+	if (config.iUpscaling != m_iUpscaling || config.bUpscalingSmall != m_bUpscalingSmall
+			|| config.iUpscalingSmall != m_iUpscalingSmall) {
 		m_iUpscaling = config.iUpscaling;
+		m_bUpscalingSmall = config.bUpscalingSmall;
+		m_iUpscalingSmall = config.iUpscalingSmall;
+		// Whichever of the two the picture at hand gets is settled where the sizes
+		// are known; this only has to be right until the shaders are loaded again.
+		m_iUpscalingInUse = UpscalingFor(
+			(m_iRotation == 90 || m_iRotation == 270) ? m_srcRectHeight : m_srcRectWidth,
+			(m_iRotation == 90 || m_iRotation == 270) ? m_srcRectWidth : m_srcRectHeight,
+			m_videoRect.Width(), m_videoRect.Height());
 		changeUpscalingShader = true;
 	}
 	if (config.iDownscaling != m_iDownscaling) {

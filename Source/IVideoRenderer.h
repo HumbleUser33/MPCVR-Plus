@@ -252,6 +252,13 @@ struct Settings_t {
 	// already exactly the size it is shown at, so it costs nothing anywhere else.
 	bool bDlssSRDlaa;
 
+	// Another Upscaling method for an enlargement under five per cent -- a 4K film
+	// cropped to 3838 across on a 3840 screen. A network doubles its source whatever
+	// the target is, so there it costs a whole pass at twice the screen's size for
+	// nothing anybody can see: FSRCNNX 16 measured 398.7 ms a frame.
+	bool bUpscalingSmall;
+	int  iUpscalingSmall;   // UPSCALE_*
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -324,6 +331,8 @@ struct Settings_t {
 		szDlssNRDllPath[0]              = L'\0';
 		bDlssSR                         = false;
 		bDlssSRDlaa                     = false;
+		bUpscalingSmall                 = false;
+		iUpscalingSmall                 = UPSCALE_Jinc2;
 		iDlssSRPreset                   = DLSSSR_PRESET_DEF;
 		szDlssSRDllPath[0]              = L'\0';
 		bDlssRenderAhead                = true;

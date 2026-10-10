@@ -233,7 +233,13 @@ private:
 	std::wstring m_strDlssSRDllPath;
 	bool m_bDlssSR = false;             // user setting
 	bool m_bDlssSRActive = false;
-	bool m_bDlssSRDlaa = false;   // run it at the picture's own size as well       // setting AND the NGX session is up
+	bool m_bDlssSRDlaa = false;   // run it at the picture's own size as well
+	// The Upscaling method for an enlargement under five per cent, and the one of
+	// the two that the picture at hand is really getting.
+	bool m_bUpscalingSmall = false;
+	int  m_iUpscalingSmall = UPSCALE_Jinc2;
+	int  m_iUpscalingInUse = UPSCALE_Jinc2;
+	int  UpscalingFor(int w1, int h1, int w2, int h2) const;       // setting AND the NGX session is up
 	int  m_iDlssSRPreset = DLSSSR_PRESET_DEF;
 	CDlssStabilizer m_DlssSRMotion;     // Optical Flow vectors for DLSS SR, drawn to the global motion
 	bool m_bDlssSRNewPicture = false;   // the next pass sees a new picture, not a redraw

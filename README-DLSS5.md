@@ -443,6 +443,21 @@ It costs the same at every ratio, because the work is the same: the network doub
 whatever the target is. At 1920x1038 to 2496x1349 on an RTX 3050, per frame — FSRCNNX 8 10.0
 ms, ArtCNN 19.5 ms, FSRCNNX 16 22.1 ms, RAVU-zoom 6.6 ms.
 
+**They run only where there is something to enlarge**: no axis shrinking and at least one
+growing. A PAL film is 720x576 shown at 768x576, enlarged in width alone, and that is enough.
+A picture shown at its own size gets no enlarger at all, and one that grows on one axis and
+shrinks on the other goes to the resize shaders, one kernel an axis.
+
+**Use a lighter filter for small enlargements** is for the case that rule makes expensive. A
+4K film cropped to 3838 across on a 3840 screen is an enlargement, by a twentieth of one per
+cent, and a network doubles its source whatever the target is: on an RTX 3050, at 3836x2160
+to 3840x2160, FSRCNNX 16 AR worked at 7672x4320 for 1024 ms a frame and skipped half of them.
+Ticked, the list under it is used instead whenever the picture grows by less than 5 % on both
+axes -- RAVU-zoom took 21.4 ms there and skipped nothing, Jinc2m nothing worth measuring -- and
+the method chosen above is used everywhere else. The statistics name the one really in use.
+It goes by the ratio and not by the size, so a 1080p film at 2000x1125 takes the lighter one
+too, and at exactly 5 % (2016x1134) the method above is back. Off by default.
+
 **They do not run while the picture is being reduced.** A 2x network asked to reduce has to
 double the source first and the picture is then brought down from that, which on a 4K film in
 a 1080p window had FSRCNNX 16 working at 7680x4320 for 93.4 ms a frame -- the sync offset ran
@@ -1138,6 +1153,7 @@ playback_test.exe --greying       what the page greys, for every state the rende
 dlssnr_harness.exe --tdownscale  what each downscaler keeps and what it lets fold back
 dlssnr_harness.exe --tdownport   and that those shaders are the kernels they are written from
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio
+playback_test.exe --scalers --size 3836x2160 --window 3840x2160 --small 5   the stand-in under 5 %
 playback_test.exe --dlaa --size 1920x1080 --window 1920x1080   DLSS SR with nothing to enlarge
 playback_test.exe --mainpage 10 --hover 1042   the tip that comes up on a control, greyed or not
 playback_test.exe --mainpage 10   the settings page for 10 s, --click <id> clicks one control

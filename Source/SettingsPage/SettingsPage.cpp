@@ -201,6 +201,16 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"A network runs at any enlargement, however small, and costs the\n"
 		"same at all of them: it works at twice the source either way.\n"
 		"Direct3D 11." },
+	{ IDC_CHECK29,
+		L"Another Upscaling method when the picture grows by less than 5 %\n"
+		"on both axes. A network doubles its source whatever the target, so\n"
+		"a 4K film cropped to 3838 across costs it a pass at 7676x4320:\n"
+		"FSRCNNX 16 measured 399 ms a frame there, RAVU-zoom 12, Jinc2m none.\n"
+		"The statistics name the method really in use." },
+	{ IDC_COMBO16,
+		L"The method used on enlargements under 5 %.\n"
+		"A classic kernel is the sensible choice: nothing a network adds\n"
+		"shows at that size." },
 	{ IDC_COMBO3,
 		L"Reduces when the shaders do the resizing, at every ratio.\n"
 		"Listed best measured first. The top three are close and differ in\n"
@@ -541,18 +551,22 @@ void CVRSettingsPPage::FillCombos()
 	Combo_AddData(Item(IDC_COMBO5), L"Bilinear",           CHROMA_Bilinear);
 	Combo_AddData(Item(IDC_COMBO5), L"Nearest-neighbor",   CHROMA_Nearest);
 
-	Combo_AddData(Item(IDC_COMBO2), L"ArtCNN C4F16 DS",    UPSCALE_ArtCNN);
-	Combo_AddData(Item(IDC_COMBO2), L"RAVU-zoom",          UPSCALE_RAVUZoom);
-	Combo_AddData(Item(IDC_COMBO2), L"FSRCNNX 16 AR",      UPSCALE_FSRCNNX16AR);
-	Combo_AddData(Item(IDC_COMBO2), L"FSRCNNX 8 AR",       UPSCALE_FSRCNNX8AR);
-	Combo_AddData(Item(IDC_COMBO2), L"FSRCNNX 16",         UPSCALE_FSRCNNX16);
-	Combo_AddData(Item(IDC_COMBO2), L"FSRCNNX 8",          UPSCALE_FSRCNNX8);
-	Combo_AddData(Item(IDC_COMBO2), L"Catmull-Rom",        UPSCALE_CatmullRom);
-	Combo_AddData(Item(IDC_COMBO2), L"Lanczos2",           UPSCALE_Lanczos2);
-	Combo_AddData(Item(IDC_COMBO2), L"Mitchell-Netravali", UPSCALE_Mitchell);
-	Combo_AddData(Item(IDC_COMBO2), L"Lanczos3",           UPSCALE_Lanczos3);
-	Combo_AddData(Item(IDC_COMBO2), L"Jinc2m",             UPSCALE_Jinc2);
-	Combo_AddData(Item(IDC_COMBO2), L"Nearest-neighbor",   UPSCALE_Nearest);
+	// The same list twice: the method, and the one that stands in for it on small
+	// enlargements.
+	for (const int id : { IDC_COMBO2, IDC_COMBO16 }) {
+		Combo_AddData(Item(id), L"ArtCNN C4F16 DS",    UPSCALE_ArtCNN);
+		Combo_AddData(Item(id), L"RAVU-zoom",          UPSCALE_RAVUZoom);
+		Combo_AddData(Item(id), L"FSRCNNX 16 AR",      UPSCALE_FSRCNNX16AR);
+		Combo_AddData(Item(id), L"FSRCNNX 8 AR",       UPSCALE_FSRCNNX8AR);
+		Combo_AddData(Item(id), L"FSRCNNX 16",         UPSCALE_FSRCNNX16);
+		Combo_AddData(Item(id), L"FSRCNNX 8",          UPSCALE_FSRCNNX8);
+		Combo_AddData(Item(id), L"Catmull-Rom",        UPSCALE_CatmullRom);
+		Combo_AddData(Item(id), L"Lanczos2",           UPSCALE_Lanczos2);
+		Combo_AddData(Item(id), L"Mitchell-Netravali", UPSCALE_Mitchell);
+		Combo_AddData(Item(id), L"Lanczos3",           UPSCALE_Lanczos3);
+		Combo_AddData(Item(id), L"Jinc2m",             UPSCALE_Jinc2);
+		Combo_AddData(Item(id), L"Nearest-neighbor",   UPSCALE_Nearest);
+	}
 
 	// Best measured first (dlssnr_harness --tdownscale), and it carries its value as
 	// item data so that order is free to change: it used to save the position it sat
@@ -654,6 +668,8 @@ void CVRSettingsPPage::SetControls()
 	SetCheck(IDC_CHECK5,  m_SetsPP.bVPScaling);
 	Send(IDC_COMBO8, CB_SETCURSEL, m_SetsPP.iVPSuperRes, 0);
 	Combo_SelectData(Item(IDC_COMBO2), m_SetsPP.iUpscaling);
+	SetCheck(IDC_CHECK29, m_SetsPP.bUpscalingSmall);
+	Combo_SelectData(Item(IDC_COMBO16), m_SetsPP.iUpscalingSmall);
 	Combo_SelectData(Item(IDC_COMBO3), m_SetsPP.iDownscaling);
 
 	Combo_SelectData(Item(IDC_COMBO5), m_SetsPP.iChromaScaling);
@@ -753,6 +769,10 @@ void CVRSettingsPPage::EnableControls()
 	Enable(IDC_COMBO5, grey.bChromaList);
 	Enable(IDC_STATIC39, grey.bUpscalingList);
 	Enable(IDC_COMBO2, grey.bUpscalingList);
+	// The stand-in follows the list it stands in for, and its own box.
+	Enable(IDC_CHECK29, grey.bUpscalingList);
+	Enable(IDC_STATIC_SMALL_NOTE, grey.bUpscalingList);
+	Enable(IDC_COMBO16, grey.bUpscalingList && m_SetsPP.bUpscalingSmall);
 	Enable(IDC_STATIC41, grey.bDownscalingList);
 	Enable(IDC_COMBO3, grey.bDownscalingList);
 	Enable(IDC_STATIC7, grey.bSuperRes);
@@ -1037,6 +1057,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK24, &m_SetsPP.bDlssNRMotionVectors, false },
 				{ IDC_CHECK25, &m_SetsPP.bDlssSR,              true  },
 				{ IDC_CHECK28, &m_SetsPP.bDlssSRDlaa,          false },
+				{ IDC_CHECK29, &m_SetsPP.bUpscalingSmall,      true  },
 				{ IDC_CHECK26, &m_SetsPP.bDlssRenderAhead,     false },
 				{ IDC_CHECK27, &m_SetsPP.bVPReplaceChroma,     true  },
 			};
@@ -1142,6 +1163,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 			const struct { int id; int* pValue; bool bEnables; } byData[] = {
 				{ IDC_COMBO2,  &m_SetsPP.iUpscaling,       false },
 				{ IDC_COMBO3,  &m_SetsPP.iDownscaling,     false },
+				{ IDC_COMBO16, &m_SetsPP.iUpscalingSmall,  false },
 				{ IDC_COMBO5,  &m_SetsPP.iChromaScaling,   false },
 				{ IDC_COMBO11, &m_SetsPP.iDlssNRStyle,     false },
 				{ IDC_COMBO12, &m_SetsPP.iDlssNRPreset,    false },
