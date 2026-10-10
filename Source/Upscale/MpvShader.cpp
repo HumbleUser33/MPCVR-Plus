@@ -371,6 +371,14 @@ bool CMpvShader::MakePlan(UINT inW, UINT inH, UINT outW, UINT outH, Plan& plan) 
 	// the shaders carry are both "is it worth it" and never "can it", so nothing
 	// structural is bypassed, and OUTPUT is left alone everywhere else: some passes
 	// size themselves from it, and those must still land on the real target.
+	// ...but only where there is something to enlarge. Asking the question at the
+	// network's scale regardless made the answer yes on a picture shown at its own
+	// size and on one being reduced, and in both it doubled the picture for the
+	// resize shaders to bring straight back down: the whole cost of the network, and
+	// a worse picture than leaving it alone. These are enlargers, and the renderer
+	// names them only where the picture grows on both axes (UpdateScalingStrings),
+	// so that is where they run.
+	const bool bEnlarging = outW > inW && outH > inH;
 	bool bAskingWhen = false;
 	for (size_t i = 0; i < count; i++) {
 		const Pass& pass = m_passes[i];
@@ -387,8 +395,9 @@ bool CMpvShader::MakePlan(UINT inW, UINT inH, UINT outW, UINT outH, Plan& plan) 
 			}
 			UINT w = 0, h = 0;
 			if (name == "OUTPUT") {
-				w = bAskingWhen ? std::max(outW, inW * 2) : outW;
-				h = bAskingWhen ? std::max(outH, inH * 2) : outH;
+				const bool bAtOwnScale = bAskingWhen && bEnlarging;
+				w = bAtOwnScale ? std::max(outW, inW * 2) : outW;
+				h = bAtOwnScale ? std::max(outH, inH * 2) : outH;
 			} else if (name == "HOOKED" || std::find(pass.hooks.begin(), pass.hooks.end(), name) != pass.hooks.end()) {
 				w = planeW;
 				h = planeH;
