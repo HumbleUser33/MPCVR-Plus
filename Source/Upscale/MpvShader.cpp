@@ -376,9 +376,11 @@ bool CMpvShader::MakePlan(UINT inW, UINT inH, UINT outW, UINT outH, Plan& plan) 
 	// size and on one being reduced, and in both it doubled the picture for the
 	// resize shaders to bring straight back down: the whole cost of the network, and
 	// a worse picture than leaving it alone. These are enlargers, and the renderer
-	// names them only where the picture grows on both axes (UpdateScalingStrings),
-	// so that is where they run.
-	const bool bEnlarging = outW > inW && outH > inH;
+	// has nothing to enlarge there.
+	// One axis is enough, as long as the other does not shrink: a PAL film is 720x576
+	// shown at 768x576, enlarged in width alone, and asking for both axes left that
+	// to the fallback resampler with the network chosen and idle.
+	const bool bEnlarging = outW >= inW && outH >= inH && (outW > inW || outH > inH);
 	bool bAskingWhen = false;
 	for (size_t i = 0; i < count; i++) {
 		const Pass& pass = m_passes[i];
