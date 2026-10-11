@@ -106,6 +106,7 @@ static int g_smallUpscaling = -1;      // --small N: another method under 5 %
 static int g_hz = 0;                   // --hz N: put the screen at N Hz for the run, and back after
 static bool g_bJolt = false;           // --jolt: change a setting while it plays, and watch the queue
 static bool g_bPresetKeys = false;     // --presets: save two, recall each by its key while it plays
+static bool g_bRewindow = false;       // --rewindow: have the video window made again, from another thread and from this one
 
 // --hz: a film at the screen's own rate is the case where a picture that once
 // arrived late never gets its refresh back, and a 60 Hz desktop never shows it.
@@ -489,6 +490,25 @@ static CComPtr<IPin> GetPin(IBaseFilter* pFilter, PIN_DIRECTION dir)
 		}
 	}
 	return nullptr;
+}
+
+// The renderer's own window under ours, and the thread that owns it.
+static DWORD VideoWindowThread(HWND hwndParent, HWND* phwnd = nullptr)
+{
+	struct Found { HWND hwnd; } found = {};
+	EnumChildWindows(hwndParent, [](HWND h, LPARAM l) -> BOOL {
+		wchar_t name[32] = {};
+		GetClassNameW(h, name, 32);
+		if (!wcscmp(name, L"VRWindow")) {
+			((Found*)l)->hwnd = h;
+			return FALSE;
+		}
+		return TRUE;
+	}, (LPARAM)&found);
+	if (phwnd) {
+		*phwnd = found.hwnd;
+	}
+	return found.hwnd ? GetWindowThreadProcessId(found.hwnd, nullptr) : 0;
 }
 
 static void Pump(DWORD ms)
@@ -1008,6 +1028,42 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		int value = 0;
 		if (!sync.empty() && swscanf_s(sync.c_str(), L"%d", &value) == 1) {
 			result.syncs.push_back(value);
+		}
+		if (g_bRewindow) {
+			// The swap effect is the plainest setting that has the renderer make its
+			// window again. Changed from another thread first, as a player's options
+			// do when the film was opened on a worker thread, then from this one. The
+			// window must stay on the thread that first made it both times: MPC-HC
+			// stops hiding the pointer when it changes threads.
+			static std::atomic<int> done{ 0 };
+			const auto Flip = [pVR] {
+				Settings_t sets;
+				pVR->GetSettings(sets);
+				sets.iSwapEffect = (sets.iSwapEffect == SWAPEFFECT_Flip) ? SWAPEFFECT_Discard : SWAPEFFECT_Flip;
+				pVR->SetSettings(sets);
+				done++;
+			};
+			HWND hVideo = nullptr;
+			const DWORD owner = VideoWindowThread(hwnd, &hVideo);
+			if (i == 20) {
+				printf("   %4.1f s  video window %p on thread %lu; this thread is %lu\n", i / 10.0, (void*)hVideo, owner, GetCurrentThreadId());
+			}
+			if (i == 30) {
+				std::thread other([&] {
+					printf("   %4.1f s  -- swap effect changed from thread %lu --\n", i / 10.0, GetCurrentThreadId());
+					Flip();
+				});
+				other.detach();
+			}
+			if (i == 50) {
+				printf("   %4.1f s  -- swap effect changed from this thread --\n", i / 10.0);
+				Flip();
+			}
+			if (i == 45 || i == 65) {
+				wprintf(L"   %4.1f s  video window %p on thread %lu (%s), changes done: %d | frames: %s\n", i / 10.0, (void*)hVideo, owner,
+					owner == GetCurrentThreadId() ? L"still this one" : owner ? L"MOVED" : L"GONE with the thread that made it", done.load(),
+					StatsLine(text, L"Frames        : ").c_str());
+			}
 		}
 		if (g_bPresetKeys) {
 			// Two presets that differ in something the statistics name, saved through
@@ -1887,6 +1943,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bScalers = true;
 			source.cx &= ~1; // NV12
 			source.cy &= ~1;
+		} else if (!wcscmp(argv[i], L"--rewindow")) {
+			g_bRewindow = true;
 		} else if (!wcscmp(argv[i], L"--presets")) {
 			g_bPresetKeys = true;
 		} else if (!wcscmp(argv[i], L"--jolt")) {

@@ -1651,6 +1651,24 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 	return pThis->OnReceiveMessage(hwnd, uMsg, wParam, lParam);
 }
 
+// Sent to the video window to have it make its own replacement, on its own thread.
+static const UINT WM_VR_REMAKE = WM_APP + 0x3A1;
+
+HWND CMpcVideoRenderer::CreateVideoWindow()
+{
+	return CreateWindowExW(
+		0,
+		g_szClassName,
+		nullptr,
+		WS_VISIBLE | WS_CHILDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+		m_hWndParent,
+		nullptr,
+		g_hInst,
+		this
+	);
+}
+
 HRESULT CMpcVideoRenderer::Init(const bool bCreateWindow/* = false*/)
 {
 	CAutoLock cRendererLock(&m_RendererLock);
@@ -1679,10 +1697,8 @@ HRESULT CMpcVideoRenderer::Init(const bool bCreateWindow/* = false*/)
 	}
 
 	if (bCreateWindow) {
-		if (m_hWndWindow) {
-			::SendMessageW(m_hWndWindow, WM_CLOSE, 0, 0);
-			m_hWndWindow = nullptr;
-		}
+		const HWND hWndOld = m_hWndWindow;
+		m_hWndWindow = nullptr;
 
 		if (!m_bIsD3DFullscreen) {
 			WNDCLASSEXW wc = { sizeof(wc) };
@@ -1699,17 +1715,26 @@ HRESULT CMpcVideoRenderer::Init(const bool bCreateWindow/* = false*/)
 				}
 			}
 
-			m_hWndWindow = CreateWindowExW(
-				0,
-				g_szClassName,
-				nullptr,
-				WS_VISIBLE | WS_CHILDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-				CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-				m_hWndParent,
-				nullptr,
-				g_hInst,
-				this
-			);
+			// The window is made again on the thread that made it the first time. A
+			// player that opens the film on a worker thread has it there, and a
+			// setting applied from the options arrives on the interface thread: made
+			// here, the new window would change threads, and MPC-HC, which tracks the
+			// mouse leaving its video area, is then told the pointer has left while
+			// it sits on the picture -- and never hides it again. If that thread does
+			// not answer, the window is made here as it always was.
+			if (hWndOld && GetWindowThreadProcessId(hWndOld, nullptr) != GetCurrentThreadId()) {
+				DWORD_PTR made = 0;
+				if (SendMessageTimeoutW(hWndOld, WM_VR_REMAKE, 0, 0, SMTO_ABORTIFHUNG, 2000, &made)) {
+					m_hWndWindow = reinterpret_cast<HWND>(made);
+				}
+				DLogIf(!m_hWndWindow, L"CMpcVideoRenderer::Init() : the window's thread did not make the new one");
+			}
+			if (hWndOld) {
+				::SendMessageW(hWndOld, WM_CLOSE, 0, 0);
+			}
+			if (!m_hWndWindow) {
+				m_hWndWindow = CreateVideoWindow();
+			}
 
 			if (!m_hWndWindow) {
 				hr = HRESULT_FROM_WIN32(GetLastError());
@@ -1720,6 +1745,8 @@ HRESULT CMpcVideoRenderer::Init(const bool bCreateWindow/* = false*/)
 			if (!m_windowRect.IsRectNull()) {
 				SetWindowPos(m_hWndWindow, nullptr, m_windowRect.left, m_windowRect.top, m_windowRect.Width(), m_windowRect.Height(), SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
 			}
+		} else if (hWndOld) {
+			::SendMessageW(hWndOld, WM_CLOSE, 0, 0);
 		}
 	}
 
@@ -2492,6 +2519,10 @@ void CMpcVideoRenderer::DoAfterChangingDevice()
 
 LRESULT CMpcVideoRenderer::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	if (uMsg == WM_VR_REMAKE) {
+		return reinterpret_cast<LRESULT>(CreateVideoWindow());
+	}
+
 	if (m_hWndDrain && !InSendMessage() && !m_bExclusiveScreen) {
 		switch (uMsg) {
 			case WM_CHAR:
