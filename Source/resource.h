@@ -293,6 +293,14 @@
 #define IDC_PRESET_LOAD6                   1335
 #define IDC_PRESET_LOAD7                   1336
 #define IDC_PRESET_LOAD8                   1337
+#define IDC_PRESET_MOD1                    1340
+#define IDC_PRESET_MOD2                    1341
+#define IDC_PRESET_MOD3                    1342
+#define IDC_PRESET_MOD4                    1343
+#define IDC_PRESET_MOD5                    1344
+#define IDC_PRESET_MOD6                    1345
+#define IDC_PRESET_MOD7                    1346
+#define IDC_PRESET_MOD8                    1347
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED

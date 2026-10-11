@@ -1315,38 +1315,69 @@ static const struct { const wchar_t* name; int vk; } g_presetKeys[] = {
 	{ L"Page Up", VK_PRIOR }, { L"Page Down", VK_NEXT }, { L"Pause", VK_PAUSE }, { L"Scroll Lock", VK_SCROLL },
 };
 
-// Tags for the tooltips of the 32 controls: unique, and not window handles.
-static const char g_presetTags[PRESET_COUNT * 4] = {};
+// What may be held with the key. Ctrl+1 and Shift+1 are two keys to the hook, so
+// eight presets fit on the digits without taking a single one from the player.
+static const struct { const wchar_t* name; int held; } g_presetHeld[] = {
+	{ L"None", 0 },
+	{ L"Ctrl", PRESETKEY_Ctrl }, { L"Shift", PRESETKEY_Shift }, { L"Alt", PRESETKEY_Alt },
+	{ L"Ctrl + Shift", PRESETKEY_Ctrl | PRESETKEY_Shift }, { L"Ctrl + Alt", PRESETKEY_Ctrl | PRESETKEY_Alt },
+	{ L"Shift + Alt", PRESETKEY_Shift | PRESETKEY_Alt },
+	{ L"Ctrl + Shift + Alt", PRESETKEY_Ctrl | PRESETKEY_Shift | PRESETKEY_Alt },
+};
+
+// Tags for the tooltips of the 40 controls: unique, and not window handles.
+static const char g_presetTags[PRESET_COUNT * 5] = {};
+
+// The key a row is showing, with what is held: nothing held counts without a key.
+int CVRSettingsPPage::PresetKeyShown(int slot)
+{
+	const int vk = (int)Combo_CurData(Item(IDC_PRESET_KEY1 + slot));
+	return vk ? (vk | (int)Combo_CurData(Item(IDC_PRESET_MOD1 + slot))) : 0;
+}
 
 void CVRSettingsPPage::ShowPresets()
 {
 	for (int slot = 0; slot < PRESET_COUNT; slot++) {
 		HWND hKey = Item(IDC_PRESET_KEY1 + slot);
-		if (!hKey) {
+		HWND hHeld = Item(IDC_PRESET_MOD1 + slot);
+		if (!hKey || !hHeld) {
 			return;   // the section is not there
 		}
 		SendMessageW(hKey, CB_RESETCONTENT, 0, 0);
 		for (const auto& k : g_presetKeys) {
 			Combo_AddData(hKey, k.name, k.vk);
 		}
+		// Digits and letters, whose virtual key is their own character.
+		for (wchar_t c = L'0'; c <= L'Z'; c = (c == L'9') ? L'A' : c + 1) {
+			const wchar_t text[2] = { c, 0 };
+			Combo_AddData(hKey, text, c);
+		}
+		SendMessageW(hHeld, CB_RESETCONTENT, 0, 0);
+		for (const auto& h : g_presetHeld) {
+			Combo_AddData(hHeld, h.name, h.held);
+		}
 		wchar_t name[64] = {};
 		int vk = 0;
 		const HRESULT hr = m_pVideoRenderer->GetPresetInfo(slot, name, (int)std::size(name), &vk);
 		SetText(IDC_PRESET_NAME1 + slot, name);
 		Send(IDC_PRESET_NAME1 + slot, EM_SETLIMITTEXT, std::size(name) - 1, 0);
-		Combo_SelectData(hKey, vk);
+		Combo_SelectData(hKey, vk & 0xFF);
+		Combo_SelectData(hHeld, vk & ~0xFF);
 		Enable(IDC_PRESET_LOAD1 + slot, hr == S_OK);
 
 		AddHint(IDC_PRESET_NAME1 + slot, L"What this preset is called. Shown on the picture for a\n"
-			"moment when its key recalls it.", (UINT_PTR)&g_presetTags[slot * 4]);
+			"moment when its key recalls it.", (UINT_PTR)&g_presetTags[slot * 5]);
+		AddHint(IDC_PRESET_MOD1 + slot, L"Keys to hold with the one on the right, as in Ctrl+1 or\n"
+			"Shift+F6. None: the key alone. Does nothing without a key.", (UINT_PTR)&g_presetTags[slot * 5 + 4]);
 		AddHint(IDC_PRESET_KEY1 + slot, L"The key that recalls this preset while a film plays, without\n"
-			"opening this page. The player no longer sees that key.\n"
+			"opening this page. The player no longer sees it, with what is\n"
+			"held on the left; it is left alone while a text box is typed in.\n"
 			"A preset that changes Direct3D 11, the swap effect or exclusive\n"
-			"fullscreen restarts the rendering: a short cut in the picture.", (UINT_PTR)&g_presetTags[slot * 4 + 1]);
+			"fullscreen restarts the rendering: a short cut in the picture.", (UINT_PTR)&g_presetTags[slot * 5 + 1]);
 		AddHint(IDC_PRESET_SAVE1 + slot, L"Keeps everything this page is showing in this preset, applied\n"
-			"or not, and at once: Apply is not needed for it.", (UINT_PTR)&g_presetTags[slot * 4 + 2]);
+			"or not, and at once: Apply is not needed for it.", (UINT_PTR)&g_presetTags[slot * 5 + 2]);
 		AddHint(IDC_PRESET_LOAD1 + slot, L"Brings this preset back into the page. Nothing changes on\n"
-			"screen until Apply. Greyed while nothing was saved here.", (UINT_PTR)&g_presetTags[slot * 4 + 3]);
+			"screen until Apply. Greyed while nothing was saved here.", (UINT_PTR)&g_presetTags[slot * 5 + 3]);
 	}
 }
 
@@ -1367,24 +1398,25 @@ bool CVRSettingsPPage::OnPresetCommand(int nID, int action)
 		return true;
 	}
 
-	if (int slot = Row(IDC_PRESET_KEY1); slot >= 0) {
+	if (int slot = (std::max)(Row(IDC_PRESET_KEY1), Row(IDC_PRESET_MOD1)); slot >= 0) {
 		if (action != CBN_SELCHANGE) {
 			return true;
 		}
-		// One key, one job: the hook can only do one thing with it.
-		const int vk = (int)Combo_CurData(Item(nID));
+		// One key, one job: the hook can only do one thing with it. The toggle key
+		// answers whatever is held, so it is only the bare key that it takes.
+		const int key = PresetKeyShown(slot);
 		std::wstring taken;
-		if (vk && vk == m_SetsPP.iDlssNRToggleKey) {
+		if (key && key == m_SetsPP.iDlssNRToggleKey) {
 			taken = L"the DLSS 5 NR toggle";
 		}
-		for (int other = 0; vk && other < PRESET_COUNT; other++) {
-			if (other != slot && (int)Combo_CurData(Item(IDC_PRESET_KEY1 + other)) == vk) {
+		for (int other = 0; key && other < PRESET_COUNT; other++) {
+			if (other != slot && PresetKeyShown(other) == key) {
 				taken = std::format(L"preset {}", other + 1);
 			}
 		}
 		if (!taken.empty()) {
 			MessageBoxW(std::format(L"That key already belongs to {}.", taken).c_str(), L"Presets", MB_OK | MB_ICONINFORMATION);
-			Combo_SelectData(Item(nID), 0);
+			Combo_SelectData(Item(IDC_PRESET_KEY1 + slot), 0);
 		}
 		SetDirty();
 		return true;
@@ -1404,8 +1436,7 @@ bool CVRSettingsPPage::OnPresetCommand(int nID, int action)
 			}
 			wchar_t name[64] = {};
 			NameOf(slot, name, (int)std::size(name));
-			const int vk = (int)Combo_CurData(Item(IDC_PRESET_KEY1 + slot));
-			if (SUCCEEDED(m_pVideoRenderer->SavePreset(slot, sets, name, vk))) {
+			if (SUCCEEDED(m_pVideoRenderer->SavePreset(slot, sets, name, PresetKeyShown(slot)))) {
 				Enable(IDC_PRESET_LOAD1 + slot, TRUE);
 			}
 		}
@@ -1443,7 +1474,7 @@ void CVRSettingsPPage::ApplyPresetNames()
 		}
 		wchar_t name[64] = {};
 		::GetWindowTextW(hName, name, (int)std::size(name));
-		m_pVideoRenderer->SetPresetInfo(slot, name, (int)Combo_CurData(hKey));
+		m_pVideoRenderer->SetPresetInfo(slot, name, PresetKeyShown(slot));
 	}
 }
 

@@ -367,12 +367,19 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 	// the prescalers as much as for DLSS.
 }
 
+constexpr int PRESET_COUNT = 8;
+
+// The key that recalls a preset: a virtual key in the low byte and, above it, the
+// keys that must be held with it. Ctrl+1 and 1 are two different keys.
+constexpr int PRESETKEY_Shift = 0x100;
+constexpr int PRESETKEY_Ctrl  = 0x200;
+constexpr int PRESETKEY_Alt   = 0x400;
+constexpr int PRESETKEY_Mask  = 0x7FF;
+
 // What the hardware video processor is doing with the picture being played, which
 // decides whether the shader lists have anything to do: it converts the formats it
 // was given, chroma upsampling included, and resizes when it was told to and no DLSS
 // pass has taken the resizing back from it.
-constexpr int PRESET_COUNT = 8;
-
 enum :unsigned {
 	VPUSE_Converting = 1,
 	VPUSE_Resizing   = 2,

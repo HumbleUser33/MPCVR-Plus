@@ -125,6 +125,7 @@ private:
 
 	// The Presets tab: eight rows of a name, a key, Save and Load.
 	void ShowPresets();
+	int  PresetKeyShown(int slot);
 	bool OnPresetCommand(int nID, int action);
 	void ApplyPresetNames();
 };

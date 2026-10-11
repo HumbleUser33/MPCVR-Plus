@@ -1021,25 +1021,36 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 				a.iUpscaling = UPSCALE_CatmullRom;
 				b.iUpscaling = UPSCALE_Lanczos3;
 				b.iSharpen = SHARPEN_Adaptive;
-				printf("   save 1 \"Soft\" on F6: 0x%08X, save 2 \"Sharp\" on F7: 0x%08X\n",
-					(unsigned)pVR->SavePreset(0, a, L"Soft", VK_F6), (unsigned)pVR->SavePreset(1, b, L"Sharp", VK_F7));
+				printf("   save 1 \"Soft\" on F6: 0x%08X, save 2 \"Sharp\" on Ctrl+F7: 0x%08X\n",
+					(unsigned)pVR->SavePreset(0, a, L"Soft", VK_F6), (unsigned)pVR->SavePreset(1, b, L"Sharp", VK_F7 | PRESETKEY_Ctrl));
 				Settings_t empty;
 				printf("   slot 3, never saved, loads as 0x%08X (S_FALSE is 1)\n", (unsigned)pVR->LoadPreset(2, empty));
 			}
-			if (i == 25 || i == 40 || i == 55) {
-				const UINT vk = (i == 40) ? VK_F7 : VK_F6;
+			// F7 alone first, which belongs to nobody: preset 2 wants Ctrl held with it.
+			// Then Ctrl+F7, then Ctrl+F6, which is not preset 1's key either, then F6.
+			if (i == 25 || i == 40 || i == 55 || i == 70) {
+				const UINT vk = (i == 25 || i == 40) ? VK_F7 : VK_F6;
+				const bool bCtrl = (i == 40 || i == 55);
 				// Real input, not a posted message: a WH_KEYBOARD hook is only shown
 				// what comes off the input queue, so a posted key walks straight
 				// past it and proves nothing.
 				SetForegroundWindow(hwnd);
-				INPUT in[2] = {};
-				in[0].type = in[1].type = INPUT_KEYBOARD;
-				in[0].ki.wVk = in[1].ki.wVk = (WORD)vk;
-				in[1].ki.dwFlags = KEYEVENTF_KEYUP;
-				SendInput(2, in, sizeof(INPUT));
-				printf("   %4.1f s  -- %s pressed --\n", i / 10.0, vk == VK_F6 ? "F6" : "F7");
+				INPUT in[4] = {};
+				int n = 0;
+				const auto Key = [&](WORD k, bool up) {
+					in[n].type = INPUT_KEYBOARD;
+					in[n].ki.wVk = k;
+					in[n].ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+					n++;
+				};
+				if (bCtrl) Key(VK_CONTROL, false);
+				Key((WORD)vk, false);
+				Key((WORD)vk, true);
+				if (bCtrl) Key(VK_CONTROL, true);
+				SendInput(n, in, sizeof(INPUT));
+				printf("   %4.1f s  -- %s%s pressed --\n", i / 10.0, bCtrl ? "Ctrl+" : "", vk == VK_F6 ? "F6" : "F7");
 			}
-			if (i == 35 || i == 50 || i == 65) {
+			if (i == 35 || i == 50 || i == 65 || i == 80) {
 				Settings_t now;
 				pVR->GetSettings(now);
 				wprintf(L"   %4.1f s  scaling: %s | upscaling %d, sharpen %d | skipped so far: %s\n", i / 10.0,

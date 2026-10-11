@@ -553,8 +553,23 @@ LRESULT CALLBACK CMpcVideoRenderer::ToggleKeyProc(int code, WPARAM wParam, LPARA
 	CMpcVideoRenderer* pThis = g_pToggleKeyOwner;
 
 	if (code == HC_ACTION && pThis && wParam) {
+		// What is held with the key is only asked once a preset wants that key, and a
+		// caret means somebody is typing: a Shift+1 meant for a file name is not ours.
+		int held = -1;
 		for (int slot = 0; slot < PRESET_COUNT; slot++) {
-			if ((int)wParam == pThis->m_presetKeys[slot]) {
+			if (!pThis->m_presetKeys[slot] || (int)wParam != (pThis->m_presetKeys[slot] & 0xFF)) {
+				continue;
+			}
+			if (held < 0) {
+				GUITHREADINFO gui = { sizeof(gui) };
+				if (GetGUIThreadInfo(GetCurrentThreadId(), &gui) && gui.hwndCaret) {
+					break;
+				}
+				held = (GetKeyState(VK_SHIFT) < 0 ? PRESETKEY_Shift : 0)
+				     | (GetKeyState(VK_CONTROL) < 0 ? PRESETKEY_Ctrl : 0)
+				     | (GetKeyState(VK_MENU) < 0 ? PRESETKEY_Alt : 0);
+			}
+			if (((int)wParam | held) == pThis->m_presetKeys[slot]) {
 				const bool bKeyUp = (lParam & 0x80000000) != 0;
 				const bool bRepeat = (lParam & 0x40000000) != 0;
 				if (!bKeyUp && !bRepeat) {
@@ -659,7 +674,7 @@ STDMETHODIMP CMpcVideoRenderer::GetPresetInfo(int slot, LPWSTR name, int cchName
 	}
 	DWORD dw = 0;
 	if (pVk && ERROR_SUCCESS == key.QueryDWORDValue(L"Key", dw)) {
-		*pVk = (int)(dw & 0xFF);
+		*pVk = (int)(dw & PRESETKEY_Mask);
 	}
 	DWORD saved = 0;
 	return (ERROR_SUCCESS == key.QueryDWORDValue(L"Saved", saved) && saved) ? S_OK : S_FALSE;
@@ -675,7 +690,7 @@ STDMETHODIMP CMpcVideoRenderer::SetPresetInfo(int slot, LPCWSTR name, int vk)
 		return E_FAIL;
 	}
 	key.SetStringValue(L"Name", name ? name : L"");
-	key.SetDWORDValue(L"Key", (DWORD)(vk & 0xFF));
+	key.SetDWORDValue(L"Key", (DWORD)(vk & PRESETKEY_Mask));
 	key.Close();
 	ReadPresetKeys();
 	InstallToggleKeyHook();

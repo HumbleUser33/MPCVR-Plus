@@ -139,7 +139,7 @@ private:
 	// that owns the video window, and it only swallows the one key it is bound
 	// to -- everything else passes straight through to the player.
 	HHOOK m_hKeyboardHook = nullptr;
-	int  m_presetKeys[PRESET_COUNT] = {};   // the key that recalls each preset, 0 for none
+	int  m_presetKeys[PRESET_COUNT] = {};   // the key that recalls each preset and what is held with it, 0 for none
 	void ReadPresetKeys();
 	void RecallPreset(int slot);
 	DWORD m_dwHookedThread = 0;
