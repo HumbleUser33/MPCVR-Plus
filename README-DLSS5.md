@@ -1004,6 +1004,35 @@ render ahead, which belongs to the Settings page, alone. Applying the page sends
 changed on it, so it never undoes the toggle key or the main page, and the main page leaves
 these settings alone.
 
+### Presets
+
+The **Presets** tab holds eight sets of settings. Each line has a name, a key, *Save* and
+*Load*:
+
+- *Save* keeps everything the pages show at that moment, applied or not, and writes it at
+  once, without waiting for Apply.
+- *Load* brings a preset back into the pages and lights Apply; nothing is in force until
+  Apply is pressed, so what was loaded can be read first. *Load* is greyed on a line nothing
+  was saved in.
+- The **key** recalls the preset while a film plays, without opening the options: the
+  preset is applied, becomes the current settings, and its name stays on the picture for two
+  seconds (Direct3D 11). The filter swallows the key, as it does the DLSS 5 NR toggle key,
+  and a key already given to another preset or to that toggle is refused. A name or a key
+  changed without *Save* is written on Apply.
+
+A preset is every setting there is, with two exceptions that belong to the installation and
+not to a taste: the two DLL paths and the DLSS 5 NR toggle key. Recalling one that changes
+Direct3D 11, the swap effect, exclusive fullscreen or the texture format restarts the
+rendering, the same short break those options cause from the page; between two presets that
+differ only in the picture, the change is immediate. Measured with `playback_test --presets`,
+which saves a Catmull-Rom preset on F6 and a Lanczos3 one with Adaptive-Sharpen on F7 and
+presses the keys during playback: the Scaling line follows each key and no frame is skipped.
+
+They are stored beside the settings, in `HKCU\Software\MPC-BE Filters\MPC Video
+Renderer\Presets\1` to `\8`, under the same value names as the settings themselves plus
+`Name` and `Key`, written and read by the same code: a setting added later is in the presets
+without anyone thinking of it.
+
 The feature is also reachable programmatically through `IExFilterConfig`:
 `Flt_SetBool("dlssNR", true/false)` and `Flt_GetBool("dlssNR", &b)`. `Flt_GetString("statsText")`
 returns the statistics as they are drawn on the picture, for tools that log them.
@@ -1185,6 +1214,7 @@ playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.
 playback_test.exe --scalers       each Upscaling and Chroma upsampling method (--vp: hardware)
 playback_test.exe --greying       what the page greys, for every state the renderer can be in
 playback_test.exe --hz 30 --fps 30 --jolt   a film at the screen's own rate, and the queue it builds
+playback_test.exe --presets     two presets saved, each recalled by its key while it plays
 dlssnr_harness.exe --tdownscale  what each downscaler keeps and what it lets fold back
 dlssnr_harness.exe --tdownport   and that those shaders are the kernels they are written from
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio

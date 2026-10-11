@@ -139,6 +139,9 @@ private:
 	// that owns the video window, and it only swallows the one key it is bound
 	// to -- everything else passes straight through to the player.
 	HHOOK m_hKeyboardHook = nullptr;
+	int  m_presetKeys[PRESET_COUNT] = {};   // the key that recalls each preset, 0 for none
+	void ReadPresetKeys();
+	void RecallPreset(int slot);
 	DWORD m_dwHookedThread = 0;
 	void InstallToggleKeyHook();
 	void RemoveToggleKeyHook();
@@ -314,6 +317,10 @@ public:
 	STDMETHODIMP_(void) SetSettings(const Settings_t& setings);
 
 	STDMETHODIMP SaveSettings();
+	STDMETHODIMP SavePreset(int slot, const Settings_t& sets, LPCWSTR name, int vk);
+	STDMETHODIMP LoadPreset(int slot, Settings_t& sets);
+	STDMETHODIMP GetPresetInfo(int slot, LPWSTR name, int cchName, int* pVk);
+	STDMETHODIMP SetPresetInfo(int slot, LPCWSTR name, int vk);
 
 	// ISubRender (DX9)
 	STDMETHODIMP SetCallback(ISubRenderCallback* cb) override;

@@ -255,6 +255,7 @@ private:
 	// refresh, and when the one just presented is due on the screen. The Sync offset
 	// is taken when Present returns, which is neither.
 	void MeasurePresentQueue();
+	void DrawNotice(ID3D11Texture2D* pRenderTarget);
 	UINT     m_uPresentQueue = 0;
 	uint64_t m_tickOnScreen = 0;        // GetPreciseTick() scale; 0 when DXGI would not say
 	REFERENCE_TIME m_rtOnScreenOffset = 0;

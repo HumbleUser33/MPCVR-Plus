@@ -3210,6 +3210,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	if (m_bShowStats) {
 		hr = DrawStats(pBackBuffer);
 	}
+	DrawNotice(pBackBuffer);
 
 	if (m_bAlphaBitmapEnable) {
 		D3D11_TEXTURE2D_DESC desc;
@@ -3440,6 +3441,7 @@ HRESULT CDX11VideoProcessor::FillBlack()
 	if (m_bShowStats) {
 		hr = DrawStats(pBackBuffer);
 	}
+	DrawNotice(pBackBuffer);
 
 	if (m_bAlphaBitmapEnable) {
 		D3D11_TEXTURE2D_DESC desc;
@@ -6104,6 +6106,26 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	}
 
 	return str;
+}
+
+// A line over the picture for a couple of seconds, under the statistics when they
+// are up: which preset a key has just recalled, since nothing else would say.
+void CDX11VideoProcessor::DrawNotice(ID3D11Texture2D* pRenderTarget)
+{
+	if (m_strNotice.empty() || m_windowRect.IsRectEmpty()) {
+		return;
+	}
+	if (GetTickCount64() > m_tickNoticeUntil) {
+		m_strNotice.clear();
+		return;
+	}
+	ID3D11RenderTargetView* pRenderTargetView = nullptr;
+	if (S_OK == m_pDevice->CreateRenderTargetView(pRenderTarget, nullptr, &pRenderTargetView)) {
+		const SIZE rtSize = m_windowRect.Size();
+		const int y = m_bShowStats ? m_StatsRect.bottom + 8 : m_StatsTextPoint.y;
+		m_Font3D.Draw2DText(pRenderTargetView, rtSize, m_StatsTextPoint.x, y, m_dwStatsTextColor, m_strNotice.c_str());
+		pRenderTargetView->Release();
+	}
 }
 
 HRESULT CDX11VideoProcessor::DrawStats(ID3D11Texture2D* pRenderTarget)

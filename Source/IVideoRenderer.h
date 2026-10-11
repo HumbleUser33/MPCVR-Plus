@@ -371,6 +371,8 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 // decides whether the shader lists have anything to do: it converts the formats it
 // was given, chroma upsampling included, and resizes when it was told to and no DLSS
 // pass has taken the resizing back from it.
+constexpr int PRESET_COUNT = 8;
+
 enum :unsigned {
 	VPUSE_Converting = 1,
 	VPUSE_Resizing   = 2,
@@ -400,4 +402,13 @@ IVideoRenderer : public IUnknown {
 	// setting the options on a stock build did nothing at all and wrote its defaults
 	// to the registry.
 	STDMETHOD_(unsigned, GetVideoProcessorUse()) PURE;
+
+	// Presets: PRESET_COUNT whole sets of settings kept beside the ones in force,
+	// each with a name and a key that recalls it while a film plays. LoadPreset
+	// answers S_FALSE for a slot nothing was saved in, and so does GetPresetInfo,
+	// which still hands back the name and the key the slot was given.
+	STDMETHOD(SavePreset(int slot, const Settings_t& sets, LPCWSTR name, int vk)) PURE;
+	STDMETHOD(LoadPreset(int slot, Settings_t& sets)) PURE;
+	STDMETHOD(GetPresetInfo(int slot, LPWSTR name, int cchName, int* pVk)) PURE;
+	STDMETHOD(SetPresetInfo(int slot, LPCWSTR name, int vk)) PURE;
 };

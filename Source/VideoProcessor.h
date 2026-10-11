@@ -124,6 +124,12 @@ protected:
 	bool m_bDoubleFrames = false;
 	REFERENCE_TIME m_rtHeld = 0; // render ahead: time spent holding finished pictures, see TakeHeldTime()
 
+	// Something said over the picture for a moment -- which preset a key recalled.
+	std::wstring m_strNotice;
+	ULONGLONG m_tickNoticeUntil = 0;
+public:
+	void ShowNotice(const std::wstring& text) { m_strNotice = text; m_tickNoticeUntil = GetTickCount64() + 2500; }
+protected:
 	UINT32 m_uHalfRefreshPeriodMs = 0;
 	double m_dRefreshPeriodMs = 0;   // the same, whole and not rounded
 

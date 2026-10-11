@@ -105,6 +105,7 @@ static bool g_bDlaa = false;           // --dlaa: let DLSS SR run without enlarg
 static int g_smallUpscaling = -1;      // --small N: another method under 5 %
 static int g_hz = 0;                   // --hz N: put the screen at N Hz for the run, and back after
 static bool g_bJolt = false;           // --jolt: change a setting while it plays, and watch the queue
+static bool g_bPresetKeys = false;     // --presets: save two, recall each by its key while it plays
 
 // --hz: a film at the screen's own rate is the case where a picture that once
 // arrived late never gets its refresh back, and a 60 Hz desktop never shows it.
@@ -1008,6 +1009,44 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		if (!sync.empty() && swscanf_s(sync.c_str(), L"%d", &value) == 1) {
 			result.syncs.push_back(value);
 		}
+		if (g_bPresetKeys) {
+			// Two presets that differ in something the statistics name, saved through
+			// the interface, then recalled the way a user would: by the key, which
+			// reaches the filter through its keyboard hook and nothing else.
+			if (i == 15) {
+				SetForegroundWindow(hwnd);   // focus takes a moment to arrive, so it is asked for early
+				Settings_t a, b;
+				pVR->GetSettings(a);
+				b = a;
+				a.iUpscaling = UPSCALE_CatmullRom;
+				b.iUpscaling = UPSCALE_Lanczos3;
+				b.iSharpen = SHARPEN_Adaptive;
+				printf("   save 1 \"Soft\" on F6: 0x%08X, save 2 \"Sharp\" on F7: 0x%08X\n",
+					(unsigned)pVR->SavePreset(0, a, L"Soft", VK_F6), (unsigned)pVR->SavePreset(1, b, L"Sharp", VK_F7));
+				Settings_t empty;
+				printf("   slot 3, never saved, loads as 0x%08X (S_FALSE is 1)\n", (unsigned)pVR->LoadPreset(2, empty));
+			}
+			if (i == 25 || i == 40 || i == 55) {
+				const UINT vk = (i == 40) ? VK_F7 : VK_F6;
+				// Real input, not a posted message: a WH_KEYBOARD hook is only shown
+				// what comes off the input queue, so a posted key walks straight
+				// past it and proves nothing.
+				SetForegroundWindow(hwnd);
+				INPUT in[2] = {};
+				in[0].type = in[1].type = INPUT_KEYBOARD;
+				in[0].ki.wVk = in[1].ki.wVk = (WORD)vk;
+				in[1].ki.dwFlags = KEYEVENTF_KEYUP;
+				SendInput(2, in, sizeof(INPUT));
+				printf("   %4.1f s  -- %s pressed --\n", i / 10.0, vk == VK_F6 ? "F6" : "F7");
+			}
+			if (i == 35 || i == 50 || i == 65) {
+				Settings_t now;
+				pVR->GetSettings(now);
+				wprintf(L"   %4.1f s  scaling: %s | upscaling %d, sharpen %d | skipped so far: %s\n", i / 10.0,
+					StatsLine(text, L"Scaling       : ").c_str(), now.iUpscaling, now.iSharpen,
+					StatsLine(text, L"Frames        : ").c_str());
+			}
+		}
 		if (g_bJolt) {
 			// Three seconds in, the Upscaling method is changed and changed back, as a
 			// user trying an option does: shaders are reloaded and textures made
@@ -1837,6 +1876,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bScalers = true;
 			source.cx &= ~1; // NV12
 			source.cy &= ~1;
+		} else if (!wcscmp(argv[i], L"--presets")) {
+			g_bPresetKeys = true;
 		} else if (!wcscmp(argv[i], L"--jolt")) {
 			g_bJolt = true;
 		} else if (!wcscmp(argv[i], L"--greying")) {

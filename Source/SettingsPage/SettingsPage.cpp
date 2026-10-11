@@ -103,6 +103,7 @@ static const struct {
 	{ CVRSettingsPPage::SECTION_DlssNR,  IDD_SECTION_DLSSNR,  L"DLSS 5 NR"    },
 	{ CVRSettingsPPage::SECTION_Hdr,     IDD_SECTION_HDR,     L"HDR"          },
 	{ CVRSettingsPPage::SECTION_Present, IDD_SECTION_PRESENT, L"Presentation" },
+	{ CVRSettingsPPage::SECTION_Presets, IDD_SECTION_PRESETS, L"Presets"      },
 };
 
 
@@ -919,6 +920,7 @@ HRESULT CVRSettingsPPage::OnActivate()
 
 	SetControls();
 	EnableControls();
+	ShowPresets();
 	SetDlgItemTextW(IDC_EDIT2, GetNameAndVersion());
 
 	{
@@ -1029,6 +1031,10 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 	if (uMsg == WM_COMMAND) {
 		const int nID = LOWORD(wParam);
 		const int action = HIWORD(wParam);
+
+		if (OnPresetCommand(nID, action)) {
+			return (INT_PTR)1;
+		}
 
 		if (action == BN_CLICKED) {
 			// bEnables: the box decides whether other controls still serve.
@@ -1288,6 +1294,159 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 	return (INT_PTR)FALSE;
 }
 
+// ---------------------------------------------------------------- presets
+//
+// A preset is a whole Settings_t kept by the renderer under a key of its own. The
+// page only shows the eight rows and passes the buttons on: Save hands over what
+// the page is showing, Load takes it back into the page and leaves Apply to the user,
+// so that nothing changes on screen before they have seen what they loaded.
+
+// Keys a player is unlikely to need back. The hook swallows whichever is chosen.
+static const struct { const wchar_t* name; int vk; } g_presetKeys[] = {
+	{ L"None", 0 },
+	{ L"F1", VK_F1 }, { L"F2", VK_F2 }, { L"F3", VK_F3 }, { L"F4", VK_F4 },
+	{ L"F5", VK_F5 }, { L"F6", VK_F6 }, { L"F7", VK_F7 }, { L"F8", VK_F8 },
+	{ L"F9", VK_F9 }, { L"F10", VK_F10 }, { L"F11", VK_F11 }, { L"F12", VK_F12 },
+	{ L"Numpad 0", VK_NUMPAD0 }, { L"Numpad 1", VK_NUMPAD1 }, { L"Numpad 2", VK_NUMPAD2 },
+	{ L"Numpad 3", VK_NUMPAD3 }, { L"Numpad 4", VK_NUMPAD4 }, { L"Numpad 5", VK_NUMPAD5 },
+	{ L"Numpad 6", VK_NUMPAD6 }, { L"Numpad 7", VK_NUMPAD7 }, { L"Numpad 8", VK_NUMPAD8 },
+	{ L"Numpad 9", VK_NUMPAD9 },
+	{ L"Home", VK_HOME }, { L"End", VK_END }, { L"Insert", VK_INSERT }, { L"Delete", VK_DELETE },
+	{ L"Page Up", VK_PRIOR }, { L"Page Down", VK_NEXT }, { L"Pause", VK_PAUSE }, { L"Scroll Lock", VK_SCROLL },
+};
+
+// Tags for the tooltips of the 32 controls: unique, and not window handles.
+static const char g_presetTags[PRESET_COUNT * 4] = {};
+
+void CVRSettingsPPage::ShowPresets()
+{
+	for (int slot = 0; slot < PRESET_COUNT; slot++) {
+		HWND hKey = Item(IDC_PRESET_KEY1 + slot);
+		if (!hKey) {
+			return;   // the section is not there
+		}
+		SendMessageW(hKey, CB_RESETCONTENT, 0, 0);
+		for (const auto& k : g_presetKeys) {
+			Combo_AddData(hKey, k.name, k.vk);
+		}
+		wchar_t name[64] = {};
+		int vk = 0;
+		const HRESULT hr = m_pVideoRenderer->GetPresetInfo(slot, name, (int)std::size(name), &vk);
+		SetText(IDC_PRESET_NAME1 + slot, name);
+		Send(IDC_PRESET_NAME1 + slot, EM_SETLIMITTEXT, std::size(name) - 1, 0);
+		Combo_SelectData(hKey, vk);
+		Enable(IDC_PRESET_LOAD1 + slot, hr == S_OK);
+
+		AddHint(IDC_PRESET_NAME1 + slot, L"What this preset is called. Shown on the picture for a\n"
+			"moment when its key recalls it.", (UINT_PTR)&g_presetTags[slot * 4]);
+		AddHint(IDC_PRESET_KEY1 + slot, L"The key that recalls this preset while a film plays, without\n"
+			"opening this page. The player no longer sees that key.\n"
+			"A preset that changes Direct3D 11, the swap effect or exclusive\n"
+			"fullscreen restarts the rendering: a short cut in the picture.", (UINT_PTR)&g_presetTags[slot * 4 + 1]);
+		AddHint(IDC_PRESET_SAVE1 + slot, L"Keeps everything this page is showing in this preset, applied\n"
+			"or not, and at once: Apply is not needed for it.", (UINT_PTR)&g_presetTags[slot * 4 + 2]);
+		AddHint(IDC_PRESET_LOAD1 + slot, L"Brings this preset back into the page. Nothing changes on\n"
+			"screen until Apply. Greyed while nothing was saved here.", (UINT_PTR)&g_presetTags[slot * 4 + 3]);
+	}
+}
+
+bool CVRSettingsPPage::OnPresetCommand(int nID, int action)
+{
+	const auto Row = [nID](int first) { return (nID >= first && nID < first + PRESET_COUNT) ? nID - first : -1; };
+	const auto NameOf = [this](int slot, wchar_t* name, int count) {
+		name[0] = 0;
+		if (HWND h = Item(IDC_PRESET_NAME1 + slot)) {
+			::GetWindowTextW(h, name, count);
+		}
+	};
+
+	if (int slot = Row(IDC_PRESET_NAME1); slot >= 0) {
+		if (action == EN_CHANGE) {
+			SetDirty();
+		}
+		return true;
+	}
+
+	if (int slot = Row(IDC_PRESET_KEY1); slot >= 0) {
+		if (action != CBN_SELCHANGE) {
+			return true;
+		}
+		// One key, one job: the hook can only do one thing with it.
+		const int vk = (int)Combo_CurData(Item(nID));
+		std::wstring taken;
+		if (vk && vk == m_SetsPP.iDlssNRToggleKey) {
+			taken = L"the DLSS 5 NR toggle";
+		}
+		for (int other = 0; vk && other < PRESET_COUNT; other++) {
+			if (other != slot && (int)Combo_CurData(Item(IDC_PRESET_KEY1 + other)) == vk) {
+				taken = std::format(L"preset {}", other + 1);
+			}
+		}
+		if (!taken.empty()) {
+			MessageBoxW(std::format(L"That key already belongs to {}.", taken).c_str(), L"Presets", MB_OK | MB_ICONINFORMATION);
+			Combo_SelectData(Item(nID), 0);
+		}
+		SetDirty();
+		return true;
+	}
+
+	if (int slot = Row(IDC_PRESET_SAVE1); slot >= 0) {
+		if (action == BN_CLICKED) {
+			// The one box whose value is only read on Apply.
+			Settings_t sets = m_SetsPP;
+			wchar_t text[16] = {};
+			if (HWND h = Item(IDC_EDIT_DISPLAYMAX)) {
+				::GetWindowTextW(h, text, (int)std::size(text));
+				const int nits = _wtoi(text);
+				if (nits > HDR_NITS_MIN && nits <= HDR_NITS_MAX) {
+					sets.iHdrDisplayMaxNits = nits;
+				}
+			}
+			wchar_t name[64] = {};
+			NameOf(slot, name, (int)std::size(name));
+			const int vk = (int)Combo_CurData(Item(IDC_PRESET_KEY1 + slot));
+			if (SUCCEEDED(m_pVideoRenderer->SavePreset(slot, sets, name, vk))) {
+				Enable(IDC_PRESET_LOAD1 + slot, TRUE);
+			}
+		}
+		return true;
+	}
+
+	if (int slot = Row(IDC_PRESET_LOAD1); slot >= 0) {
+		if (action == BN_CLICKED) {
+			Settings_t sets;
+			if (S_OK == m_pVideoRenderer->LoadPreset(slot, sets)) {
+				// Where the DLLs are and the toggle key belong to the installation.
+				sets.iDlssNRToggleKey = m_SetsPP.iDlssNRToggleKey;
+				wcscpy_s(sets.szDlssNRDllPath, m_SetsPP.szDlssNRDllPath);
+				wcscpy_s(sets.szDlssSRDllPath, m_SetsPP.szDlssSRDllPath);
+				m_SetsPP = sets;
+				SetControls();
+				EnableControls();
+				SetDirty();
+			}
+		}
+		return true;
+	}
+	return false;
+}
+
+// The names and keys are the page's to edit like anything else, so they go in with
+// Apply; what a preset holds went in when Save was pressed.
+void CVRSettingsPPage::ApplyPresetNames()
+{
+	for (int slot = 0; slot < PRESET_COUNT; slot++) {
+		HWND hName = Item(IDC_PRESET_NAME1 + slot);
+		HWND hKey = Item(IDC_PRESET_KEY1 + slot);
+		if (!hName || !hKey) {
+			return;
+		}
+		wchar_t name[64] = {};
+		::GetWindowTextW(hName, name, (int)std::size(name));
+		m_pVideoRenderer->SetPresetInfo(slot, name, (int)Combo_CurData(hKey));
+	}
+}
+
 HRESULT CVRSettingsPPage::OnApplyChanges()
 {
 	BOOL translated = FALSE;
@@ -1315,6 +1474,7 @@ HRESULT CVRSettingsPPage::OnApplyChanges()
 
 	m_pVideoRenderer->SetSettings(m_SetsPP);
 	m_pVideoRenderer->SaveSettings();
+	ApplyPresetNames();
 
 	m_oldSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
 	m_bDlssNRSeen = m_SetsPP.bDlssNR;

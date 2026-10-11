@@ -50,6 +50,7 @@ public:
 		SECTION_DlssNR,
 		SECTION_Hdr,
 		SECTION_Present,
+		SECTION_Presets,
 		SECTION_COUNT
 	};
 
@@ -121,4 +122,9 @@ private:
 
 	// tag: a value unique among this dialog's tools and never a window handle.
 	void AddHint(int id, LPCWSTR text, UINT_PTR tag);
+
+	// The Presets tab: eight rows of a name, a key, Save and Load.
+	void ShowPresets();
+	bool OnPresetCommand(int nID, int action);
+	void ApplyPresetNames();
 };

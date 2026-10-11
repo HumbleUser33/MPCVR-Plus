@@ -101,6 +101,299 @@ static std::atomic_int g_nInstance = 0;
 // One renderer per process in practice; if a second one appears the last to
 // install wins, which is no worse than two filters fighting over one key.
 static CMpcVideoRenderer* g_pToggleKeyOwner = nullptr;
+
+// The settings to and from a registry key, by name. The filter's own key and each
+// preset's go through these two and nothing else, so a setting added later is in
+// the presets without anybody having to remember them.
+static void ReadSettings(CRegKey& key, Settings_t& sets)
+{
+	DWORD dw;
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_UseD3D11, dw)) {
+		sets.bUseD3D11 = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ShowStatistics, dw)) {
+		sets.bShowStats = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ResizeStatistics, dw)) {
+		sets.iResizeStats = discard<int>(dw, 0, 0, 1);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_TextureFormat, dw)) {
+		switch (dw) {
+		case TEXFMT_AUTOINT:
+		case TEXFMT_8INT:
+		case TEXFMT_10INT:
+		case TEXFMT_16FLOAT:
+			sets.iTexFormat = dw;
+			break;
+		default:
+			sets.iTexFormat = TEXFMT_AUTOINT;
+		}
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPEnableNV12, dw)) {
+		sets.VPFmts.bNV12 = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPEnableP01x, dw)) {
+		sets.VPFmts.bP01x = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPEnableYUY2, dw)) {
+		sets.VPFmts.bYUY2 = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPEnableOther, dw)) {
+		sets.VPFmts.bOther = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPDeinterlacing, dw)) {
+		sets.iVPDeinterlacing = discard<int>(dw, DEINT_Enable, DEINT_Disable, DEINT_HackFutureFrames);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DoubleFrateDeint, dw)) {
+		sets.bDeintDouble = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPScaling, dw)) {
+		sets.bVPScaling = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPSuperResolution, dw)) {
+		sets.iVPSuperRes = discard<int>(dw, SUPERRES_Disable, 0, SUPERRES_COUNT-1);
+	}
+#ifdef _WIN64
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPRTXVideoHDR, dw)) {
+		sets.bVPRTXVideoHDR = !!dw;
+	}
+#endif
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPReplaceChroma, dw)) {
+		sets.bVPReplaceChroma = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Sharpen, dw)) {
+		sets.iSharpen = discard<int>(dw, SHARPEN_Disabled, 0, SHARPEN_COUNT - 1);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SharpenLevel, dw)) {
+		sets.iSharpenLevel = discard<int>(dw, SHARPEN_LEVEL_DEF, SHARPEN_LEVEL_MIN, SHARPEN_LEVEL_MAX);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ChromaUpsampling, dw)) {
+		sets.iChromaScaling = discard<int>(dw, CHROMA_CatmullRom, 0, CHROMA_COUNT-1);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Upscaling, dw)) {
+		sets.iUpscaling = discard<int>(dw, UPSCALE_Jinc2, 0, UPSCALE_COUNT-1);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Downscaling, dw)) {
+		sets.iDownscaling = discard<int>(dw, DOWNSCALE_Hamming, 0, DOWNSCALE_COUNT-1);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_InterpolateAt50pct, dw)) {
+		sets.bInterpolateAt50pct = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Dither, dw)) {
+		sets.bUseDither = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DeintBlend, dw)) {
+		sets.bDeintBlend = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SwapEffect, dw)) {
+		sets.iSwapEffect = discard<int>(dw, SWAPEFFECT_Flip, SWAPEFFECT_Discard, SWAPEFFECT_Flip);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ExclusiveFullscreen, dw)) {
+		sets.bExclusiveFS = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VBlankBeforePresent, dw)) {
+		sets.bVBlankBeforePresent = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_AdjustPresentTime, dw)) {
+		sets.bAdjustPresentTime = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ReinitByDisplay, dw)) {
+		sets.bReinitByDisplay = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrPreferDoVi, dw)) {
+		sets.bHdrPreferDoVi = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrPassthrough, dw)) {
+		sets.bHdrPassthrough = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrLocaLToneMapping, dw)) {
+		sets.bHdrLocalToneMapping = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrLocaLToneMappingType, dw)) {
+		sets.iHdrLocalToneMappingType = discard<int>(dw, 1, 1, 5);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrDisplayNits, dw)) {
+		sets.iHdrDisplayMaxNits = discard<int>(dw, HDR_NITS_DEF, HDR_NITS_MIN, HDR_NITS_MAX);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrToggleDisplay, dw)) {
+		sets.iHdrToggleDisplay = discard<int>(dw, HDRTD_On, HDRTD_Disabled, HDRTD_OnOff);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrOsdBrightness, dw)) {
+		sets.iHdrOsdBrightness = discard<int>(dw, 0, 0, 2);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ConvertToSdr, dw)) {
+		sets.bConvertToSdr = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DisplayNits, dw)) {
+		sets.iSDRDisplayNits = discard<int>(dw, SDR_NITS_DEF, SDR_NITS_MIN, SDR_NITS_MAX);
+	}
+#ifdef _WIN64
+	// The DLSS 5 NR snippet is x64 only.
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNR, dw)) {
+		sets.bDlssNR = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRStyle, dw)) {
+		sets.iDlssNRStyle = discard<int>((int)dw, DLSSNR_STYLE_Default, 0, DLSSNR_STYLE_COUNT-1);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRPreset, dw)) {
+		sets.iDlssNRPreset = discard<int>((int)dw, 0, 0, DLSSNR_PRESET_COUNT-1);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRIntensity, dw)) {
+		sets.iDlssNRIntensity = discard<int>((int)dw, DLSSNR_STR_DEF, DLSSNR_STR_MIN, DLSSNR_STR_MAX);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRLocalTone, dw)) {
+		sets.iDlssNRLocalTone = discard<int>((int)dw, DLSSNR_STR_DEF, DLSSNR_STR_MIN, DLSSNR_STR_MAX);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRLocalStructure, dw)) {
+		sets.iDlssNRLocalStructure = discard<int>((int)dw, DLSSNR_STR_DEF, DLSSNR_STR_MIN, DLSSNR_STR_MAX);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRSkinStructure, dw)) {
+		// Negative values round-trip through DWORD as two's complement.
+		sets.iDlssNRSkinStructure = discard<int>((int)dw, DLSSNR_STR_DEF, DLSSNR_SKIN_MIN, DLSSNR_STR_MAX);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRAutoMask, dw)) {
+		sets.bDlssNRAutoMask = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRNoHistory, dw)) {
+		sets.bDlssNRNoHistory = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRAfterUpscale, dw)) {
+		sets.bDlssNRAfterUpscale = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRStabilizer, dw)) {
+		sets.iDlssNRStabilizer = discard<int>((int)dw, DLSSNR_STAB_DEF, DLSSNR_STAB_MIN, DLSSNR_STAB_MAX);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRMotion, dw)) {
+		sets.iDlssNRMotion = discard<int>((int)dw, DLSSNR_MOTION_DEF, DLSSNR_MOTION_DETECTOR, DLSSNR_MOTION_OPTICALFLOW);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRMotionVectors, dw)) {
+		sets.bDlssNRMotionVectors = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRToggleKey, dw)) {
+		sets.iDlssNRToggleKey = discard<int>((int)dw, VK_F12, 0, 0xFF);
+	}
+	{
+		ULONG nChars = std::size(sets.szDlssNRDllPath);
+		if (ERROR_SUCCESS != key.QueryStringValue(OPT_DlssNRDllPath, sets.szDlssNRDllPath, &nChars)) {
+			sets.szDlssNRDllPath[0] = L'\0';
+		}
+		sets.szDlssNRDllPath[std::size(sets.szDlssNRDllPath) - 1] = L'\0';
+	}
+	// DLSS Super Resolution, x64 as well: the NGX runtime has no 32-bit build.
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSR, dw)) {
+		sets.bDlssSR = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSRDlaa, dw)) {
+		sets.bDlssSRDlaa = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSRPreset, dw)) {
+		sets.iDlssSRPreset = ((int)dw >= DLSSSR_PRESET_J && (int)dw <= DLSSSR_PRESET_M) ? (int)dw : DLSSSR_PRESET_DEF;
+	}
+	{
+		ULONG nChars = std::size(sets.szDlssSRDllPath);
+		if (ERROR_SUCCESS != key.QueryStringValue(OPT_DlssSRDllPath, sets.szDlssSRDllPath, &nChars)) {
+			sets.szDlssSRDllPath[0] = L'\0';
+		}
+		sets.szDlssSRDllPath[std::size(sets.szDlssSRDllPath) - 1] = L'\0';
+	}
+#endif
+	// Render ahead is set on the main page and covers the mpv prescalers as well,
+	// so it is not x64 only like the rest of DLSS.
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssRenderAhead, dw)) {
+		sets.bDlssRenderAhead = !!dw;
+	}
+	// Not x64 only either: these are plain resize shaders.
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_UpscalingSmall, dw)) {
+		sets.bUpscalingSmall = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_UpscalingSmallFilter, dw)) {
+		sets.iUpscalingSmall = discard<int>(dw, UPSCALE_Jinc2, 0, UPSCALE_COUNT-1);
+	}
+}
+
+static void WriteSettings(CRegKey& key, const Settings_t& sets)
+{
+	key.SetDWORDValue(OPT_UseD3D11,            sets.bUseD3D11);
+	key.SetDWORDValue(OPT_ShowStatistics,      sets.bShowStats);
+	key.SetDWORDValue(OPT_ResizeStatistics,    sets.iResizeStats);
+	key.SetDWORDValue(OPT_TextureFormat,       sets.iTexFormat);
+	key.SetDWORDValue(OPT_VPEnableNV12,        sets.VPFmts.bNV12);
+	key.SetDWORDValue(OPT_VPEnableP01x,        sets.VPFmts.bP01x);
+	key.SetDWORDValue(OPT_VPEnableYUY2,        sets.VPFmts.bYUY2);
+	key.SetDWORDValue(OPT_VPEnableOther,       sets.VPFmts.bOther);
+	key.SetDWORDValue(OPT_VPDeinterlacing,     sets.iVPDeinterlacing);
+	key.SetDWORDValue(OPT_DoubleFrateDeint,    sets.bDeintDouble);
+	key.SetDWORDValue(OPT_VPScaling,           sets.bVPScaling);
+	key.SetDWORDValue(OPT_VPSuperResolution,   sets.iVPSuperRes);
+#ifdef _WIN64
+	key.SetDWORDValue(OPT_VPRTXVideoHDR,       sets.bVPRTXVideoHDR);
+#endif
+	key.SetDWORDValue(OPT_VPReplaceChroma,     sets.bVPReplaceChroma);
+	key.SetDWORDValue(OPT_Sharpen,             sets.iSharpen);
+	key.SetDWORDValue(OPT_SharpenLevel,        sets.iSharpenLevel);
+	key.SetDWORDValue(OPT_ChromaUpsampling,    sets.iChromaScaling);
+	key.SetDWORDValue(OPT_Upscaling,           sets.iUpscaling);
+	key.SetDWORDValue(OPT_Downscaling,         sets.iDownscaling);
+	key.SetDWORDValue(OPT_InterpolateAt50pct,  sets.bInterpolateAt50pct);
+	key.SetDWORDValue(OPT_Dither,              sets.bUseDither);
+	key.SetDWORDValue(OPT_DeintBlend,          sets.bDeintBlend);
+	key.SetDWORDValue(OPT_SwapEffect,          sets.iSwapEffect);
+	key.SetDWORDValue(OPT_ExclusiveFullscreen, sets.bExclusiveFS);
+	key.SetDWORDValue(OPT_VBlankBeforePresent, sets.bVBlankBeforePresent);
+	key.SetDWORDValue(OPT_AdjustPresentTime,   sets.bAdjustPresentTime);
+	key.SetDWORDValue(OPT_ReinitByDisplay,     sets.bReinitByDisplay);
+	key.SetDWORDValue(OPT_HdrPreferDoVi,       sets.bHdrPreferDoVi);
+	key.SetDWORDValue(OPT_HdrPassthrough,      sets.bHdrPassthrough);
+	key.SetDWORDValue(OPT_HdrLocaLToneMapping, sets.bHdrLocalToneMapping);
+	key.SetDWORDValue(OPT_HdrLocaLToneMappingType, sets.iHdrLocalToneMappingType);
+	key.SetDWORDValue(OPT_HdrDisplayNits,      sets.iHdrDisplayMaxNits);
+	key.SetDWORDValue(OPT_HdrToggleDisplay,    sets.iHdrToggleDisplay);
+	key.SetDWORDValue(OPT_HdrOsdBrightness,    sets.iHdrOsdBrightness);
+	key.SetDWORDValue(OPT_ConvertToSdr,        sets.bConvertToSdr);
+	key.SetDWORDValue(OPT_DisplayNits,         sets.iSDRDisplayNits);
+#ifdef _WIN64
+	key.SetDWORDValue(OPT_DlssNR,              sets.bDlssNR);
+	key.SetDWORDValue(OPT_DlssNRStyle,         sets.iDlssNRStyle);
+	key.SetDWORDValue(OPT_DlssNRPreset,        sets.iDlssNRPreset);
+	key.SetDWORDValue(OPT_DlssNRIntensity,     sets.iDlssNRIntensity);
+	key.SetDWORDValue(OPT_DlssNRLocalTone,     sets.iDlssNRLocalTone);
+	key.SetDWORDValue(OPT_DlssNRLocalStructure, sets.iDlssNRLocalStructure);
+	key.SetDWORDValue(OPT_DlssNRSkinStructure, sets.iDlssNRSkinStructure);
+	key.SetDWORDValue(OPT_DlssNRAutoMask,      sets.bDlssNRAutoMask);
+	key.SetDWORDValue(OPT_DlssNRNoHistory,     sets.bDlssNRNoHistory);
+	key.SetDWORDValue(OPT_DlssNRAfterUpscale,  sets.bDlssNRAfterUpscale);
+	key.SetDWORDValue(OPT_DlssNRStabilizer,    sets.iDlssNRStabilizer);
+	key.SetDWORDValue(OPT_DlssNRMotion,        sets.iDlssNRMotion);
+	key.SetDWORDValue(OPT_DlssNRMotionVectors, sets.bDlssNRMotionVectors);
+	key.SetDWORDValue(OPT_DlssNRToggleKey,     sets.iDlssNRToggleKey);
+	key.SetStringValue(OPT_DlssNRDllPath,      sets.szDlssNRDllPath);
+	key.SetDWORDValue(OPT_DlssSR,              sets.bDlssSR);
+	key.SetDWORDValue(OPT_DlssSRDlaa,          sets.bDlssSRDlaa);
+	key.SetDWORDValue(OPT_DlssSRPreset,        sets.iDlssSRPreset);
+	key.SetStringValue(OPT_DlssSRDllPath,      sets.szDlssSRDllPath);
+#endif
+	key.SetDWORDValue(OPT_DlssRenderAhead,     sets.bDlssRenderAhead);
+	key.SetDWORDValue(OPT_UpscalingSmall,      sets.bUpscalingSmall);
+	key.SetDWORDValue(OPT_UpscalingSmallFilter, sets.iUpscalingSmall);
+}
+
+// Presets: eight keys beside the settings, each holding a whole Settings_t under
+// the same names, the name the user gave it and the key that recalls it.
+static std::wstring PresetKeyPath(int slot)
+{
+	return std::format(L"{}\\Presets\\{}", OPT_REGKEY_VIDEORENDERER, slot + 1);
+}
+
+// What belongs to the installation and not to a taste stays out of a preset:
+// where the two DLLs are, and the DLSS toggle key.
+static void KeepInstallation(Settings_t& sets, const Settings_t& current)
+{
+	sets.iDlssNRToggleKey = current.iDlssNRToggleKey;
+	wcscpy_s(sets.szDlssNRDllPath, current.szDlssNRDllPath);
+	wcscpy_s(sets.szDlssSRDllPath, current.szDlssSRDllPath);
+}
+
+
 static const wchar_t g_szClassName[] = L"VRWindow";
 
 LPCWSTR g_pszOldParentWndProc = L"OldParentWndProc";
@@ -209,208 +502,9 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 
 	CRegKey key;
 	if (ERROR_SUCCESS == key.Open(HKEY_CURRENT_USER, OPT_REGKEY_VIDEORENDERER, KEY_READ)) {
-		DWORD dw;
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_UseD3D11, dw)) {
-			m_Sets.bUseD3D11 = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ShowStatistics, dw)) {
-			m_Sets.bShowStats = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ResizeStatistics, dw)) {
-			m_Sets.iResizeStats = discard<int>(dw, 0, 0, 1);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_TextureFormat, dw)) {
-			switch (dw) {
-			case TEXFMT_AUTOINT:
-			case TEXFMT_8INT:
-			case TEXFMT_10INT:
-			case TEXFMT_16FLOAT:
-				m_Sets.iTexFormat = dw;
-				break;
-			default:
-				m_Sets.iTexFormat = TEXFMT_AUTOINT;
-			}
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPEnableNV12, dw)) {
-			m_Sets.VPFmts.bNV12 = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPEnableP01x, dw)) {
-			m_Sets.VPFmts.bP01x = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPEnableYUY2, dw)) {
-			m_Sets.VPFmts.bYUY2 = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPEnableOther, dw)) {
-			m_Sets.VPFmts.bOther = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPDeinterlacing, dw)) {
-			m_Sets.iVPDeinterlacing = discard<int>(dw, DEINT_Enable, DEINT_Disable, DEINT_HackFutureFrames);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DoubleFrateDeint, dw)) {
-			m_Sets.bDeintDouble = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPScaling, dw)) {
-			m_Sets.bVPScaling = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPSuperResolution, dw)) {
-			m_Sets.iVPSuperRes = discard<int>(dw, SUPERRES_Disable, 0, SUPERRES_COUNT-1);
-		}
-#ifdef _WIN64
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPRTXVideoHDR, dw)) {
-			m_Sets.bVPRTXVideoHDR = !!dw;
-		}
-#endif
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VPReplaceChroma, dw)) {
-			m_Sets.bVPReplaceChroma = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Sharpen, dw)) {
-			m_Sets.iSharpen = discard<int>(dw, SHARPEN_Disabled, 0, SHARPEN_COUNT - 1);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SharpenLevel, dw)) {
-			m_Sets.iSharpenLevel = discard<int>(dw, SHARPEN_LEVEL_DEF, SHARPEN_LEVEL_MIN, SHARPEN_LEVEL_MAX);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ChromaUpsampling, dw)) {
-			m_Sets.iChromaScaling = discard<int>(dw, CHROMA_CatmullRom, 0, CHROMA_COUNT-1);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Upscaling, dw)) {
-			m_Sets.iUpscaling = discard<int>(dw, UPSCALE_Jinc2, 0, UPSCALE_COUNT-1);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Downscaling, dw)) {
-			m_Sets.iDownscaling = discard<int>(dw, DOWNSCALE_Hamming, 0, DOWNSCALE_COUNT-1);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_InterpolateAt50pct, dw)) {
-			m_Sets.bInterpolateAt50pct = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Dither, dw)) {
-			m_Sets.bUseDither = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DeintBlend, dw)) {
-			m_Sets.bDeintBlend = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SwapEffect, dw)) {
-			m_Sets.iSwapEffect = discard<int>(dw, SWAPEFFECT_Flip, SWAPEFFECT_Discard, SWAPEFFECT_Flip);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ExclusiveFullscreen, dw)) {
-			m_Sets.bExclusiveFS = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VBlankBeforePresent, dw)) {
-			m_Sets.bVBlankBeforePresent = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_AdjustPresentTime, dw)) {
-			m_Sets.bAdjustPresentTime = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ReinitByDisplay, dw)) {
-			m_Sets.bReinitByDisplay = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrPreferDoVi, dw)) {
-			m_Sets.bHdrPreferDoVi = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrPassthrough, dw)) {
-			m_Sets.bHdrPassthrough = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrLocaLToneMapping, dw)) {
-			m_Sets.bHdrLocalToneMapping = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrLocaLToneMappingType, dw)) {
-			m_Sets.iHdrLocalToneMappingType = discard<int>(dw, 1, 1, 5);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrDisplayNits, dw)) {
-			m_Sets.iHdrDisplayMaxNits = discard<int>(dw, HDR_NITS_DEF, HDR_NITS_MIN, HDR_NITS_MAX);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrToggleDisplay, dw)) {
-			m_Sets.iHdrToggleDisplay = discard<int>(dw, HDRTD_On, HDRTD_Disabled, HDRTD_OnOff);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrOsdBrightness, dw)) {
-			m_Sets.iHdrOsdBrightness = discard<int>(dw, 0, 0, 2);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ConvertToSdr, dw)) {
-			m_Sets.bConvertToSdr = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DisplayNits, dw)) {
-			m_Sets.iSDRDisplayNits = discard<int>(dw, SDR_NITS_DEF, SDR_NITS_MIN, SDR_NITS_MAX);
-		}
-#ifdef _WIN64
-		// The DLSS 5 NR snippet is x64 only.
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNR, dw)) {
-			m_Sets.bDlssNR = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRStyle, dw)) {
-			m_Sets.iDlssNRStyle = discard<int>((int)dw, DLSSNR_STYLE_Default, 0, DLSSNR_STYLE_COUNT-1);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRPreset, dw)) {
-			m_Sets.iDlssNRPreset = discard<int>((int)dw, 0, 0, DLSSNR_PRESET_COUNT-1);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRIntensity, dw)) {
-			m_Sets.iDlssNRIntensity = discard<int>((int)dw, DLSSNR_STR_DEF, DLSSNR_STR_MIN, DLSSNR_STR_MAX);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRLocalTone, dw)) {
-			m_Sets.iDlssNRLocalTone = discard<int>((int)dw, DLSSNR_STR_DEF, DLSSNR_STR_MIN, DLSSNR_STR_MAX);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRLocalStructure, dw)) {
-			m_Sets.iDlssNRLocalStructure = discard<int>((int)dw, DLSSNR_STR_DEF, DLSSNR_STR_MIN, DLSSNR_STR_MAX);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRSkinStructure, dw)) {
-			// Negative values round-trip through DWORD as two's complement.
-			m_Sets.iDlssNRSkinStructure = discard<int>((int)dw, DLSSNR_STR_DEF, DLSSNR_SKIN_MIN, DLSSNR_STR_MAX);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRAutoMask, dw)) {
-			m_Sets.bDlssNRAutoMask = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRNoHistory, dw)) {
-			m_Sets.bDlssNRNoHistory = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRAfterUpscale, dw)) {
-			m_Sets.bDlssNRAfterUpscale = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRStabilizer, dw)) {
-			m_Sets.iDlssNRStabilizer = discard<int>((int)dw, DLSSNR_STAB_DEF, DLSSNR_STAB_MIN, DLSSNR_STAB_MAX);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRMotion, dw)) {
-			m_Sets.iDlssNRMotion = discard<int>((int)dw, DLSSNR_MOTION_DEF, DLSSNR_MOTION_DETECTOR, DLSSNR_MOTION_OPTICALFLOW);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRMotionVectors, dw)) {
-			m_Sets.bDlssNRMotionVectors = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRToggleKey, dw)) {
-			m_Sets.iDlssNRToggleKey = discard<int>((int)dw, VK_F12, 0, 0xFF);
-		}
-		{
-			ULONG nChars = std::size(m_Sets.szDlssNRDllPath);
-			if (ERROR_SUCCESS != key.QueryStringValue(OPT_DlssNRDllPath, m_Sets.szDlssNRDllPath, &nChars)) {
-				m_Sets.szDlssNRDllPath[0] = L'\0';
-			}
-			m_Sets.szDlssNRDllPath[std::size(m_Sets.szDlssNRDllPath) - 1] = L'\0';
-		}
-		// DLSS Super Resolution, x64 as well: the NGX runtime has no 32-bit build.
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSR, dw)) {
-			m_Sets.bDlssSR = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSRDlaa, dw)) {
-			m_Sets.bDlssSRDlaa = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_UpscalingSmall, dw)) {
-			m_Sets.bUpscalingSmall = !!dw;
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_UpscalingSmallFilter, dw)) {
-			m_Sets.iUpscalingSmall = discard<int>(dw, UPSCALE_Jinc2, 0, UPSCALE_COUNT-1);
-		}
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssSRPreset, dw)) {
-			m_Sets.iDlssSRPreset = ((int)dw >= DLSSSR_PRESET_J && (int)dw <= DLSSSR_PRESET_M) ? (int)dw : DLSSSR_PRESET_DEF;
-		}
-		{
-			ULONG nChars = std::size(m_Sets.szDlssSRDllPath);
-			if (ERROR_SUCCESS != key.QueryStringValue(OPT_DlssSRDllPath, m_Sets.szDlssSRDllPath, &nChars)) {
-				m_Sets.szDlssSRDllPath[0] = L'\0';
-			}
-			m_Sets.szDlssSRDllPath[std::size(m_Sets.szDlssSRDllPath) - 1] = L'\0';
-		}
-#endif
-		// Render ahead is set on the main page and covers the mpv prescalers as well,
-		// so it is not x64 only like the rest of DLSS.
-		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssRenderAhead, dw)) {
-			m_Sets.bDlssRenderAhead = !!dw;
-		}
+		ReadSettings(key, m_Sets);
 	}
+	ReadPresetKeys();
 
 	if (!IsWindows10OrGreater()) {
 		m_Sets.bHdrPassthrough = false;
@@ -458,6 +552,19 @@ LRESULT CALLBACK CMpcVideoRenderer::ToggleKeyProc(int code, WPARAM wParam, LPARA
 {
 	CMpcVideoRenderer* pThis = g_pToggleKeyOwner;
 
+	if (code == HC_ACTION && pThis && wParam) {
+		for (int slot = 0; slot < PRESET_COUNT; slot++) {
+			if ((int)wParam == pThis->m_presetKeys[slot]) {
+				const bool bKeyUp = (lParam & 0x80000000) != 0;
+				const bool bRepeat = (lParam & 0x40000000) != 0;
+				if (!bKeyUp && !bRepeat) {
+					pThis->RecallPreset(slot);
+				}
+				return 1; // consumed, like the toggle key
+			}
+		}
+	}
+
 	if (code == HC_ACTION && pThis && pThis->m_Sets.iDlssNRToggleKey
 			&& (int)wParam == pThis->m_Sets.iDlssNRToggleKey) {
 		const bool bKeyUp = (lParam & 0x80000000) != 0;
@@ -472,9 +579,116 @@ LRESULT CALLBACK CMpcVideoRenderer::ToggleKeyProc(int code, WPARAM wParam, LPARA
 	return CallNextHookEx(nullptr, code, wParam, lParam);
 }
 
+void CMpcVideoRenderer::ReadPresetKeys()
+{
+	for (int slot = 0; slot < PRESET_COUNT; slot++) {
+		m_presetKeys[slot] = 0;
+		GetPresetInfo(slot, nullptr, 0, &m_presetKeys[slot]);
+	}
+}
+
+// A preset recalled by its key: applied as the page's Apply would, and kept as the
+// settings in force so the next film starts with it.
+void CMpcVideoRenderer::RecallPreset(int slot)
+{
+	Settings_t sets;
+	if (S_OK != LoadPreset(slot, sets)) {
+		return;
+	}
+	KeepInstallation(sets, m_Sets);
+	SetSettings(sets);
+	SaveSettings();
+
+	wchar_t name[64] = {};
+	GetPresetInfo(slot, name, (int)std::size(name), nullptr);
+	m_VideoProcessor->ShowNotice(name[0] ? std::format(L"Preset {}: {}", slot + 1, name)
+	                                     : std::format(L"Preset {}", slot + 1));
+}
+
+STDMETHODIMP CMpcVideoRenderer::SavePreset(int slot, const Settings_t& sets, LPCWSTR name, int vk)
+{
+	if (slot < 0 || slot >= PRESET_COUNT) {
+		return E_INVALIDARG;
+	}
+	CRegKey key;
+	if (ERROR_SUCCESS != key.Create(HKEY_CURRENT_USER, PresetKeyPath(slot).c_str())) {
+		return E_FAIL;
+	}
+	WriteSettings(key, sets);
+	key.SetDWORDValue(L"Saved", 1);
+	key.Close();
+	return SetPresetInfo(slot, name, vk);
+}
+
+STDMETHODIMP CMpcVideoRenderer::LoadPreset(int slot, Settings_t& sets)
+{
+	if (slot < 0 || slot >= PRESET_COUNT) {
+		return E_INVALIDARG;
+	}
+	CRegKey key;
+	DWORD saved = 0;
+	if (ERROR_SUCCESS != key.Open(HKEY_CURRENT_USER, PresetKeyPath(slot).c_str(), KEY_READ)
+			|| ERROR_SUCCESS != key.QueryDWORDValue(L"Saved", saved) || !saved) {
+		return S_FALSE;   // nothing was ever saved here
+	}
+	sets.SetDefault();
+	ReadSettings(key, sets);
+	return S_OK;
+}
+
+STDMETHODIMP CMpcVideoRenderer::GetPresetInfo(int slot, LPWSTR name, int cchName, int* pVk)
+{
+	if (slot < 0 || slot >= PRESET_COUNT) {
+		return E_INVALIDARG;
+	}
+	if (name && cchName > 0) {
+		name[0] = 0;
+	}
+	if (pVk) {
+		*pVk = 0;
+	}
+	CRegKey key;
+	if (ERROR_SUCCESS != key.Open(HKEY_CURRENT_USER, PresetKeyPath(slot).c_str(), KEY_READ)) {
+		return S_FALSE;
+	}
+	if (name && cchName > 0) {
+		ULONG chars = (ULONG)cchName;
+		if (ERROR_SUCCESS != key.QueryStringValue(L"Name", name, &chars)) {
+			name[0] = 0;
+		}
+	}
+	DWORD dw = 0;
+	if (pVk && ERROR_SUCCESS == key.QueryDWORDValue(L"Key", dw)) {
+		*pVk = (int)(dw & 0xFF);
+	}
+	DWORD saved = 0;
+	return (ERROR_SUCCESS == key.QueryDWORDValue(L"Saved", saved) && saved) ? S_OK : S_FALSE;
+}
+
+STDMETHODIMP CMpcVideoRenderer::SetPresetInfo(int slot, LPCWSTR name, int vk)
+{
+	if (slot < 0 || slot >= PRESET_COUNT) {
+		return E_INVALIDARG;
+	}
+	CRegKey key;
+	if (ERROR_SUCCESS != key.Create(HKEY_CURRENT_USER, PresetKeyPath(slot).c_str())) {
+		return E_FAIL;
+	}
+	key.SetStringValue(L"Name", name ? name : L"");
+	key.SetDWORDValue(L"Key", (DWORD)(vk & 0xFF));
+	key.Close();
+	ReadPresetKeys();
+	InstallToggleKeyHook();
+	return S_OK;
+}
+
 void CMpcVideoRenderer::InstallToggleKeyHook()
 {
-	if (!m_Sets.iDlssNRToggleKey) {
+	bool bAnyKey = m_Sets.iDlssNRToggleKey != 0;
+	for (const int vk : m_presetKeys) {
+		bAnyKey = bAnyKey || vk != 0;
+	}
+	if (!bAnyKey) {
 		RemoveToggleKeyHook();
 		return;
 	}
@@ -1705,68 +1919,7 @@ STDMETHODIMP CMpcVideoRenderer::SaveSettings()
 {
 	CRegKey key;
 	if (ERROR_SUCCESS == key.Create(HKEY_CURRENT_USER, OPT_REGKEY_VIDEORENDERER)) {
-		key.SetDWORDValue(OPT_UseD3D11,            m_Sets.bUseD3D11);
-		key.SetDWORDValue(OPT_ShowStatistics,      m_Sets.bShowStats);
-		key.SetDWORDValue(OPT_ResizeStatistics,    m_Sets.iResizeStats);
-		key.SetDWORDValue(OPT_TextureFormat,       m_Sets.iTexFormat);
-		key.SetDWORDValue(OPT_VPEnableNV12,        m_Sets.VPFmts.bNV12);
-		key.SetDWORDValue(OPT_VPEnableP01x,        m_Sets.VPFmts.bP01x);
-		key.SetDWORDValue(OPT_VPEnableYUY2,        m_Sets.VPFmts.bYUY2);
-		key.SetDWORDValue(OPT_VPEnableOther,       m_Sets.VPFmts.bOther);
-		key.SetDWORDValue(OPT_VPDeinterlacing,     m_Sets.iVPDeinterlacing);
-		key.SetDWORDValue(OPT_DoubleFrateDeint,    m_Sets.bDeintDouble);
-		key.SetDWORDValue(OPT_VPScaling,           m_Sets.bVPScaling);
-		key.SetDWORDValue(OPT_VPSuperResolution,   m_Sets.iVPSuperRes);
-#ifdef _WIN64
-		key.SetDWORDValue(OPT_VPRTXVideoHDR,       m_Sets.bVPRTXVideoHDR);
-#endif
-		key.SetDWORDValue(OPT_VPReplaceChroma,     m_Sets.bVPReplaceChroma);
-		key.SetDWORDValue(OPT_Sharpen,             m_Sets.iSharpen);
-		key.SetDWORDValue(OPT_SharpenLevel,        m_Sets.iSharpenLevel);
-		key.SetDWORDValue(OPT_ChromaUpsampling,    m_Sets.iChromaScaling);
-		key.SetDWORDValue(OPT_Upscaling,           m_Sets.iUpscaling);
-		key.SetDWORDValue(OPT_Downscaling,         m_Sets.iDownscaling);
-		key.SetDWORDValue(OPT_InterpolateAt50pct,  m_Sets.bInterpolateAt50pct);
-		key.SetDWORDValue(OPT_Dither,              m_Sets.bUseDither);
-		key.SetDWORDValue(OPT_DeintBlend,          m_Sets.bDeintBlend);
-		key.SetDWORDValue(OPT_SwapEffect,          m_Sets.iSwapEffect);
-		key.SetDWORDValue(OPT_ExclusiveFullscreen, m_Sets.bExclusiveFS);
-		key.SetDWORDValue(OPT_VBlankBeforePresent, m_Sets.bVBlankBeforePresent);
-		key.SetDWORDValue(OPT_AdjustPresentTime,   m_Sets.bAdjustPresentTime);
-		key.SetDWORDValue(OPT_ReinitByDisplay,     m_Sets.bReinitByDisplay);
-		key.SetDWORDValue(OPT_HdrPreferDoVi,       m_Sets.bHdrPreferDoVi);
-		key.SetDWORDValue(OPT_HdrPassthrough,      m_Sets.bHdrPassthrough);
-		key.SetDWORDValue(OPT_HdrLocaLToneMapping, m_Sets.bHdrLocalToneMapping);
-		key.SetDWORDValue(OPT_HdrLocaLToneMappingType, m_Sets.iHdrLocalToneMappingType);
-		key.SetDWORDValue(OPT_HdrDisplayNits,      m_Sets.iHdrDisplayMaxNits);
-		key.SetDWORDValue(OPT_HdrToggleDisplay,    m_Sets.iHdrToggleDisplay);
-		key.SetDWORDValue(OPT_HdrOsdBrightness,    m_Sets.iHdrOsdBrightness);
-		key.SetDWORDValue(OPT_ConvertToSdr,        m_Sets.bConvertToSdr);
-		key.SetDWORDValue(OPT_DisplayNits,         m_Sets.iSDRDisplayNits);
-#ifdef _WIN64
-		key.SetDWORDValue(OPT_DlssNR,              m_Sets.bDlssNR);
-		key.SetDWORDValue(OPT_DlssNRStyle,         m_Sets.iDlssNRStyle);
-		key.SetDWORDValue(OPT_DlssNRPreset,        m_Sets.iDlssNRPreset);
-		key.SetDWORDValue(OPT_DlssNRIntensity,     m_Sets.iDlssNRIntensity);
-		key.SetDWORDValue(OPT_DlssNRLocalTone,     m_Sets.iDlssNRLocalTone);
-		key.SetDWORDValue(OPT_DlssNRLocalStructure, m_Sets.iDlssNRLocalStructure);
-		key.SetDWORDValue(OPT_DlssNRSkinStructure, m_Sets.iDlssNRSkinStructure);
-		key.SetDWORDValue(OPT_DlssNRAutoMask,      m_Sets.bDlssNRAutoMask);
-		key.SetDWORDValue(OPT_DlssNRNoHistory,     m_Sets.bDlssNRNoHistory);
-		key.SetDWORDValue(OPT_DlssNRAfterUpscale,  m_Sets.bDlssNRAfterUpscale);
-		key.SetDWORDValue(OPT_DlssNRStabilizer,    m_Sets.iDlssNRStabilizer);
-		key.SetDWORDValue(OPT_DlssNRMotion,        m_Sets.iDlssNRMotion);
-		key.SetDWORDValue(OPT_DlssNRMotionVectors, m_Sets.bDlssNRMotionVectors);
-		key.SetDWORDValue(OPT_DlssNRToggleKey,     m_Sets.iDlssNRToggleKey);
-		key.SetStringValue(OPT_DlssNRDllPath,      m_Sets.szDlssNRDllPath);
-		key.SetDWORDValue(OPT_DlssSR,              m_Sets.bDlssSR);
-		key.SetDWORDValue(OPT_DlssSRDlaa,          m_Sets.bDlssSRDlaa);
-		key.SetDWORDValue(OPT_UpscalingSmall,      m_Sets.bUpscalingSmall);
-		key.SetDWORDValue(OPT_UpscalingSmallFilter, m_Sets.iUpscalingSmall);
-		key.SetDWORDValue(OPT_DlssSRPreset,        m_Sets.iDlssSRPreset);
-		key.SetStringValue(OPT_DlssSRDllPath,      m_Sets.szDlssSRDllPath);
-#endif
-		key.SetDWORDValue(OPT_DlssRenderAhead,     m_Sets.bDlssRenderAhead);
+		WriteSettings(key, m_Sets);
 	}
 
 	return S_OK;
