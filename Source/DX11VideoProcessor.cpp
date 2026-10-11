@@ -2580,6 +2580,37 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 			+ (REFERENCE_TIME)(((double)m_tickOnScreen - (double)GetPreciseTick()) * 10000000.0 / GetPreciseTicksPerSecond());
 	}
 
+	// With a refresh for every frame, a picture is presented once the one before it
+	// has been shown and is shown a refresh later: a film that starts late stays late
+	// by exactly as much, for as long as it plays. Measured at 24 fps on 24 Hz and at
+	// 25 on 25: 48 to 61 ms after its time, unchanged after 20 s. One picture left
+	// out lets the next take the refresh before, and the film is back within half a
+	// refresh of its time.
+	//
+	// What tells that state from a healthy one is not how late the picture is but
+	// how long it waits: called at its time, Present has it shown on the next
+	// refresh, less than one period away, and in the late chain on the one after.
+	// Lateness alone will not do. A 23.976 fps film on 24 Hz slides through every
+	// phase, and a threshold set on it left out a picture on each pass -- measured,
+	// twenty in ten seconds. The wait must exceed a period by a margin, so that the
+	// picture moved a refresh earlier still has that margin before its refresh, and
+	// must have done so for eight pictures running.
+	{
+		const double period = m_dRefreshPeriodMs * 10000.0;
+		const bool bRefreshPerFrame = period > 0 && rtFrameDur > 0.9 * period && rtFrameDur < 1.5 * period;
+		const double waitMs = ((double)m_tickOnScreen - (double)m_tickPresentCall) * 1000.0 / GetPreciseTicksPerSecond();
+		if (m_bOnScreenKnown && bRefreshPerFrame && !m_bDoubleFrames
+				&& m_pFilter->m_filterState == State_Running && !m_pFilter->m_bClockStalled
+				&& waitMs > 1.15 * m_dRefreshPeriodMs) {
+			if (++m_nLateOnScreen >= 8) {
+				m_nLateOnScreen = 0;
+				m_bSkipPresent = true;
+			}
+		} else {
+			m_nLateOnScreen = 0;
+		}
+	}
+
 	int so = (int)std::clamp(m_RenderStats.syncoffset, -UNITS, UNITS);
 #if SYNC_OFFSET_EX
 	m_SyncDevs.Add(so - m_Syncs.Last());
@@ -3263,6 +3294,15 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	uint64_t tick3 = GetPreciseTick();
 	m_RenderStats.paintticks = tick3 - tick1;
 
+	// Catching up a refresh (see ProcessSample): this picture is drawn, so that
+	// everything that keeps a history has seen it, and not presented.
+	if (m_bSkipPresent && field == 1 && frameStartTime != INVALID_TIME) {
+		m_bSkipPresent = false;
+		m_uCaughtUp++;
+		m_tickOnScreen = 0;
+		return hr;
+	}
+
 	// Render ahead: this picture was started early and waits for its time; a
 	// redraw has no time to keep.
 	// Render ahead holds the finished picture until its time on the reference clock,
@@ -3288,6 +3328,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		SyncFrameToStreamTime(frameStartTime);
 	}
 
+	m_tickPresentCall = GetPreciseTick();
 	g_bPresent = true;
 	hr = m_pDXGISwapChain1->Present(1, 0);
 	g_bPresent = false;
@@ -5590,6 +5631,8 @@ void CDX11VideoProcessor::Flush()
 	}
 
 	m_rtStart = 0;
+	m_nLateOnScreen = 0;
+	m_bSkipPresent = false;
 	m_DlssNR.RequestReset();
 	m_DlssStabilizer.Reset();
 	m_DlssSR.RequestReset();
@@ -6034,6 +6077,9 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	str += std::format(L"\nSync offset   : {:+3} ms", (m_RenderStats.syncoffset + 5000) / 10000);
 	if (m_bOnScreenKnown) {
 		str += std::format(L"\nOn screen     : {:+3} ms, queue {}", (m_rtOnScreenOffset + 5000) / 10000, m_uPresentQueue);
+		if (m_uCaughtUp) {
+			str += std::format(L", caught up {}", m_uCaughtUp);
+		}
 	}
 
 #if SYNC_OFFSET_EX

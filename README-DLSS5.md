@@ -915,10 +915,32 @@ The renderer now asks DXGI for one picture waiting and no more
 nothing moves -- sync offset -7.0 to -7.1 ms across the battery, on screen within 6 ms of the
 picture's time, nothing skipped.
 
-What is left at one refresh a picture is one refresh, and part of it is geometry: a picture
-can only appear on a refresh, the audio clock and the screen's scan are not in step, and where
-a film lands between two refreshes is drawn afresh every time playback starts. An offset that
-changes after a pause and stays within half a refresh either side is that, and is not a fault.
+That bounds the queue and does not bring the film back. With one picture waiting, a picture
+is presented once the one before it has been shown and is shown a refresh later, so a film
+that starts late stays late by exactly as much for as long as it plays. Measured in a window
+on a screen at the film's own rate (`playback_test --hz 24 --fps 24 --jolt`, and 25 at 25,
+two runs each): queue 1 and nothing skipped, but the picture on screen **48 to 61 ms** after
+its time, the same after 20 s as at the start, with the Sync offset reading +8 to +19.
+
+So the renderer now leaves one picture out when that has lasted: when eight pictures running
+have waited more than a refresh and a margin between `Present` and the refresh they are due
+on, the next is drawn and not presented, and the one after takes the refresh before. Same
+tests: on screen **+1 to +20 ms**, steady, Sync offset -7. The statistics count it:
+
+    On screen     :  +3 ms, queue 1, caught up 1
+
+One or two at the start of a film and one after an option was changed is what the tests show.
+The measure is the wait and not the lateness, because a 23.976 fps film on 24 Hz slides through
+every phase by a millisecond a second: in 75 s of it the offset slid down to -4, jumped
+to +36 and slid down again, which is the picture a 24 Hz screen has to repeat, and nothing was
+left out beyond the start and the option change. At 60 Hz none of this is reached with a film
+(sync offset -7.0 and -6.5 ms, nothing skipped, as before); a 60 fps film on a 59.94 Hz
+screen was caught up once in 40 s.
+
+What is left is geometry: a picture can only appear on a refresh, the audio clock and the
+screen's scan are not in step, and where a film lands between two refreshes is drawn afresh
+every time playback starts. `On screen` is DXGI's account and stops at the swap chain: in a
+window the compositor adds its own refresh, which nothing here measures.
 
 Render ahead also no longer holds pictures back for a prescaler that is loaded and has nothing
 to do, as on a film shown at its own size.

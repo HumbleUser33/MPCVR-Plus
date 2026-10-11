@@ -260,6 +260,12 @@ private:
 	uint64_t m_tickOnScreen = 0;        // GetPreciseTick() scale; 0 when DXGI would not say
 	REFERENCE_TIME m_rtOnScreenOffset = 0;
 	bool     m_bOnScreenKnown = false;
+	// Catching up a refresh: how many pictures in a row were due on the screen late,
+	// the one picture that is then not presented, and how often that was done.
+	uint64_t m_tickPresentCall = 0;     // GetPreciseTick() just before Present was called
+	unsigned m_nLateOnScreen = 0;
+	bool     m_bSkipPresent = false;
+	unsigned m_uCaughtUp = 0;
 	uint64_t m_tickSampleStart = 0;     // GetPreciseTick() when ProcessSample began on the current sample
 	// Time of each DLSS stage and of the mpv prescalers, for the statistics.
 	CGpuStageTimes m_DlssStageTimes;
