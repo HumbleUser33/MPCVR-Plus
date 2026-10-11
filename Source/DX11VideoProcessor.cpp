@@ -1518,6 +1518,18 @@ HRESULT CDX11VideoProcessor::SetDevice(ID3D11Device *pDevice, ID3D11DeviceContex
 		return hr;
 	}
 
+	// DXGI lets three pictures wait for a refresh unless it is told otherwise, and
+	// Present returns at once while there is room. On a screen that refreshes faster
+	// than the film that room is never used. On one that refreshes exactly as often
+	// -- 24 fps at 24 Hz -- the first pictures of a film arrive in a burst, fill it,
+	// and nothing ever empties it again: measured at 30 fps on 30 Hz, the queue sat
+	// at 3 and the picture reached the screen 72 to 92 ms after its time, with the
+	// Sync offset reading -7 all along because it is taken when Present returns.
+	// One picture waiting is all a renderer that times its own presents needs.
+	if (CComQIPtr<IDXGIDevice1> pDXGIDevice1 = pDXGIDevice.p) {
+		pDXGIDevice1->SetMaximumFrameLatency(1);
+	}
+
 	CComPtr<IDXGIAdapter> pDXGIAdapter;
 	hr = pDXGIDevice->GetAdapter(&pDXGIAdapter);
 	if (FAILED(hr)) {
@@ -2561,6 +2573,12 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 	}
 
 	m_RenderStats.syncoffset = rtClock - rtStart;
+	// The same offset carried forward to the refresh the picture is due on.
+	m_bOnScreenKnown = m_tickOnScreen != 0;
+	if (m_bOnScreenKnown) {
+		m_rtOnScreenOffset = m_RenderStats.syncoffset
+			+ (REFERENCE_TIME)(((double)m_tickOnScreen - (double)GetPreciseTick()) * 10000000.0 / GetPreciseTicksPerSecond());
+	}
 
 	int so = (int)std::clamp(m_RenderStats.syncoffset, -UNITS, UNITS);
 #if SYNC_OFFSET_EX
@@ -3275,12 +3293,45 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	DLogIf(FAILED(hr), L"CDX11VideoProcessor::Render() : Present() failed with error {}", HR2Str(hr));
 
 	m_RenderStats.presentticks = GetPreciseTick() - tick3;
+	MeasurePresentQueue();
 
 	if (hr == DXGI_ERROR_INVALID_CALL && m_pFilter->m_bIsD3DFullscreen) {
 		InitSwapChain(false);
 	}
 
 	return hr;
+}
+
+// Present returns when the picture has been queued, not when it is shown. With a
+// refresh for every frame -- a 24 fps film on a 24 Hz screen -- a picture that once
+// arrived late sits behind the one before it, and so does every picture after: the
+// queue never empties by itself, and the film runs a refresh behind until something
+// flushes it. Nothing the renderer times can see that, so DXGI is asked.
+void CDX11VideoProcessor::MeasurePresentQueue()
+{
+	m_tickOnScreen = 0;
+	UINT last = 0;
+	DXGI_FRAME_STATISTICS stats = {};
+	if (!m_pDXGISwapChain1 || FAILED(m_pDXGISwapChain1->GetLastPresentCount(&last))
+			|| FAILED(m_pDXGISwapChain1->GetFrameStatistics(&stats)) || !stats.SyncQPCTime.QuadPart) {
+		return;   // disjoint, or a presentation model that keeps no count
+	}
+	// PresentCount is the last picture that reached the screen and PresentRefreshCount
+	// the refresh it reached it on; everything presented since is still waiting, this
+	// one included. SyncQPCTime is another thing again -- when refresh SyncRefreshCount
+	// happened, which is simply the latest one DXGI sampled.
+	m_uPresentQueue = last - stats.PresentCount;
+	if (m_dRefreshPeriodMs > 0) {
+		const double periodTicks = m_dRefreshPeriodMs * GetPreciseTicksPerSecond() / 1000.0;
+		const double sinceSync = (double)GetPreciseTick() - (double)stats.SyncQPCTime.QuadPart;
+		// A picture takes its place in the queue, one refresh each, and cannot be
+		// shown on a refresh that has already gone by.
+		const int64_t byQueue = (int64_t)stats.PresentRefreshCount + m_uPresentQueue;
+		const int64_t byClock = (int64_t)stats.SyncRefreshCount + (int64_t)std::floor(std::max(sinceSync, 0.0) / periodTicks) + 1;
+		const int64_t refresh = std::max(byQueue, byClock);
+		m_tickOnScreen = (uint64_t)((double)stats.SyncQPCTime.QuadPart
+			+ (double)(refresh - (int64_t)stats.SyncRefreshCount) * periodTicks);
+	}
 }
 
 int CDX11VideoProcessor::GetRenderAhead()
@@ -4566,12 +4617,17 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 
 	// An mpv prescaler chosen as the Upscaling method, where DLSS SR has not
 	// enlarged the picture; ResizeShaderPass then finishes the scale, as above.
+	bool bMpvLumaRan = false;
 	if (!bEnlarged && m_MpvLuma.IsLoaded() && pInputTexture) {
 		Tex2D_t* pMpvResult = nullptr;
 		if (S_OK == MpvLumaPass(pInputTexture, rSrc, dstRect, rotation, &pMpvResult) && pMpvResult) {
 			pInputTexture = pMpvResult;
 			rSrc.SetRect(0, 0, pMpvResult->desc.Width, pMpvResult->desc.Height);
+			bMpvLumaRan = true;
 		}
+	}
+	if (bAllowDlss) {
+		m_bMpvLumaRan = bMpvLumaRan;   // a snapshot for the player is not the film
 	}
 
 	if (numSteps) {
@@ -5974,6 +6030,9 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		m_RenderStats.presentticks * 1000 / GetPreciseTicksPerSecondI());
 
 	str += std::format(L"\nSync offset   : {:+3} ms", (m_RenderStats.syncoffset + 5000) / 10000);
+	if (m_bOnScreenKnown) {
+		str += std::format(L"\nOn screen     : {:+3} ms, queue {}", (m_rtOnScreenOffset + 5000) / 10000, m_uPresentQueue);
+	}
 
 #if SYNC_OFFSET_EX
 	{

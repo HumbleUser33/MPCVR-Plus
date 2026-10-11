@@ -125,6 +125,7 @@ protected:
 	REFERENCE_TIME m_rtHeld = 0; // render ahead: time spent holding finished pictures, see TakeHeldTime()
 
 	UINT32 m_uHalfRefreshPeriodMs = 0;
+	double m_dRefreshPeriodMs = 0;   // the same, whole and not rounded
 
 	bool m_bAllowDeepColorBitmaps = false;
 

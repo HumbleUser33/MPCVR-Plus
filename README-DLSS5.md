@@ -889,7 +889,41 @@ frame rate, and a lighter DLSS SR preset gives it room. DLSS 5 NR is timed where
 waits for it, the other stages with GPU timestamps while the statistics are shown.
 *Times(ms): Present* includes the wait.
 
-### When the graph's clock stops
+### A film at the screen's own rate
+
+The **Sync offset** is taken when `Present` returns, which is when the picture has been
+queued and not when it is shown. The statistics now say the other thing too:
+
+    Sync offset   :  -7 ms
+    On screen     :  +6 ms, queue 1
+
+`On screen` is the same offset carried forward to the refresh the picture is due on, from what
+DXGI reports (`GetFrameStatistics`), and `queue` is how many pictures have been presented and
+are still waiting for one.
+
+It matters on a screen that refreshes exactly as often as the film has pictures: 24 fps at 24
+Hz, 25 at 25. DXGI lets three pictures wait unless told otherwise and `Present` returns at once
+while there is room. At 60 Hz there are two and a half refreshes for every picture and the
+room is never used. With one refresh a picture, the first pictures of a film arrive in a burst
+and fill it, and nothing ever empties it again -- a pause and play does, which is why that
+cured it. Measured with a 30 fps film on a screen at 30 Hz (`playback_test --hz 30 --fps 30
+--jolt`): the queue sat at 3 and the picture reached the screen **72 to 92 ms** after its
+time, with the Sync offset reading -7 throughout.
+
+The renderer now asks DXGI for one picture waiting and no more
+(`IDXGIDevice1::SetMaximumFrameLatency(1)`). Same test: queue 1, on screen +43 ms. At 60 Hz
+nothing moves -- sync offset -7.0 to -7.1 ms across the battery, on screen within 6 ms of the
+picture's time, nothing skipped.
+
+What is left at one refresh a picture is one refresh, and part of it is geometry: a picture
+can only appear on a refresh, the audio clock and the screen's scan are not in step, and where
+a film lands between two refreshes is drawn afresh every time playback starts. An offset that
+changes after a pause and stays within half a refresh either side is that, and is not a fault.
+
+Render ahead also no longer holds pictures back for a prescaler that is loaded and has nothing
+to do, as on a film shown at its own size.
+
+## When the graph's clock stops
 
 Every picture is scheduled against the reference clock the graph gets from one of its filters,
 which is normally the audio renderer. The statistics name it:
@@ -1150,6 +1184,7 @@ filter may then switch the display's own HDR state, which is not what is being m
 playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.976] [--only N]
 playback_test.exe --scalers       each Upscaling and Chroma upsampling method (--vp: hardware)
 playback_test.exe --greying       what the page greys, for every state the renderer can be in
+playback_test.exe --hz 30 --fps 30 --jolt   a film at the screen's own rate, and the queue it builds
 dlssnr_harness.exe --tdownscale  what each downscaler keeps and what it lets fold back
 dlssnr_harness.exe --tdownport   and that those shaders are the kernels they are written from
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio

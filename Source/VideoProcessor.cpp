@@ -181,8 +181,10 @@ void CVideoProcessor::SetDisplayInfo(const DisplayConfig_t& dc, const bool prima
 {
 	if (dc.refreshRate.Numerator) {
 		m_uHalfRefreshPeriodMs = (UINT32)(500ull * dc.refreshRate.Denominator / dc.refreshRate.Numerator);
+		m_dRefreshPeriodMs = 1000.0 * dc.refreshRate.Denominator / dc.refreshRate.Numerator;
 	} else {
 		m_uHalfRefreshPeriodMs = 0;
+		m_dRefreshPeriodMs = 0;
 	}
 
 	m_strStatsDispInfo.assign(L"\nDisplay: ");

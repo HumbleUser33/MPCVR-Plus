@@ -251,6 +251,14 @@ private:
 	CRenderAhead m_RenderAhead;
 	CPreciseSleep m_PreciseSleep;
 	CComPtr<ID3D11Query> m_pPictureDoneQuery;
+	// What DXGI says of the pictures handed to it: how many are still waiting for a
+	// refresh, and when the one just presented is due on the screen. The Sync offset
+	// is taken when Present returns, which is neither.
+	void MeasurePresentQueue();
+	UINT     m_uPresentQueue = 0;
+	uint64_t m_tickOnScreen = 0;        // GetPreciseTick() scale; 0 when DXGI would not say
+	REFERENCE_TIME m_rtOnScreenOffset = 0;
+	bool     m_bOnScreenKnown = false;
 	uint64_t m_tickSampleStart = 0;     // GetPreciseTick() when ProcessSample began on the current sample
 	// Time of each DLSS stage and of the mpv prescalers, for the statistics.
 	CGpuStageTimes m_DlssStageTimes;
@@ -296,7 +304,11 @@ private:
 	// Catmull-Rom in its place.
 	int ChromaScalingForShader() const;
 
-	bool RenderAheadActive() const { return m_bDlssRenderAhead && (m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded()); }
+	// A prescaler counts while it runs, not while it is merely loaded: a film shown
+	// at its own size keeps the network in memory and gives it nothing to do, and
+	// holding those pictures back counted every one of them late for no reason.
+	bool RenderAheadActive() const { return m_bDlssRenderAhead && (m_bDlssNRActive || m_bDlssSRActive || m_bMpvLumaRan); }
+	bool m_bMpvLumaRan = false;
 	void MarkPictureSubmitted();
 	void HoldUntilPresentTime(const REFERENCE_TIME frameStartTime, const bool bMeasure);
 

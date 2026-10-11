@@ -103,6 +103,41 @@ static int g_frameSeconds = 0;         // --frame N: the page inside a real prop
 static bool g_bThemedHost = false;     // --themed: and a player that paints it
 static bool g_bDlaa = false;           // --dlaa: let DLSS SR run without enlarging
 static int g_smallUpscaling = -1;      // --small N: another method under 5 %
+static int g_hz = 0;                   // --hz N: put the screen at N Hz for the run, and back after
+static bool g_bJolt = false;           // --jolt: change a setting while it plays, and watch the queue
+
+// --hz: a film at the screen's own rate is the case where a picture that once
+// arrived late never gets its refresh back, and a 60 Hz desktop never shows it.
+// The mode is put back whatever happens: this is somebody's screen.
+static DEVMODEW g_modeBefore = {};
+static bool g_bModeChanged = false;
+
+static void RestoreDisplayMode()
+{
+	if (g_bModeChanged) {
+		ChangeDisplaySettingsExW(nullptr, &g_modeBefore, nullptr, 0, nullptr);
+		g_bModeChanged = false;
+		Sleep(1500);
+	}
+}
+
+static bool SetDisplayHz(int hz)
+{
+	g_modeBefore.dmSize = sizeof(g_modeBefore);
+	if (!EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &g_modeBefore)) {
+		return false;
+	}
+	DEVMODEW mode = g_modeBefore;
+	mode.dmDisplayFrequency = hz;
+	mode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
+	if (ChangeDisplaySettingsExW(nullptr, &mode, nullptr, 0, nullptr) != DISP_CHANGE_SUCCESSFUL) {
+		return false;
+	}
+	g_bModeChanged = true;
+	atexit(RestoreDisplayMode);
+	Sleep(2500);   // the screen takes its time over a mode change
+	return true;
+}
 static bool g_bGreying = false;        // --greying: the rules alone, without a film
 static std::vector<int> g_hoverIds;     // --hover <id>: put the pointer on it and read the tip
 static int g_pageSection = -1;         // --section N: which one to show, or the page's own choice
@@ -973,6 +1008,22 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		if (!sync.empty() && swscanf_s(sync.c_str(), L"%d", &value) == 1) {
 			result.syncs.push_back(value);
 		}
+		if (g_bJolt) {
+			// Three seconds in, the Upscaling method is changed and changed back, as a
+			// user trying an option does: shaders are reloaded and textures made
+			// again, and the picture that pays for it arrives late.
+			if (i == 30 || i == 33) {
+				Settings_t jolt;
+				pVR->GetSettings(jolt);
+				jolt.iUpscaling = (i == 30) ? UPSCALE_FSRCNNX16AR : UPSCALE_Jinc2;
+				pVR->SetSettings(jolt);
+				printf("   %4.1f s  -- Upscaling changed --\n", i / 10.0);
+			}
+			if (i % 5 == 4) {
+				wprintf(L"   %4.1f s  sync %s | on screen %s\n", i / 10.0, sync.c_str(),
+					StatsLine(text, L"On screen     : ").c_str());
+			}
+		}
 	}
 	if (g_filmFile && watch.Ready()) {
 		// The desktop shows whatever is in front: a window left behind another one
@@ -1747,6 +1798,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_frameSeconds = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--section")) {
 			g_pageSection = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--hz")) {
+			g_hz = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--small")) {
 			g_smallUpscaling = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--hover")) {
@@ -1784,6 +1837,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bScalers = true;
 			source.cx &= ~1; // NV12
 			source.cy &= ~1;
+		} else if (!wcscmp(argv[i], L"--jolt")) {
+			g_bJolt = true;
 		} else if (!wcscmp(argv[i], L"--greying")) {
 			g_bGreying = true;
 		} else if (!wcscmp(argv[i], L"--dlaa")) {
@@ -1819,6 +1874,10 @@ int wmain(int argc, wchar_t* argv[])
 		}
 	}
 
+	if (g_hz > 0 && !SetDisplayHz(g_hz)) {
+		printf("the screen would not go to %d Hz\n", g_hz);
+		return 1;
+	}
 	CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
 	if (g_bChroma) {
