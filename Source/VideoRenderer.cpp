@@ -611,6 +611,7 @@ void CMpcVideoRenderer::RecallPreset(int slot)
 		return;
 	}
 	KeepInstallation(sets, m_Sets);
+	sets.bShowStats = m_Sets.bShowStats;   // recalled with the statistics as they are, up or not
 	SetSettings(sets);
 	SaveSettings();
 

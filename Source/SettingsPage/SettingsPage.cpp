@@ -1449,6 +1449,7 @@ bool CVRSettingsPPage::OnPresetCommand(int nID, int action)
 			if (S_OK == m_pVideoRenderer->LoadPreset(slot, sets)) {
 				// Where the DLLs are and the toggle key belong to the installation.
 				sets.iDlssNRToggleKey = m_SetsPP.iDlssNRToggleKey;
+				sets.bShowStats = m_SetsPP.bShowStats;
 				wcscpy_s(sets.szDlssNRDllPath, m_SetsPP.szDlssNRDllPath);
 				wcscpy_s(sets.szDlssSRDllPath, m_SetsPP.szDlssSRDllPath);
 				m_SetsPP = sets;
