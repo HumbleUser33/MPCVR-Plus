@@ -1,8 +1,10 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 30 September 2026, on an
-RTX 3050, all eighteen steps green. It is the thing a merge from upstream is compared against, at
-step 8 of [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
+`run_all_report.txt` here is what the whole battery measured on 12 October 2026, on an
+RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all eighteen steps green. The
+filter is `658071e`, build 2670, and filter and tools are built by MSVC 14.44. It is the thing
+a merge from upstream is compared against, at step 8 of
+[MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
 ```
 cd tools\dlssnr_probe
@@ -16,23 +18,13 @@ quietly stop exercising a path. The comparison catches both — it ignores the t
 say more about the machine's mood than about the code, and it flags a row that has **stopped
 being measured** as loudly as one that moved.
 
-## The step that was not green is fixed
-
-The battery found, on its first run, that ticking **Replace VP chroma upsampling** while the
-film played left the screen frozen on the decoder-device path. It was the HDR retry in
-`InitializeD3D11VP` calling back into itself without a bound: the processor and the swap chain
-could not agree on whether the picture was HDR, and each pass asked for another. It is bounded
-now -- once is all it ever legitimately takes -- and `playback_test --gpu --toggle` runs clean
-three times over.
-
-The report in this folder is from **after** that fix.
-
 ## What the numbers depend on
 
-The first line of the report records the machine and the commit. The tables move with:
+The first lines of the report record the date and the commit, and the card is named further
+down. The tables move with:
 
-- **the GPU and its driver** — these were measured on an RTX 3050; another card gives other
-  times and slightly other numbers, so regenerate the baseline on the machine you compare on;
+- **the GPU and its driver** — another card gives other times and other numbers, as the
+  next section measures, so regenerate the baseline on the machine you compare on;
 - **the reference pictures** in `upscale_refs/`, which are not in the repository (they are
   film frames). Comparing two reports means comparing runs over the same folder;
 - **the DLSS DLLs** present, for the suites that need them.
@@ -40,6 +32,45 @@ The first line of the report records the machine and the commit. The tables move
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## From the RTX 3050 to the RTX 4060
+
+The report this one replaces was measured on 30 September 2026 on an RTX 3050, at `4013957`;
+the history keeps it. Of the 2546 rows the two share, 34 moved by more than 0.1, and none of
+them because of the code:
+
+- **28 in the two "chroma through the filter" steps.** The hardware video processor's own
+  chroma is worse on this card: 52.25 → 46.84 psnr-c on an 8-bit source, 49.60 → 45.96 on a
+  10-bit one. The shader rows keep their psnr-c in 8 bits (Catmull-Rom 53.38 → 53.32) and
+  lose about a decibel of psnr-rgb (50.30 → 49.31), and about a decibel of both in 10 bits.
+  The filter's build is not what moved them: the released 1.9.1 filter, built on the other
+  machine, gives the same 32 rows as the one built here, to 0.001. Which of the card, its
+  driver and the desktop being in HDR does it was not separated.
+- **4 in "the DLSS passes against the harness".** The Optical Flow engine does not answer the
+  same on the two cards — on the first "zoom 3 %" frame it finds a global motion of
+  (-1.59, -2.44) there and (-1.16, -1.28) here — so everything that follows from its vectors
+  is another figure. Three of the rows are the table of GPU times and of blocks keeping
+  their own vector. The fourth is worth knowing: on this card's vectors one block value of
+  70 983, in a second "zoom 3 %" frame, lands one refinement step (0.125) from the CPU
+  reference, where the other card's had none apart. The suite passes it, and it is the same
+  block whichever machine built the tools.
+- **2 in "the pipeline"**, which prints its times bare.
+
+Seven rows are new: the Settings page prints a third list.
+
+The tools are not what moved anything either. The battery run on this card with the tools as
+the other machine had built them gives the same 2474 rows to 0.001, six apart, all six of
+them times.
+
+## What the first run here found
+
+The sharpening suite died part of the way through, of `bad_alloc`, and the summary said
+nothing: a program that dies leaves no verdict, and `run_all.cmd` only looked for exit codes
+above zero. Direct3D destroys a released object at the next `Flush`, the suites make their
+textures afresh for every picture, and on this card nothing was flushing them — 24 GB of
+memory and 7 GB of the card's when it gave up. `ReadRgbaHalf`, which every suite reads back
+through, flushes now (4.3 GB and 370 MB at the peak), and `run_all.cmd` writes any exit code
+that is not zero. The report in this folder is from **after** both.
 
 ## When something moved
 
