@@ -1015,7 +1015,9 @@ static void PackTest(Gpu& g)
 	}
 	int w = 0, h = 0;
 	std::vector<float> rgb;
-	const wchar_t* path = L"C:\\Users\\Bruno\\Desktop\\MPCVR-DLSS5\\tools\\dlssnr_probe\\upscale_refs\\4K1.png";
+	// From tools\dlssnr_probe, like the harness's suites: the folder is not where it was
+	// on the machine this was written on.
+	const wchar_t* path = L"upscale_refs\\4K1.png";
 	if (!LoadHalved(f, path, w, h, rgb)) {
 		printf("could not load %S\n", path);
 		return;
@@ -1132,7 +1134,7 @@ static void FilmTest(Gpu& g)
 	Score sums[std::size(paths)] = {};
 	int count = 0;
 	WIN32_FIND_DATAW fd = {};
-	const std::wstring dir = L"C:\\Users\\Bruno\\Desktop\\MPCVR-DLSS5\\tools\\dlssnr_probe\\upscale_refs\\";
+	const std::wstring dir = L"upscale_refs\\";
 	HANDLE h = FindFirstFileW((dir + L"*.png").c_str(), &fd);
 	printf("\nFilm frames halved from 4K, 4:2:0 as MPEG-2 sites it, 10-bit output (PSNR dB: rgb, chroma, chroma at luma edges):\n");
 	for (BOOL more = h != INVALID_HANDLE_VALUE; more; more = FindNextFileW(h, &fd)) {
