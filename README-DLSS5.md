@@ -930,6 +930,11 @@ tests: on screen **+1 to +20 ms**, steady, Sync offset -7. The statistics count 
     On screen     :  +3 ms, queue 1, caught up 1
 
 One or two at the start of a film and one after an option was changed is what the tests show.
+It is done once and judged: if the pictures that follow wait as long as before, leaving one out
+was no use -- the GPU is not finishing them in time, or the screen does not refresh as it says
+-- and nothing more is left out until the next seek; the line then reads `caught up 2 (no use,
+stopped)`. Without that judge a television at 25 Hz lost two pictures a second. That case has
+not been reproduced on the bench, so the judge is reasoned and not measured.
 The measure is the wait and not the lateness, because a 23.976 fps film on 24 Hz slides through
 every phase by a millisecond a second: in 75 s of it the offset slid down to -4, jumped
 to +36 and slid down again, which is the picture a 24 Hz screen has to repeat, and nothing was
@@ -1074,8 +1079,9 @@ The **Presets** tab holds eight sets of settings. Each line has a name, a key, *
   and neither is 1: the filter swallows the exact combination and leaves the rest to the
   player. While a text box is being typed in, it swallows nothing.
 
-A preset is every setting there is, with two exceptions that belong to the installation and
-not to a taste: the two DLL paths and the DLSS 5 NR toggle key. Recalling one that changes
+A preset is every setting there is, with three exceptions that belong to the installation or
+to the moment and not to a taste: the two DLL paths, the DLSS 5 NR toggle key, and whether the
+statistics are showing -- a preset saved while they were up used to bring them up with it. Recalling one that changes
 Direct3D 11, the swap effect, exclusive fullscreen or the texture format restarts the
 rendering, the same short break those options cause from the page; between two presets that
 differ only in the picture, the change is immediate. Measured with `playback_test --presets`,
@@ -1271,6 +1277,7 @@ playback_test.exe --greying       what the page greys, for every state the rende
 playback_test.exe --hz 30 --fps 30 --jolt   a film at the screen's own rate, and the queue it builds
 playback_test.exe --presets     two presets saved, each recalled by its key while it plays
 playback_test.exe --rewindow    the video window made again from another thread, and whose it is
+mpchc_drive.exe <mpc-hc64.exe> <film>   a real MPC-HC taken through the options; is the pointer hidden after?
 dlssnr_harness.exe --tdownscale  what each downscaler keeps and what it lets fold back
 dlssnr_harness.exe --tdownport   and that those shaders are the kernels they are written from
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio
