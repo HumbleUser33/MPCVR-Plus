@@ -142,6 +142,9 @@ private:
 	int  m_presetKeys[PRESET_COUNT] = {};   // the key that recalls each preset and what is held with it, 0 for none
 	void ReadPresetKeys();
 	void RecallPreset(int slot);
+	// One shot, for the notice to be taken down while nothing else redraws the picture.
+	HANDLE m_hNoticeTimer = nullptr;
+	static void CALLBACK NoticeTimerProc(void* pParam, BOOLEAN);
 	DWORD m_dwHookedThread = 0;
 	void InstallToggleKeyHook();
 	void RemoveToggleKeyHook();

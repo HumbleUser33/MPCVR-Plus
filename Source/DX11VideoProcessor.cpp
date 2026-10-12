@@ -807,6 +807,8 @@ void CDX11VideoProcessor::ReleaseDevice()
 
 	m_StatsBackground.InvalidateDeviceObjects();
 	m_Font3D.InvalidateDeviceObjects();
+	m_FontNotice.InvalidateDeviceObjects();
+	m_NoticeBackground.InvalidateDeviceObjects();
 	m_Rect3D.InvalidateDeviceObjects();
 
 	m_Underlay.InvalidateDeviceObjects();
@@ -1646,6 +1648,8 @@ HRESULT CDX11VideoProcessor::SetDevice(ID3D11Device *pDevice, ID3D11DeviceContex
 	HRESULT hr3 = m_Font3D.InitDeviceObjects(m_pDevice, m_pDeviceContext);
 	DLogIf(FAILED(hr3), L"m_Font3D.InitDeviceObjects() failed with error {}", HR2Str(hr3));
 	if (SUCCEEDED(hr3)) {
+		m_FontNotice.InitDeviceObjects(m_pDevice, m_pDeviceContext);
+		m_NoticeBackground.InitDeviceObjects(m_pDevice, m_pDeviceContext);
 		hr3 = m_StatsBackground.InitDeviceObjects(m_pDevice, m_pDeviceContext);
 		hr3 = m_Rect3D.InitDeviceObjects(m_pDevice, m_pDeviceContext);
 		hr3 = m_Underlay.InitDeviceObjects(m_pDevice, m_pDeviceContext);
@@ -6185,11 +6189,24 @@ void CDX11VideoProcessor::DrawNotice(ID3D11Texture2D* pRenderTarget)
 		m_strNotice.clear();
 		return;
 	}
+	// Half as large again as the statistics, and never less than a thirty-sixth of
+	// the window's height: the statistics are sized for a desk, and this is read from
+	// a sofa. S_FALSE means the face is already there at that size.
+	const SIZE rtSize = m_windowRect.Size();
+	const UINT fontH = (UINT)std::max(m_StatsFontH * 3 / 2, (int)rtSize.cy / 36) & ~1u;
+	SIZE text = {};
+	if (FAILED(m_FontNotice.CreateFontBitmap(L"Consolas", fontH, 0)) || FAILED(m_FontNotice.GetTextExtent(m_strNotice.c_str(), &text))) {
+		return;
+	}
 	ID3D11RenderTargetView* pRenderTargetView = nullptr;
 	if (S_OK == m_pDevice->CreateRenderTargetView(pRenderTarget, nullptr, &pRenderTargetView)) {
-		const SIZE rtSize = m_windowRect.Size();
-		const int y = m_bShowStats ? m_StatsRect.bottom + 8 : m_StatsTextPoint.y;
-		m_Font3D.Draw2DText(pRenderTargetView, rtSize, m_StatsTextPoint.x, y, m_dwStatsTextColor, m_strNotice.c_str());
+		const int pad = (int)fontH / 3;
+		const int x = m_StatsRect.left;
+		const int y = m_bShowStats ? m_StatsRect.bottom + 8 : m_StatsRect.top;
+		const RECT box = { x, y, x + text.cx + 2 * pad, y + text.cy + 2 * pad };
+		m_NoticeBackground.Set(box, rtSize, D3DCOLOR_ARGB(170, 0, 0, 0));
+		m_NoticeBackground.Draw(pRenderTargetView, rtSize);
+		m_FontNotice.Draw2DText(pRenderTargetView, rtSize, (float)(x + pad), (float)(y + pad), D3DCOLOR_XRGB(255, 255, 255), m_strNotice.c_str());
 		pRenderTargetView->Release();
 	}
 }

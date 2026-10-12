@@ -1073,7 +1073,7 @@ The **Presets** tab holds eight sets of settings. Each line has a name, a key, *
   was saved in.
 - The **key** recalls the preset while a film plays, without opening the options: the
   preset is applied, becomes the current settings, and its name stays on the picture for two
-  seconds (Direct3D 11). The filter swallows the key, as it does the DLSS 5 NR toggle key,
+  seconds (Direct3D 11), larger than the statistics and on a dark box, paused or playing. The filter swallows the key, as it does the DLSS 5 NR toggle key,
   and a key already given to another preset or to that toggle is refused. A name or a key
   changed without *Save* is written on Apply.
 - The key is two lists: what is **held** (nothing, Ctrl, Shift, Alt or any of them together)

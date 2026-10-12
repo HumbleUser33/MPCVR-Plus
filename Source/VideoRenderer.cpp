@@ -612,13 +612,35 @@ void CMpcVideoRenderer::RecallPreset(int slot)
 	}
 	KeepInstallation(sets, m_Sets);
 	sets.bShowStats = m_Sets.bShowStats;   // recalled with the statistics as they are, up or not
-	SetSettings(sets);
-	SaveSettings();
 
+	// The name goes up before the settings go in. A film that is paused is drawn again
+	// by the settings themselves and by nothing after: with the name posted afterwards
+	// that picture went out without it, and the next recall showed the name of this
+	// one -- or none, or the wrong one, as the redraws fell.
 	wchar_t name[64] = {};
 	GetPresetInfo(slot, name, (int)std::size(name), nullptr);
 	m_VideoProcessor->ShowNotice(name[0] ? std::format(L"Preset {}: {}", slot + 1, name)
 	                                     : std::format(L"Preset {}", slot + 1));
+	SetSettings(sets);
+	SaveSettings();
+
+	// Paused, nothing draws the name unless asked, and nothing takes it down either.
+	if (m_filterState != State_Running) {
+		Redraw();
+	}
+	if (m_hNoticeTimer) {
+		DeleteTimerQueueTimer(nullptr, m_hNoticeTimer, INVALID_HANDLE_VALUE);
+		m_hNoticeTimer = nullptr;
+	}
+	CreateTimerQueueTimer(&m_hNoticeTimer, nullptr, NoticeTimerProc, this, 2600, 0, WT_EXECUTEONLYONCE);
+}
+
+void CALLBACK CMpcVideoRenderer::NoticeTimerProc(void* pParam, BOOLEAN)
+{
+	auto pThis = static_cast<CMpcVideoRenderer*>(pParam);
+	if (pThis->m_filterState != State_Running) {
+		pThis->Redraw();
+	}
 }
 
 STDMETHODIMP CMpcVideoRenderer::SavePreset(int slot, const Settings_t& sets, LPCWSTR name, int vk)
@@ -751,6 +773,11 @@ CMpcVideoRenderer::~CMpcVideoRenderer()
 	DLog(L"CMpcVideoRenderer::~CMpcVideoRenderer()");
 
 	RemoveToggleKeyHook();
+	if (m_hNoticeTimer) {
+		// Waits for a callback that is running: it must not outlive what it draws with.
+		DeleteTimerQueueTimer(nullptr, m_hNoticeTimer, INVALID_HANDLE_VALUE);
+		m_hNoticeTimer = nullptr;
+	}
 
 	UnregisterClassW(g_szClassName, g_hInst);
 

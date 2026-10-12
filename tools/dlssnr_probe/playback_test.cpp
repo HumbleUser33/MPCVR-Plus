@@ -1084,9 +1084,16 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 			}
 			// F7 alone first, which belongs to nobody: preset 2 wants Ctrl held with it.
 			// Then Ctrl+F7, then Ctrl+F6, which is not preset 1's key either, then F6.
-			if (i == 25 || i == 40 || i == 55 || i == 70) {
-				const UINT vk = (i == 25 || i == 40) ? VK_F7 : VK_F6;
-				const bool bCtrl = (i == 40 || i == 55);
+			// And paused, where nothing draws the name unless the recall asks for it:
+			// Ctrl+F7 a second into the pause, F6 four seconds later, once the first
+			// name has had time to come down.
+			if (i == 90) {
+				pMC->Pause();
+				printf("   %4.1f s  -- paused --\n", i / 10.0);
+			}
+			if (i == 25 || i == 40 || i == 55 || i == 70 || i == 100 || i == 140) {
+				const UINT vk = (i == 25 || i == 40 || i == 100) ? VK_F7 : VK_F6;
+				const bool bCtrl = (i == 40 || i == 55 || i == 100);
 				// Real input, not a posted message: a WH_KEYBOARD hook is only shown
 				// what comes off the input queue, so a posted key walks straight
 				// past it and proves nothing.

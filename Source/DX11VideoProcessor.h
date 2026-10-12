@@ -182,6 +182,10 @@ private:
 	// Statistics
 	CD3D11Rectangle m_StatsBackground;
 	CD3D11Font      m_Font3D;
+	// The notice: a preset's name, in a face of its own, larger than the statistics,
+	// on a box that keeps it readable over a bright picture.
+	CD3D11Font      m_FontNotice;
+	CD3D11Rectangle m_NoticeBackground;
 	CD3D11Rectangle m_Rect3D;
 	CD3D11Rectangle m_Underlay;
 	CD3D11Lines     m_Lines;
