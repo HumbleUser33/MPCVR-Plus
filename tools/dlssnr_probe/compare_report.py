@@ -45,7 +45,7 @@ NOISE = ("frames", "sync offset", "state changes", "Render ahead", "centre pixel
 # through, that have nothing to measure.
 NOISE_STEPS = ("settings changed while playing", "the processor's extras, both ways",
                "pictures from a decoder's device")
-STEP = re.compile(r"^\[STEP\] (.+?)(?: -- exit code \d+)?$")
+STEP = re.compile(r"^\[STEP\] (.+?)(?: -- exit code -?\d+)?$")
 VERDICT = re.compile(r"(\d+) (?:failure\(s\)|check\(s\) failed)")
 
 
@@ -79,10 +79,14 @@ def read(path):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    args = sys.argv[1:]
     tol = 0.1
-    if "-t" in sys.argv:
-        tol = float(sys.argv[sys.argv.index("-t") + 1])
+    if "-t" in args:
+        # The tolerance does not begin with a dash: left among the arguments it counted
+        # as a third report, and -t printed the usage instead of comparing.
+        at = args.index("-t")
+        tol = float(args[at + 1])
+        del args[at:at + 2]
     if len(args) != 2:
         print(__doc__)
         return 2

@@ -151,6 +151,12 @@ static bool ReadRgbaHalf(ID3D11DeviceContext* ctx, ID3D11Texture2D* stage, int W
 			(const HALF*)((const BYTE*)mr.pData + (size_t)mr.RowPitch * y), sizeof(HALF), 4 * (size_t)W);
 	}
 	ctx->Unmap(stage, 0);
+	// Direct3D does not destroy an object when it is released, only at the next Flush.
+	// The suites make their textures afresh for every picture and read each one back
+	// through here, and on an RTX 4060 nothing else was flushing them: the sharpening
+	// suite reached 24 GB of memory and 7 GB of the card's, and died of bad_alloc in its
+	// third method. With this it peaks at 4.3 GB and 370 MB.
+	ctx->Flush();
 	return true;
 }
 

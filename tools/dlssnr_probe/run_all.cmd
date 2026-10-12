@@ -68,9 +68,13 @@ SET "LINE=%~2"
 ECHO   %WHAT%
 ECHO ========================================================================>> "%REPORT%"
 ECHO [STEP] %WHAT%>> "%REPORT%"
-ECHO [CMD ] %LINE%>> "%REPORT%"
+REM The redirection goes first: after a line that ends on "--seconds 4", cmd reads "4>>"
+REM as a handle, and the line went to the console without its number.
+>> "%REPORT%" ECHO [CMD ] %LINE%
 ECHO ========================================================================>> "%REPORT%"
 %LINE% >> "%REPORT%" 2>&1
-IF ERRORLEVEL 1 ECHO [STEP] %WHAT% -- exit code !ERRORLEVEL!>> "%REPORT%"
+REM A program that dies ends on a negative code, which IF ERRORLEVEL 1 does not see: the
+REM sharpening suite once ran out of memory part of the way through and nothing here said so.
+IF NOT "!ERRORLEVEL!"=="0" >> "%REPORT%" ECHO [STEP] %WHAT% -- exit code !ERRORLEVEL!
 ECHO.>> "%REPORT%"
 EXIT /B 0
