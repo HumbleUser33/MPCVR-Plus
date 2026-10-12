@@ -17,9 +17,11 @@
 // Point it at a copy of the player, not the installed one, and save
 // HKCU\Software\MPC-HC first: the player writes its settings when it closes.
 //
-// Build: cl /nologo /EHsc /std:c++20 /O2 /MT mpchc_drive.cpp user32.lib
+// Build: cl /nologo /EHsc /std:c++20 /O2 /MT mpchc_drive.cpp user32.lib gdi32.lib
 
 #include <windows.h>
+#include <commctrl.h>
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -35,6 +37,7 @@ static int g_hz = 0;              // --hz N: the screen at N Hz for the run, and
 static int g_hold = 0;            // --hold N: only play for N seconds, for something else to watch
 static std::wstring g_size;       // --size W,H: the player's window, when not fullscreen
 static int g_attach = 0;          // --attach N: watch a player that is already running for N seconds, touch nothing
+static std::wstring g_shots;      // --shots PREFIX: the options, one picture a tab, as the player's theme leaves them
 static bool g_verbose = false;   // --verbose: what the Filters menu held
 
 // --windows: every window the player makes, shows, hides or destroys while the options
@@ -375,6 +378,86 @@ static void Visit(int comboId, int position)
 	g_bWindowsNow = false;
 }
 
+// A window's rectangle off the screen, as a BMP: what the user sees, theme and all.
+static void SaveWindow(HWND hwnd, const std::wstring& path)
+{
+	RECT rc = {};
+	GetWindowRect(hwnd, &rc);
+	const int w = rc.right - rc.left, h = rc.bottom - rc.top;
+	HDC screen = GetDC(nullptr);
+	HDC mem = CreateCompatibleDC(screen);
+	BITMAPINFO bi = {};
+	bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
+	bi.bmiHeader.biWidth = w;
+	bi.bmiHeader.biHeight = -h;
+	bi.bmiHeader.biPlanes = 1;
+	bi.bmiHeader.biBitCount = 24;
+	void* bits = nullptr;
+	HBITMAP bmp = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+	HGDIOBJ old = SelectObject(mem, bmp);
+	BitBlt(mem, 0, 0, w, h, screen, rc.left, rc.top, SRCCOPY);
+	const DWORD stride = ((w * 3 + 3) & ~3), size = stride * h;
+	BITMAPFILEHEADER fh = {};
+	fh.bfType = 0x4D42;
+	fh.bfOffBits = sizeof(fh) + sizeof(bi.bmiHeader);
+	fh.bfSize = fh.bfOffBits + size;
+	FILE* f = nullptr;
+	if (!_wfopen_s(&f, path.c_str(), L"wb") && f) {
+		fwrite(&fh, sizeof(fh), 1, f);
+		fwrite(&bi.bmiHeader, sizeof(bi.bmiHeader), 1, f);
+		fwrite(bits, size, 1, f);
+		fclose(f);
+	}
+	SelectObject(mem, old);
+	DeleteObject(bmp);
+	DeleteDC(mem);
+	ReleaseDC(nullptr, screen);
+}
+
+// The options opened, each of the page's tabs brought up in turn and photographed,
+// and the options cancelled.
+static void ShootOptions()
+{
+	if (!OpenOptions()) {
+		return;
+	}
+	const HWND dlg = TopLevel(L"#32770");
+	Sleep(800);
+	// The renderer's own tab control is the one with the most tabs; the sheet's has two.
+	struct T { HWND best; int count; } t = {};
+	EnumChildWindows(dlg, [](HWND h, LPARAM l) -> BOOL {
+		wchar_t name[64] = {};
+		GetClassNameW(h, name, 64);
+		if (!wcscmp(name, L"SysTabControl32")) {
+			const int n = (int)SendMessageW(h, TCM_GETITEMCOUNT, 0, 0);
+			if (n > ((T*)l)->count) {
+				((T*)l)->best = h;
+				((T*)l)->count = n;
+			}
+		}
+		return TRUE;
+	}, (LPARAM)&t);
+	printf("   options %p, tab control %p with %d tabs\n", (void*)dlg, (void*)t.best, t.count);
+	// The mouse out of the way: a hovered control is drawn differently.
+	RECT rc = {};
+	GetWindowRect(dlg, &rc);
+	SetCursorPos(rc.right + 40, rc.bottom + 40);
+	for (int i = 0; i < (std::max)(t.count, 1); i++) {
+		if (t.best) {
+			// By message and without a pointer: the tab control is in another process,
+			// and a rectangle asked of it would be written through our address in its
+			// memory. Setting the focus tab selects it and tells the page.
+			SendMessageW(t.best, TCM_SETCURFOCUS, i, 0);
+		}
+		Sleep(700);
+		SaveWindow(dlg, g_shots + std::to_wstring(i) + L".bmp");
+	}
+	if (HWND cancel = Child(dlg, L"Button", IDCANCEL)) {
+		SendMessageW(cancel, BM_CLICK, 0, 0);
+	}
+	Sleep(500);
+}
+
 // The mode is put back whatever happens: this is somebody's screen.
 static DEVMODEW g_modeBefore = {};
 static bool g_bModeChanged = false;
@@ -470,6 +553,8 @@ int wmain(int argc, wchar_t** argv)
 			g_size = argv[++i];
 		} else if (!wcscmp(argv[i], L"--windows")) {
 			g_bWindows = true;
+		} else if (!wcscmp(argv[i], L"--shots") && i + 1 < argc) {
+			g_shots = argv[++i];
 		} else if (!wcscmp(argv[i], L"--mouse")) {
 			g_byMouse = true;
 		} else if (!wcscmp(argv[i], L"--noapply")) {
@@ -527,7 +612,10 @@ int wmain(int argc, wchar_t** argv)
 		Sleep(3000);
 	}
 
-	if (g_hold > 0) {
+	if (!g_shots.empty()) {
+		ShootOptions();
+		positions.clear();
+	} else if (g_hold > 0) {
 		Sleep(g_hold * 1000);
 		positions.clear();
 	} else {
