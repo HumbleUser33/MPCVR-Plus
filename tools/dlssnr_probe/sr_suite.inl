@@ -256,6 +256,11 @@ static int RunSR(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, con
 			Head("Shutdown and a second session");
 			sr.Shutdown();
 			Check(SUCCEEDED(dev->GetDeviceRemovedReason()), "device survived Shutdown");
+			// nvngx_dlss.dll is still in the process and will call into the runtime that
+			// loaded it for as long as it is (CDlssSR::LoadCore), so that runtime may not
+			// have gone. Run with --nonr for this to mean something: a DLSS 5 NR session
+			// holds a runtime of its own.
+			Check(GetModuleHandleW(L"_nvngx.dll") != nullptr, "the NGX runtime is still loaded after Shutdown");
 			const bool again = sr.Init(dev, dllPath) && sr.CreateFeature(1280, 720, 2560, 1440, NGX_DLSS_PRESET_Default)
 				&& sr.Evaluate(nullptr, 41.7f);
 			Check(again, "Init, CreateFeature and Evaluate again");

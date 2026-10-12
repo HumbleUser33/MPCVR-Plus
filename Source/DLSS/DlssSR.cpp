@@ -344,6 +344,23 @@ bool CDlssSR::LoadCore()
 	if (!m_pfnInitExt || !m_pfnGetCaps || !m_pfnCreate || !m_pfnEvaluate || !m_pfnRelease || !m_pfnShutdown) {
 		return Fail(State::CoreNotFound, L"the driver's NGX runtime lacks the Direct3D 11 entry points");
 	}
+
+	// From here on the runtime stays in the process, whatever is freed. Its Init
+	// loads nvngx_dlss.dll, which no Shutdown and no FreeLibrary unloads again, and
+	// gives it a function of the runtime to call on every Evaluate
+	// (NVSDK_NGX_SetTelemetryEvaluateCallback). The snippet keeps the first one it
+	// is ever given: 310.9.1 puts it in a static it initialises once and leaves the
+	// later ones aside. So the runtime it met first has to be the one still there.
+	// Unloaded with one film and loaded again for the next, the runtime comes back
+	// where it was only if nothing took the address in between; when something did,
+	// the first Evaluate of the second film jumped to where the old one had been
+	// (0xC0000005 on an address of no module, now and then, in playback_test's
+	// five graphs in a row; every time once the address is taken on purpose).
+	HMODULE hPinned = nullptr;
+	if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+			(LPCWSTR)m_hCore, &hPinned)) {
+		Log(std::format(L"the NGX runtime could not be kept loaded ({})", GetLastError()));
+	}
 	return true;
 }
 
@@ -483,6 +500,7 @@ void CDlssSR::Shutdown()
 	m_bInitialised = false;
 
 	if (m_hCore) {
+		// LoadCore's reference, given back. The module itself stays: see there.
 		FreeLibrary(m_hCore);
 		m_hCore = nullptr;
 	}
