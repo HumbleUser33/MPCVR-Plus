@@ -34,7 +34,64 @@ static bool g_byMouse = false;    // --mouse: the options reached by right click
 static int g_hz = 0;              // --hz N: the screen at N Hz for the run, and back after
 static int g_hold = 0;            // --hold N: only play for N seconds, for something else to watch
 static std::wstring g_size;       // --size W,H: the player's window, when not fullscreen
+static int g_attach = 0;          // --attach N: watch a player that is already running for N seconds, touch nothing
 static bool g_verbose = false;   // --verbose: what the Filters menu held
+
+// --windows: every window the player makes, shows, hides or destroys while the options
+// are being used, with its class, its thread and where it is. A window that flashes for
+// one picture is seen here and nowhere else.
+static bool g_bWindows = false;
+static bool g_bWindowsNow = false;
+static ULONGLONG g_tickWindows = 0;
+
+static void CALLBACK OnWinEvent(HWINEVENTHOOK, DWORD event, HWND hwnd, LONG idObject, LONG idChild, DWORD thread, DWORD)
+{
+	if (!g_bWindowsNow || idObject != OBJID_WINDOW || idChild != 0 || !hwnd) {
+		return;
+	}
+	wchar_t cls[64] = {};
+	GetClassNameW(hwnd, cls, 64);
+	// The options' own controls are not what is looked for.
+	wchar_t top[64] = {};
+	GetClassNameW(GetAncestor(hwnd, GA_ROOT), top, 64);
+	if (!wcscmp(top, L"#32770") || !wcscmp(top, L"#32768") || !wcscmp(cls, L"tooltips_class32") || !wcscmp(cls, L"IME")
+			|| !wcscmp(cls, L"MSCTFIME UI") || !wcscmp(cls, L"SysShadow") || !wcscmp(cls, L"ComboLBox")) {
+		return;
+	}
+	// A move is only worth a line for the picture's own window and the player's.
+	if (event == EVENT_OBJECT_LOCATIONCHANGE && wcscmp(cls, L"VRWindow") && wcscmp(cls, L"MediaPlayerClassicW")) {
+		return;
+	}
+	if (event != EVENT_OBJECT_CREATE && event != EVENT_OBJECT_DESTROY && event != EVENT_OBJECT_SHOW && event != EVENT_OBJECT_HIDE
+			&& event != EVENT_OBJECT_REORDER && event != EVENT_OBJECT_PARENTCHANGE && event != EVENT_OBJECT_LOCATIONCHANGE) {
+		return;
+	}
+	RECT rc = {};
+	GetWindowRect(hwnd, &rc);
+	const wchar_t* what = event == EVENT_OBJECT_CREATE ? L"made" : event == EVENT_OBJECT_DESTROY ? L"destroyed"
+		: event == EVENT_OBJECT_SHOW ? L"shown" : event == EVENT_OBJECT_HIDE ? L"hidden"
+		: event == EVENT_OBJECT_REORDER ? L"reordered" : event == EVENT_OBJECT_PARENTCHANGE ? L"reparented" : L"moved";
+	printf("      +%5llu ms  %-10ls %p %-28.28ls thread %lu  %ld,%ld %ldx%ld  parent %p\n", GetTickCount64() - g_tickWindows, what,
+		(void*)hwnd, cls, thread, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, (void*)GetParent(hwnd));
+}
+
+// Sleep, with the messages the event hook needs pumped meanwhile.
+static void Wait(DWORD ms)
+{
+	const ULONGLONG end = GetTickCount64() + ms;
+	for (;;) {
+		MSG msg;
+		while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+			DispatchMessageW(&msg);
+		}
+		const ULONGLONG now = GetTickCount64();
+		if (now >= end) {
+			return;
+		}
+		MsgWaitForMultipleObjects(0, nullptr, FALSE, (DWORD)(end - now), QS_ALLINPUT);
+	}
+}
+#define Sleep Wait
 
 struct Find { const wchar_t* cls; DWORD pid; HWND found; HWND except; };
 
@@ -280,6 +337,8 @@ static void Visit(int comboId, int position)
 	}
 	const HWND dlg = TopLevel(L"#32770");
 	Sleep(500);
+	g_tickWindows = GetTickCount64();
+	g_bWindowsNow = g_bWindows;
 	if (position >= 0) {
 		const HWND combo = Child(dlg, L"ComboBox", comboId);
 		if (!combo) {
@@ -313,6 +372,7 @@ static void Visit(int comboId, int position)
 		SendInput(2, in, sizeof(INPUT));
 	}
 	Sleep(800);
+	g_bWindowsNow = false;
 }
 
 // The mode is put back whatever happens: this is somebody's screen.
@@ -346,8 +406,52 @@ static bool SetDisplayHz(int hz)
 	return true;
 }
 
+// --attach: somebody else does the handling. For N seconds, every window the player
+// makes or loses and every time the pointer appears or goes, each with its moment, so
+// that the two can be laid side by side.
+static int Attach(int seconds)
+{
+	const HWND main = FindWindowW(L"MediaPlayerClassicW", nullptr);
+	if (!main) {
+		printf("no MPC-HC is running\n");
+		return 1;
+	}
+	GetWindowThreadProcessId(main, &g_pid);
+	g_main = main;
+	SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_PARENTCHANGE, nullptr, OnWinEvent, g_pid, 0, WINEVENT_OUTOFCONTEXT);
+	g_tickWindows = GetTickCount64();
+	g_bWindowsNow = true;
+	const HWND video = Child(main, L"VRWindow", -1);
+	printf("watching MPC-HC (process %lu, interface thread %lu) for %d s; video window %p on thread %lu\n", g_pid,
+		GetWindowThreadProcessId(main, nullptr), seconds, (void*)video, video ? GetWindowThreadProcessId(video, nullptr) : 0);
+	int was = -1;
+	HWND underWas = nullptr;
+	for (int i = 0; i < seconds * 20; i++) {
+		Wait(50);
+		CURSORINFO ci = { sizeof(ci) };
+		GetCursorInfo(&ci);
+		const int showing = ((ci.flags & CURSOR_SHOWING) && ci.hCursor) ? 1 : 0;
+		POINT pt = {};
+		GetCursorPos(&pt);
+		const HWND under = WindowFromPoint(pt);
+		if (showing != was || under != underWas) {
+			wchar_t cls[64] = {};
+			GetClassNameW(under, cls, 64);
+			printf("      +%5llu ms  pointer %s at %ld,%ld over %p %.28ls thread %lu\n", GetTickCount64() - g_tickWindows,
+				showing ? "SHOWING" : "hidden", pt.x, pt.y, (void*)under, cls, GetWindowThreadProcessId(under, nullptr));
+			fflush(stdout);
+			was = showing;
+			underWas = under;
+		}
+	}
+	return 0;
+}
+
 int wmain(int argc, wchar_t** argv)
 {
+	if (argc >= 3 && !wcscmp(argv[1], L"--attach")) {
+		return Attach(_wtoi(argv[2]));
+	}
 	if (argc < 3) {
 		printf("mpchc_drive.exe <mpc-hc64.exe> <film> [--windowed] [--select A,B,...] [--combo ID]\n");
 		return 2;
@@ -364,6 +468,8 @@ int wmain(int argc, wchar_t** argv)
 			g_hold = _wtoi(argv[++i]);
 		} else if (!wcscmp(argv[i], L"--size") && i + 1 < argc) {
 			g_size = argv[++i];
+		} else if (!wcscmp(argv[i], L"--windows")) {
+			g_bWindows = true;
 		} else if (!wcscmp(argv[i], L"--mouse")) {
 			g_byMouse = true;
 		} else if (!wcscmp(argv[i], L"--noapply")) {
@@ -403,6 +509,9 @@ int wmain(int argc, wchar_t** argv)
 		printf("the player's window never came\n");
 		TerminateProcess(pi.hProcess, 1);
 		return 1;
+	}
+	if (g_bWindows) {
+		SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_PARENTCHANGE, nullptr, OnWinEvent, g_pid, 0, WINEVENT_OUTOFCONTEXT);
 	}
 	for (int t = 0; t < 15000 && !Child(g_main, L"VRWindow", -1); t += 200) {
 		Sleep(200);

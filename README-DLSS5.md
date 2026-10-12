@@ -1278,6 +1278,7 @@ playback_test.exe --hz 30 --fps 30 --jolt   a film at the screen's own rate, and
 playback_test.exe --presets     two presets saved, each recalled by its key while it plays
 playback_test.exe --rewindow    the video window made again from another thread, and whose it is
 mpchc_drive.exe <mpc-hc64.exe> <film>   a real MPC-HC taken through the options; is the pointer hidden after?
+mpchc_drive.exe --attach 40     watch a running MPC-HC: windows made or lost, pointer shown or hidden, each timed
 dlssnr_harness.exe --tdownscale  what each downscaler keeps and what it lets fold back
 dlssnr_harness.exe --tdownport   and that those shaders are the kernels they are written from
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio
