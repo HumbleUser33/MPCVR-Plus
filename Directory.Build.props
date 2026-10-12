@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+    Visual Studio 2026 builds with the v145 tools, and those no longer target
+    Windows 7: the Win32 filter they make imports GetSystemTimePreciseAsFileTime
+    and will not load there. Every release through 1.9.1 was made with the v143
+    tools (14.44). So when Visual Studio 2026 has them installed beside its own,
+    with their MFC, they are used and a release stays what it was.
+
+    v145 remains the platform toolset. Visual Studio 2026 knows no toolset named
+    v143 (asking for it is MSB8020); it takes the older compiler by its version,
+    which is what VCToolsVersion says. The version is read from the file the
+    installer writes, so no build number is kept here.
+
+    Without the v143 tools, or with them but without their MFC, nothing is set
+    and the build is upstream's own. Visual Studio 2022 is not concerned: v143
+    is what platform.props already gives it.
+  -->
+  <PropertyGroup Condition="'$(VisualStudioVersion)' == '18.0' And '$(VCToolsVersion)' == ''">
+    <V143ToolsDefault>$(VsInstallRoot)\VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt</V143ToolsDefault>
+    <V143ToolsVersion Condition="Exists('$(V143ToolsDefault)')">$([System.IO.File]::ReadAllText('$(V143ToolsDefault)').Trim())</V143ToolsVersion>
+    <VCToolsVersion Condition="'$(V143ToolsVersion)' != '' And Exists('$(VsInstallRoot)\VC\Tools\MSVC\$(V143ToolsVersion)\atlmfc\include\afx.h')">$(V143ToolsVersion)</VCToolsVersion>
+  </PropertyGroup>
+  <!--
+    Which compiler made a build is otherwise only in the linker version of the
+    file's header, so each project says it.
+  -->
+  <Target Name="SayCompiler" BeforeTargets="ClCompile">
+    <Message Importance="high" Text="MSVC $(VCToolsVersion)" />
+  </Target>
+</Project>

@@ -10,7 +10,18 @@ IF "%VSPATH%"=="" (
   ECHO Visual Studio not found.
   EXIT /B 1
 )
-CALL "%VSPATH%\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64 -no_logo || EXIT /B 1
+
+REM The compiler the filter is built with, so that the tools measure the code a release
+REM carries. Under Visual Studio 2026 that is the v143 one when it is installed with its
+REM MFC -- the rule of Directory.Build.props, which says why. Under Visual Studio 2022 the
+REM same lines name the compiler it would have taken anyway.
+SET VCVER=
+SET "V143=%VSPATH%\VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt"
+IF EXIST "%V143%" FOR /F "usebackq tokens=*" %%v IN ("%V143%") DO (
+  IF EXIST "%VSPATH%\VC\Tools\MSVC\%%v\atlmfc\include\afx.h" SET VCVER=-vcvars_ver=%%v
+)
+CALL "%VSPATH%\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64 -no_logo %VCVER% || EXIT /B 1
+ECHO MSVC %VCToolsVersion%
 
 ECHO Building the caller shim (nvngx.dll)...
 cl /nologo /EHsc /std:c++20 /O2 /MT /LD "..\..\NgxShim\ngxshim.cpp" /Fe:nvngx.dll ^
@@ -95,6 +106,10 @@ ECHO Building the freeze dump (what a frozen player is waiting for)...
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
    /DUNICODE /D_UNICODE freeze_dump.cpp ^
    /Fe:freeze_dump.exe /link dbghelp.lib || EXIT /B 1
+
+ECHO Building the player driver (a real MPC-HC taken through the renderer's options)...
+cl /nologo /EHsc /std:c++20 /O2 /MT mpchc_drive.cpp ^
+   /Fe:mpchc_drive.exe /link user32.lib gdi32.lib || EXIT /B 1
 
 DEL /Q *.obj *.exp *.cso *.res 2>NUL
 

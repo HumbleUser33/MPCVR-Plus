@@ -79,6 +79,17 @@ Requirements: **Visual Studio 2022** with the **C++ MFC for v143 build tools (x8
 component. Upstream declares `UseOfMfc`, and MSBuild enforces it even though no source
 actually includes MFC.
 
+**Visual Studio 2026** builds it as well, with its own v145 tools, and upstream provides for
+that. But those tools no longer target Windows 7, and it shows: the Win32 filter they make
+imports `GetSystemTimePreciseAsFileTime`, which Windows 7 does not have, so it will not load
+there. The x64 one asks Windows for nothing it did not ask before. To build under 2026 what
+2022 builds, add three individual components in its installer: *MSVC v143 - VS 2022 C++
+x64/x86 build tools (v14.44-17.14)*, and *C++ v14.44 (17.14) MFC* and *ATL for v143 build
+tools (x86 & x64)*, which the first does not bring. `Directory.Build.props` then takes the
+14.44 compiler by itself and each project says `MSVC 14.44…` as it builds; the filter that
+comes out imports exactly what the released 1.9.1 does, 268 entries on x64 and 253 on Win32.
+Without the components the same line says 14.5x and the build is v145's.
+
 ```
 build_mpcvr.cmd NoWait
 ```
