@@ -2599,15 +2599,33 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 		const double period = m_dRefreshPeriodMs * 10000.0;
 		const bool bRefreshPerFrame = period > 0 && rtFrameDur > 0.9 * period && rtFrameDur < 1.5 * period;
 		const double waitMs = ((double)m_tickOnScreen - (double)m_tickPresentCall) * 1000.0 / GetPreciseTicksPerSecond();
-		if (m_bOnScreenKnown && bRefreshPerFrame && !m_bDoubleFrames
-				&& m_pFilter->m_filterState == State_Running && !m_pFilter->m_bClockStalled
-				&& waitMs > 1.15 * m_dRefreshPeriodMs) {
-			if (++m_nLateOnScreen >= 8) {
+		//
+		// And it is done once, not as a habit. A picture can wait more than a period
+		// for reasons a missing picture does nothing about -- a GPU that has not
+		// finished it, a screen that does not refresh as it says. Leaving pictures out
+		// then costs them and mends nothing: on a television at 25 Hz it went on at
+		// two a second. So the pictures that follow one left out are the judges: if
+		// they wait as long as before eight times running, nothing more is left out
+		// until the stream is flushed. If they wait a refresh less and still too long,
+		// the film was two refreshes behind, and a second picture goes.
+		const bool bEligible = m_bOnScreenKnown && bRefreshPerFrame && !m_bDoubleFrames
+			&& m_pFilter->m_filterState == State_Running && !m_pFilter->m_bClockStalled;
+		if (!bEligible) {
+			m_nLateOnScreen = 0;
+		} else if (waitMs > 1.15 * m_dRefreshPeriodMs) {
+			if (++m_nLateOnScreen >= 8 && !m_bCatchUpFutile) {
 				m_nLateOnScreen = 0;
-				m_bSkipPresent = true;
+				if (m_bCatchUpJudged && waitMs > m_dWaitAtCatchUp - 0.5 * m_dRefreshPeriodMs) {
+					m_bCatchUpFutile = true;
+				} else {
+					m_bCatchUpJudged = true;
+					m_dWaitAtCatchUp = waitMs;
+					m_bSkipPresent = true;
+				}
 			}
 		} else {
 			m_nLateOnScreen = 0;
+			m_bCatchUpJudged = false;
 		}
 	}
 
@@ -5633,6 +5651,8 @@ void CDX11VideoProcessor::Flush()
 	m_rtStart = 0;
 	m_nLateOnScreen = 0;
 	m_bSkipPresent = false;
+	m_bCatchUpJudged = false;
+	m_bCatchUpFutile = false;
 	m_DlssNR.RequestReset();
 	m_DlssStabilizer.Reset();
 	m_DlssSR.RequestReset();
@@ -6078,7 +6098,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	if (m_bOnScreenKnown) {
 		str += std::format(L"\nOn screen     : {:+3} ms, queue {}", (m_rtOnScreenOffset + 5000) / 10000, m_uPresentQueue);
 		if (m_uCaughtUp) {
-			str += std::format(L", caught up {}", m_uCaughtUp);
+			str += std::format(L", caught up {}{}", m_uCaughtUp, m_bCatchUpFutile ? L" (no use, stopped)" : L"");
 		}
 	}
 

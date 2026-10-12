@@ -266,6 +266,9 @@ private:
 	unsigned m_nLateOnScreen = 0;
 	bool     m_bSkipPresent = false;
 	unsigned m_uCaughtUp = 0;
+	bool     m_bCatchUpJudged = false;  // a picture was left out and it is not yet known whether that helped
+	bool     m_bCatchUpFutile = false;  // it did not: no more until the stream is flushed
+	double   m_dWaitAtCatchUp = 0;      // how long pictures waited when the last one was left out, ms
 	uint64_t m_tickSampleStart = 0;     // GetPreciseTick() when ProcessSample began on the current sample
 	// Time of each DLSS stage and of the mpv prescalers, for the statistics.
 	CGpuStageTimes m_DlssStageTimes;
