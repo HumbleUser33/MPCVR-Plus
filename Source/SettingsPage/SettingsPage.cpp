@@ -351,7 +351,10 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_COMBO4,
 		L"How finished pictures reach the screen.\n"
 		"Flip is the modern path and the lower latency one. Discard is\n"
-		"the old one, for drivers that misbehave with flip." },
+		"the old one, for drivers that misbehave with flip. It keeps no\n"
+		"account of the refreshes, so \"Render ahead\" cannot choose one\n"
+		"for each picture with it; an HDR picture uses Flip whatever\n"
+		"is chosen here." },
 	{ IDC_CHECK11,
 		L"Takes the display outright instead of going through the desktop.\n"
 		"Lower latency, and it can break overlays, alt-tab and anything\n"
@@ -359,20 +362,27 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_CHECK15,
 		L"Waits for the display's vertical blank before presenting.\n"
 		"Can steady tearing on some setups. It costs a refresh of\n"
-		"latency -- 42 ms at 24 Hz -- during which the renderer is busy." },
+		"latency -- 42 ms at 24 Hz -- during which the renderer is busy.\n"
+		"Not used while \"Render ahead\" chooses a refresh for each\n"
+		"picture: that already calls Present just after a blank." },
 	{ IDC_CHECK13,
 		L"Holds each picture until its own time on the audio clock rather\n"
 		"than presenting it as soon as it is ready.\n"
-		"Leave it on: it is what keeps the picture on the sound." },
+		"Leave it on: it is what keeps the picture on the sound.\n"
+		"Not used while \"Render ahead\" chooses a refresh for each picture." },
 	{ IDC_CHECK16,
 		L"Rebuilds the device when the window moves to another screen.\n"
 		"Needed only if moving the player between monitors leaves the\n"
 		"picture wrong." },
 	{ IDC_CHECK26,
-		L"Starts each picture early by the time the heavy passes take --\n"
-		"DLSS, FSRCNNX, RAVU-zoom -- and holds it until its own time, so\n"
-		"they do not make the video late against the sound.\n"
-		"Does nothing while none of them runs. Direct3D 11." },
+		L"Gives every picture a refresh of its own, chosen in advance: the\n"
+		"one nearest its time on the audio clock. Each picture is started\n"
+		"early -- by the time the screen's queue and the heavy passes take --\n"
+		"and Present is called just after a vertical blank, so that it is\n"
+		"on the screen when its time comes and not a refresh or two later.\n"
+		"The statistics then say \"scheduled\", and how many pictures had\n"
+		"to be repeated or dropped to keep the step. Needs the Flip swap\n"
+		"effect (an HDR picture always has it). Direct3D 11." },
 	{ IDC_CHECK2,
 		L"Draws the renderer's own statistics over the picture: formats,\n"
 		"what each stage costs, sync offset.\n"

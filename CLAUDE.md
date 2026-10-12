@@ -170,6 +170,17 @@ it does not say:
   picture on time into a window the desktop no longer updates, and every number the filter
   prints stays perfect. `playback_test --toggle` watches the desktop itself for this; a
   screen copy made with GDI does not see flip-model content.
+- **For anything about pacing, trace the real player.** With `MPCVR_PACING_TRACE=<file>` in
+  the player's environment the renderer writes a line a picture, and
+  `tools\dlssnr_probe\pacing_report.py` says on which refresh each was shown and how long
+  after its time. The bench's window does not behave as a fullscreen player does: a
+  `Present` reaches the screen a refresh sooner in it once it has settled, and one called
+  3 ms after a refresh was in time or not from picture to picture there, which fullscreen in
+  MPC-HC it always was. What holds in one has to be measured in the other.
+- **A setting changes what is measured.** The bench takes the filter's settings from the
+  registry, the maintainer's own: with *Swap effect: Discard* there is no flip model, DXGI
+  gives no refresh times, and none of the scheduled presentation runs. Set what the test is
+  about, and put it back.
 
 ## House style
 

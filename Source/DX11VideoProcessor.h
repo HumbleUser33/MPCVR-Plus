@@ -321,10 +321,25 @@ private:
 	// A prescaler counts while it runs, not while it is merely loaded: a film shown
 	// at its own size keeps the network in memory and gives it nothing to do, and
 	// holding those pictures back counted every one of them late for no reason.
-	bool RenderAheadActive() const { return m_bDlssRenderAhead && (m_bDlssNRActive || m_bDlssSRActive || m_bMpvLumaRan); }
+	// And every picture counts while pictures are being presented for a refresh chosen
+	// in advance: each has to be asked for early to be there for its own.
+	bool RenderAheadActive() const { return m_bDlssRenderAhead && (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_bMpvLumaRan); }
 	bool m_bMpvLumaRan = false;
 	void MarkPictureSubmitted();
 	void HoldUntilPresentTime(const REFERENCE_TIME frameStartTime, const bool bMeasure);
+
+	// Each picture given a refresh in advance, and Present called in time for it.
+	CPresentSchedule m_PresentSchedule;
+	bool m_bScheduled = false;                // the last picture was
+	REFERENCE_TIME m_rtScheduledOffset = 0;   // its refresh, less its own time
+	void ReadPresentSchedule();
+	void WaitForScheduledPresent(const CPresentSchedule::Plan& plan, const bool bMeasure);
+
+	// Every picture's way to the screen, written to a file when one is asked for.
+	CPacingTrace m_PacingTrace;
+	std::wstring m_strTraceNote;
+	void ReadShownForTrace(CPacingTrace::Shown& shown);
+	void NoteSwapChainForTrace();
 
 	CDlssStabilizer::Motion DlssMotionSource() const
 	{

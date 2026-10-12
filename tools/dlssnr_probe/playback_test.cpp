@@ -4,8 +4,12 @@
 // NR with SR, render ahead off and on -- it reads the statistics the renderer
 // draws (IExFilterConfig "statsText") ten times a second and reports:
 //
-//   sync offset  when Present returned, against the picture's time (the renderer's
-//                own Sync offset); without DLSS it sits about half a refresh early
+//   sync offset  the renderer's own Sync offset: the refresh chosen for the picture
+//                against the picture's time where the renderer chose one, when
+//                Present returned where it did not (the Discard swap effect, or
+//                render ahead off; it then sits about half a refresh early)
+//   on screen    the renderer's line of that name: what DXGI saw of a picture, and
+//                how many were repeated, dropped or late once the film had settled
 //   skipped      pictures the renderer dropped while measuring
 //   late         pictures render ahead held that were ready only after their time
 //
@@ -585,6 +589,7 @@ struct Result {
 	int lateAtStart = 0;
 	int lateAtEnd = 0;
 	std::wstring nrLine, srLine, dlssTimes, aheadLine;
+	std::wstring onScreenLine;   // what DXGI saw of a picture, and what the schedule had to do
 	std::wstring vprocLine, scalingLine, prescaleTimes;
 	std::wstring statsAll; // --chroma: the whole overlay, to see what else differs
 	std::vector<BYTE> picture;      // BGRA, top-down, as displayed
@@ -1168,6 +1173,7 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	result.srLine = StatsLine(text, L"DLSS SR       : ");
 	result.dlssTimes = StatsLine(text, L"DLSS (ms)     : ");
 	result.aheadLine = StatsLine(text, L"Render ahead  : ");
+	result.onScreenLine = StatsLine(text, L"On screen     : ");
 	result.vprocLine = StatsLine(text, L"VideoProcessor: ");
 	result.statsAll = text;
 	result.scalingLine = StatsLine(text, L"Scaling       : ");
@@ -2125,7 +2131,8 @@ int wmain(int argc, wchar_t* argv[])
 		printf("same where the luma has edges, where bleeding shows; offset: the constant\n");
 		printf("shift of Cb and Cr, in 8-bit levels.\n\n");
 	} else {
-		printf("Sync offset in ms: when Present returned, against the picture's time.\n\n");
+		printf("Sync offset in ms: the refresh chosen for the picture against the picture's time,\n");
+		printf("where the renderer chose one (\"scheduled\"); when Present returned, where it did not.\n\n");
 	}
 
 	const std::wstring exeDir = std::wstring(exe).substr(0, std::wstring(exe).find_last_of(L'\\'));
@@ -2254,6 +2261,9 @@ int wmain(int argc, wchar_t* argv[])
 		}
 		if (!r.aheadLine.empty()) {
 			wprintf(L"   Render ahead : %s\n", r.aheadLine.c_str());
+		}
+		if (!r.onScreenLine.empty()) {
+			wprintf(L"   On screen    : %s\n", r.onScreenLine.c_str());
 		}
 		if (!r.syncs.empty()) {
 			double sum = 0, squares = 0;

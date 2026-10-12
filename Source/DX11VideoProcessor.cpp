@@ -905,6 +905,9 @@ void CDX11VideoProcessor::ReleaseSwapChain()
 	m_pDXGIOutput.Release();
 	m_pDXGISwapChain4.Release();
 	m_pDXGISwapChain1.Release();
+	// The next one counts its refreshes and its Presents from nothing.
+	m_PresentSchedule.Reset();
+	m_bScheduled = false;
 
 	m_MaxDisplayLuminance = 0;
 }
@@ -2583,6 +2586,12 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 		m_rtOnScreenOffset = m_RenderStats.syncoffset
 			+ (REFERENCE_TIME)(((double)m_tickOnScreen - (double)GetPreciseTick()) * 10000000.0 / GetPreciseTicksPerSecond());
 	}
+	// A picture presented for a refresh chosen in advance is long gone from here by
+	// the time its own comes: when Present returned says nothing about it. What is
+	// worth showing, and drawing, is where its refresh is against its time.
+	if (m_bScheduled) {
+		m_RenderStats.syncoffset = m_rtScheduledOffset;
+	}
 
 	// With a refresh for every frame, a picture is presented once the one before it
 	// has been shown and is shown a refresh later: a film that starts late stays late
@@ -2612,7 +2621,9 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 		// they wait as long as before eight times running, nothing more is left out
 		// until the stream is flushed. If they wait a refresh less and still too long,
 		// the film was two refreshes behind, and a second picture goes.
-		const bool bEligible = m_bOnScreenKnown && bRefreshPerFrame && !m_bDoubleFrames
+		// None of it applies to a picture that was given its refresh in advance: the
+		// schedule keeps the step itself, and knows a late chain cannot form.
+		const bool bEligible = m_bOnScreenKnown && bRefreshPerFrame && !m_bDoubleFrames && !m_bScheduled
 			&& m_pFilter->m_filterState == State_Running && !m_pFilter->m_bClockStalled;
 		if (!bEligible) {
 			m_nLateOnScreen = 0;
@@ -3113,6 +3124,17 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	CheckPointer(m_TexSrcVideo.pTexture, E_FAIL);
 	CheckPointer(m_pDXGISwapChain1, E_FAIL);
 
+	// A redraw while the film plays is a Present nobody planned. The player asks for
+	// one whenever it moves the picture or changes what it writes over it -- its
+	// message after a change of sound track, of subtitles, a seek -- and that Present
+	// lands in the same refresh as a picture's own: the picture waits for it, goes in a
+	// refresh late, and the queue is one too long from then on. The picture that is
+	// due within a frame carries whatever changed, and is on time.
+	if (!field && m_bScheduled && m_pFilter->m_filterState == State_Running
+			&& (double)(GetPreciseTick() - m_tickPresentCall) < 0.25 * GetPreciseTicksPerSecond()) {
+		return S_OK;
+	}
+
 	if (field) {
 		m_FieldDrawn = field;
 		m_bDlssNewPicture = true; // not a redraw: the stabilizer may advance
@@ -3316,38 +3338,118 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	uint64_t tick3 = GetPreciseTick();
 	m_RenderStats.paintticks = tick3 - tick1;
 
-	// Catching up a refresh (see ProcessSample): this picture is drawn, so that
-	// everything that keeps a history has seen it, and not presented.
-	if (m_bSkipPresent && field == 1 && frameStartTime != INVALID_TIME) {
-		m_bSkipPresent = false;
-		m_uCaughtUp++;
+	// The trace of this picture, when one is asked for (CPacingTrace).
+	const bool bTrace = m_PacingTrace.Enabled() && field && frameStartTime != INVALID_TIME;
+	CPacingTrace::Picture traced;
+	if (bTrace) {
+		NoteSwapChainForTrace();
+		traced.rtStart = frameStartTime;
+		traced.tickSample = (long long)m_tickSampleStart;
+		traced.tickDrawn = (long long)tick3;
+		traced.renderAhead = GetRenderAhead();
+		traced.flags = (field == 2 ? CPacingTrace::SecondField : 0)
+			| (m_D3D11VP.IsReady() ? CPacingTrace::HardwareVP : 0)
+			| (m_bVPUseRTXVideoHDR ? CPacingTrace::RtxVideoHDR : 0)
+			| (m_currentSwapChainColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 ? CPacingTrace::HdrOutput : 0)
+			| (m_pFilter->m_bIsD3DFullscreen ? CPacingTrace::Exclusive : 0);
+	}
+
+	// A picture that has a time, and a clock running to be on time by. A redraw, a
+	// paused film and a stopped clock have neither, and are presented as they come:
+	// held against a clock that has stopped, every picture would wait its full bound.
+	const bool bTimed = field && frameStartTime != INVALID_TIME
+		&& m_pFilter->m_filterState == State_Running && !m_pFilter->m_bClockStalled;
+
+	// The refresh this picture is for, and the moment to call Present to get it
+	// (CPresentSchedule). It is what "render ahead" has become: every picture asked for
+	// early and presented for a refresh chosen in advance, whatever drew it.
+	CPresentSchedule::Plan plan;
+	if (bTimed && m_bDlssRenderAhead) {
+		ReadPresentSchedule();
+		CRefTime rtNow;
+		if (SUCCEEDED(m_pFilter->StreamTime(rtNow))) {
+			const long long tickNow = (long long)GetPreciseTick();
+			const long long tickDue = tickNow
+				+ (long long)((double)(frameStartTime - rtNow) * GetPreciseTicksPerSecond() / 10000000.0);
+			const double frameMs = m_pFilter->m_FrameStats.GetAverageFrameDuration() / 10000.0 / (m_bDoubleFrames ? 2 : 1);
+			plan = m_PresentSchedule.Choose(tickNow, tickDue, frameMs);
+		}
+	}
+	if (field) {
+		m_bScheduled = plan.bValid;
+	}
+	if (bTrace && plan.bValid) {
+		traced.flags |= CPacingTrace::Scheduled | (plan.bRepeat ? CPacingTrace::Repeated : 0)
+			| (plan.bDrop ? CPacingTrace::Dropped : 0);
+		traced.tickTarget = plan.tickRefresh;
+	}
+
+	if (plan.bValid && plan.bDrop) {
+		// No refresh left worth having: it is drawn, so that everything that keeps a
+		// history has seen it, and not presented. What it lacked is time, which the
+		// samples that follow are asked for earlier to have.
+		if (field == 1) {
+			const double ticksPerMs = GetPreciseTicksPerSecond() / 1000.0;
+			m_RenderAhead.AddLatency((double)(tick3 - m_tickSampleStart) / ticksPerMs,
+				(double)(plan.tickDue - plan.tickWanted) / ticksPerMs,
+				m_pFilter->m_FrameStats.GetAverageFrameDuration() / 10000.0);
+		}
 		m_tickOnScreen = 0;
+		if (bTrace) {
+			ReadShownForTrace(traced.after);
+			m_PacingTrace.Add(traced);
+		}
 		return hr;
 	}
 
-	// Render ahead: this picture was started early and waits for its time; a
-	// redraw has no time to keep.
-	// Render ahead holds the finished picture until its time on the reference clock,
-	// so a clock that has stopped turns that hold into its full ceiling on every
-	// picture -- a hundred milliseconds each, on top of a pacing that is already
-	// ours. While the clock is stopped the holding is simply not done.
-	const bool bHold = field && frameStartTime != INVALID_TIME && RenderAheadActive()
-		&& m_pFilter->m_filterState == State_Running && !m_pFilter->m_bClockStalled;
-	if (bHold) {
+	// Catching up a refresh (see ProcessSample): this picture is drawn, so that
+	// everything that keeps a history has seen it, and not presented.
+	if (!plan.bValid && m_bSkipPresent && field == 1 && frameStartTime != INVALID_TIME) {
+		m_bSkipPresent = false;
+		m_uCaughtUp++;
+		m_tickOnScreen = 0;
+		if (bTrace) {
+			traced.flags |= CPacingTrace::NotPresented;
+			ReadShownForTrace(traced.after);
+			m_PacingTrace.Add(traced);
+		}
+		return hr;
+	}
+
+	// Without a refresh to aim at -- DXGI has not said where they are, or the setting
+	// is off -- a picture a DLSS pass or a prescaler worked on is still held for its
+	// time on the reference clock, as before.
+	const bool bHold = !plan.bValid && bTimed && RenderAheadActive();
+	if (bHold || plan.bValid) {
 		MarkPictureSubmitted();
 	}
 
-	if (m_bVBlankBeforePresent && m_pDXGIOutput) {
-		hr = m_pDXGIOutput->WaitForVBlank();
-		DLogIf(FAILED(hr), L"WaitForVBlank failed with error {}", HR2Str(hr));
+	if (plan.bValid) {
+		// Only the first picture of a sample is started early; a second field follows it.
+		WaitForScheduledPresent(plan, field == 1);
+	} else {
+		if (m_bVBlankBeforePresent && m_pDXGIOutput) {
+			hr = m_pDXGIOutput->WaitForVBlank();
+			DLogIf(FAILED(hr), L"WaitForVBlank failed with error {}", HR2Str(hr));
+			if (bTrace) {
+				traced.tickAfterVBlank = (long long)GetPreciseTick();
+				traced.flags |= CPacingTrace::VBlankWait;
+			}
+		}
+		if (bHold) {
+			HoldUntilPresentTime(frameStartTime, field == 1);
+		} else if (m_bAdjustPresentTime) {
+			SyncFrameToStreamTime(frameStartTime);
+		}
 	}
 
-	if (bHold) {
-		// Only the first picture of a sample is started early; a second field
-		// follows it.
-		HoldUntilPresentTime(frameStartTime, field == 1);
-	} else if (m_bAdjustPresentTime) {
-		SyncFrameToStreamTime(frameStartTime);
+	if (bTrace) {
+		traced.flags |= bHold ? CPacingTrace::Held : 0;
+		ReadShownForTrace(traced.before);
+		CRefTime rtClock;
+		if (SUCCEEDED(m_pFilter->StreamTime(rtClock))) {
+			traced.rtClockAtCall = rtClock;
+		}
 	}
 
 	m_tickPresentCall = GetPreciseTick();
@@ -3358,6 +3460,28 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 
 	m_RenderStats.presentticks = GetPreciseTick() - tick3;
 	MeasurePresentQueue();
+	if (plan.bValid) {
+		UINT presentId = 0;
+		if (SUCCEEDED(m_pDXGISwapChain1->GetLastPresentCount(&presentId))) {
+			m_PresentSchedule.Presented(presentId, plan, (long long)m_tickPresentCall,
+				(double)(tick3 + m_RenderStats.presentticks - m_tickPresentCall) * 1000.0 / GetPreciseTicksPerSecond());
+		}
+		ReadPresentSchedule();
+		// Where it will be on the screen against where its time is: the offset that
+		// matters, known before it happens.
+		m_rtScheduledOffset = (REFERENCE_TIME)((double)(plan.tickRefresh - plan.tickDue) * 10000000.0 / GetPreciseTicksPerSecond());
+	}
+
+	if (bTrace) {
+		traced.tickPresentCall = (long long)m_tickPresentCall;
+		traced.tickPresentReturn = (long long)(tick3 + m_RenderStats.presentticks);
+		CRefTime rtClock;
+		if (SUCCEEDED(m_pFilter->StreamTime(rtClock))) {
+			traced.rtClockAtReturn = rtClock;
+		}
+		ReadShownForTrace(traced.after);
+		m_PacingTrace.Add(traced);
+	}
 
 	if (hr == DXGI_ERROR_INVALID_CALL && m_pFilter->m_bIsD3DFullscreen) {
 		InitSwapChain(false);
@@ -3398,6 +3522,111 @@ void CDX11VideoProcessor::MeasurePresentQueue()
 	}
 }
 
+// DXGI's account of the swap chain, handed to the schedule: where the refreshes are,
+// and which Present has reached the screen.
+void CDX11VideoProcessor::ReadPresentSchedule()
+{
+	UINT last = 0;
+	DXGI_FRAME_STATISTICS stats = {};
+	if (!m_pDXGISwapChain1 || FAILED(m_pDXGISwapChain1->GetLastPresentCount(&last))) {
+		return;
+	}
+	const HRESULT hr = m_pDXGISwapChain1->GetFrameStatistics(&stats);
+	if (hr == DXGI_ERROR_FRAME_STATISTICS_DISJOINT) {
+		m_PresentSchedule.Reset(); // the counts start again: a mode change, a new output
+	} else if (SUCCEEDED(hr)) {
+		m_PresentSchedule.Seen(last, stats, m_dRefreshPeriodMs);
+	}
+}
+
+// The wait between a picture being drawn and the moment chosen to present it. The GPU
+// finishes the picture meanwhile, and how long it took from the sample arriving tells
+// how early the next ones have to be asked for.
+//
+// Nothing here waits for the GPU: a picture it has not finished by then is presented
+// anyway and reaches the screen when it is done (see HoldUntilPresentTime).
+void CDX11VideoProcessor::WaitForScheduledPresent(const CPresentSchedule::Plan& plan, const bool bMeasure)
+{
+	const double ticksPerMs = GetPreciseTicksPerSecond() / 1000.0;
+	const uint64_t tickStart = GetPreciseTick();
+	// A picture is never more than a frame early, since the one before it has only
+	// just left; a wait much longer than that is a clock that has jumped, and the
+	// renderer keeps its locks while it waits.
+	const double maxWaitMs = 250.0;
+
+	uint64_t tickDone = 0;
+	bool bQuery = m_pPictureDoneQuery != nullptr;
+	const auto PollDone = [&]() {
+		if (bQuery && !tickDone) {
+			BOOL bDone = FALSE;
+			const HRESULT hr = m_pDeviceContext->GetData(m_pPictureDoneQuery, &bDone, sizeof(bDone), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+			if (hr == S_OK) {
+				tickDone = GetPreciseTick();
+			} else if (FAILED(hr)) {
+				bQuery = false;
+			}
+		}
+	};
+
+	for (;;) {
+		PollDone();
+		const uint64_t tickNow = GetPreciseTick();
+		const double remainingMs = (double)(plan.tickCall - (long long)tickNow) / ticksPerMs;
+		if (remainingMs <= 0 || m_pFilter->m_filterState != State_Running || (double)(tickNow - tickStart) / ticksPerMs >= maxWaitMs) {
+			break;
+		}
+		// Every millisecond while the GPU works, then in steps of at most 10 ms.
+		m_PreciseSleep.Sleep(std::min(remainingMs, tickDone ? 10.0 : 1.0));
+	}
+
+	if (!tickDone) {
+		m_RenderAhead.CountLate(); // not done at its present time
+	}
+	if (bMeasure) {
+		const uint64_t tickEnd = tickDone ? tickDone : GetPreciseTick();
+		// Present is called this long before the picture's time, to be on its refresh.
+		const double leadMs = (double)(plan.tickDue - plan.tickWanted) / ticksPerMs;
+		m_RenderAhead.AddLatency((double)(tickEnd - m_tickSampleStart) / ticksPerMs, leadMs,
+			m_pFilter->m_FrameStats.GetAverageFrameDuration() / 10000.0);
+	}
+
+	m_rtHeld += (REFERENCE_TIME)((GetPreciseTick() - tickStart) * 10000000.0 / GetPreciseTicksPerSecond());
+}
+
+// For the trace: DXGI's account of the swap chain as it stands.
+void CDX11VideoProcessor::ReadShownForTrace(CPacingTrace::Shown& shown)
+{
+	UINT last = 0;
+	DXGI_FRAME_STATISTICS stats = {};
+	if (m_pDXGISwapChain1 && SUCCEEDED(m_pDXGISwapChain1->GetLastPresentCount(&last))) {
+		shown.lastPresent = last;
+		if (SUCCEEDED(m_pDXGISwapChain1->GetFrameStatistics(&stats))) {
+			shown.presentCount = stats.PresentCount;
+			shown.presentRefresh = stats.PresentRefreshCount;
+			shown.syncRefresh = stats.SyncRefreshCount;
+			shown.syncQpc = stats.SyncQPCTime.QuadPart;
+		}
+	}
+}
+
+// For the trace: what the pictures that follow are presented into, said once and
+// again whenever it changes.
+void CDX11VideoProcessor::NoteSwapChainForTrace()
+{
+	DXGI_SWAP_CHAIN_DESC1 desc = {};
+	if (!m_pDXGISwapChain1 || FAILED(m_pDXGISwapChain1->GetDesc1(&desc))) {
+		return;
+	}
+	const std::wstring note = std::format(
+		L"swap chain {}x{} format {} buffers {} effect {} flags {:#x}, refresh {:.4f} ms, wait for vblank {}, adjust present time {}, render ahead {}",
+		desc.Width, desc.Height, (int)desc.Format, desc.BufferCount, (int)desc.SwapEffect, desc.Flags,
+		m_dRefreshPeriodMs, m_bVBlankBeforePresent ? 1 : 0, m_bAdjustPresentTime ? 1 : 0, RenderAheadActive() ? 1 : 0);
+	if (note != m_strTraceNote) {
+		m_strTraceNote = note;
+		m_PacingTrace.Note(note);
+	}
+}
+
 int CDX11VideoProcessor::GetRenderAhead()
 {
 	return RenderAheadActive() ? m_RenderAhead.GetAhead() : 0;
@@ -3432,9 +3661,9 @@ void CDX11VideoProcessor::HoldUntilPresentTime(const REFERENCE_TIME frameStartTi
 	const REFERENCE_TIME rtTarget = frameStartTime - (REFERENCE_TIME)m_uHalfRefreshPeriodMs * 10000;
 	const uint64_t tickStart = GetPreciseTick();
 	const double ticksPerMs = GetPreciseTicksPerSecond() / 1000.0;
-	// Never longer than the earliest start plus a frame of 24 fps: past that the
-	// clock has jumped, and the renderer keeps its locks while it waits.
-	const double maxHoldMs = CRenderAhead::kMaxAheadMs + 42.0;
+	// Never longer than a hundred milliseconds, two frames of 24 fps and a little: past
+	// that the clock has jumped, and the renderer keeps its locks while it waits.
+	const double maxHoldMs = 102.0;
 
 	uint64_t tickDone = 0;
 	bool bQuery = m_pPictureDoneQuery != nullptr;
@@ -5364,6 +5593,12 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		m_RenderAhead.Reset();
 		m_DlssNRTimes.Reset();
 	}
+	if (m_bDlssRenderAhead != bRenderAheadBefore) {
+		// So does the step the pictures were keeping, and the line that says how they are timed.
+		m_PresentSchedule.Flush();
+		m_bScheduled = false;
+		UpdateStatsPresent();
+	}
 
 	if (config.iTexFormat != m_iTexFormat) {
 		m_iTexFormat = config.iTexFormat;
@@ -5657,6 +5892,10 @@ void CDX11VideoProcessor::Flush()
 	m_bSkipPresent = false;
 	m_bCatchUpJudged = false;
 	m_bCatchUpFutile = false;
+	m_PresentSchedule.Flush();
+	if (m_PacingTrace.Enabled()) {
+		m_PacingTrace.Note(L"flush");
+	}
 	m_DlssNR.RequestReset();
 	m_DlssStabilizer.Reset();
 	m_DlssSR.RequestReset();
@@ -5781,6 +6020,12 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 		m_strStatsPresent.append(L", ");
 		m_strStatsPresent.append(DXGIFormatToString(swapchain_desc.Format));
 
+		// With render ahead and a flip model the two settings below are not what times
+		// a Present: each picture is given a refresh, and the line says that instead.
+		if (m_bDlssRenderAhead && swapchain_desc.SwapEffect != DXGI_SWAP_EFFECT_DISCARD
+				&& swapchain_desc.SwapEffect != DXGI_SWAP_EFFECT_SEQUENTIAL) {
+			m_strStatsPresent.append(L"\nFrame sync    : a refresh chosen for each picture");
+		} else
 		if ((m_bVBlankBeforePresent && m_pDXGIOutput) || m_bAdjustPresentTime) {
 			m_strStatsPresent.append(L"\nFrame sync    :");
 			if (m_bVBlankBeforePresent && m_pDXGIOutput) {
@@ -6099,6 +6344,23 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		m_RenderStats.presentticks * 1000 / GetPreciseTicksPerSecondI());
 
 	str += std::format(L"\nSync offset   : {:+3} ms", (m_RenderStats.syncoffset + 5000) / 10000);
+	if (m_bScheduled) {
+		// The Sync offset above is then the refresh chosen against the picture's time.
+		// This line is what DXGI reported of a picture already shown, which is the
+		// proof of it, and what the schedule had to do to keep the step.
+		if (m_PresentSchedule.ShownKnown()) {
+			str += std::format(L"\nOn screen     : {:+3.0f} ms", m_PresentSchedule.ShownOffsetMs());
+		} else {
+			str += L"\nOn screen     :   ? ms";
+		}
+		str += std::format(L", scheduled, repeated {}, dropped {}, late {}",
+			m_PresentSchedule.RepeatedCount(), m_PresentSchedule.DroppedCount(), m_PresentSchedule.LateCount());
+	} else
+	if (m_bDlssRenderAhead && m_UsedSwapEffect == DXGI_SWAP_EFFECT_DISCARD && m_pFilter->m_filterState == State_Running) {
+		// Worth saying, since the remedy is one setting away: the Discard swap effect
+		// keeps no account of the refreshes, and without it no refresh can be chosen.
+		str += L"\nOn screen     : not scheduled (Swap effect: Discard)";
+	} else
 	if (m_bOnScreenKnown) {
 		str += std::format(L"\nOn screen     : {:+3} ms, queue {}", (m_rtOnScreenOffset + 5000) / 10000, m_uPresentQueue);
 		if (m_uCaughtUp) {
@@ -6165,7 +6427,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		}
 	}
 
-	if (m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded()) {
+	if (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded()) {
 		if (!m_bDlssRenderAhead) {
 			str.append(L"\nRender ahead  : off");
 		} else if (m_RenderAhead.MeanLatencyMs() >= 0) {

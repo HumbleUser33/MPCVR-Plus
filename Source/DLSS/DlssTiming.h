@@ -23,6 +23,8 @@
 #include <d3d11.h>
 #include <atlbase.h>
 #include <atomic>
+#include <string>
+#include <vector>
 
 // Mean and maximum of the last few values, in ms.
 class CRollingMs
@@ -68,8 +70,8 @@ public:
 	static constexpr double kMarginMs = 3.0;
 	// How fast the measure falls back when pictures get quicker.
 	static constexpr double kFallMsPerPicture = 0.25;
-	// Never earlier than this: the renderer keeps its locks while a picture waits.
-	static constexpr double kMaxAheadMs = 60.0;
+	// Never earlier than this. Three refreshes at 24 Hz and a frame of drawing fit in it.
+	static constexpr double kMaxAheadMs = 250.0;
 
 	void Reset();
 
@@ -111,6 +113,224 @@ public:
 private:
 	HANDLE m_hTimer = nullptr;
 	bool m_bTried = false;
+};
+
+// CPresentSchedule
+//
+// Which refresh each picture is for, and when to call Present so that it gets it.
+//
+// A renderer that presents a picture when its time comes leaves the rest to chance:
+// the picture is shown on whichever refresh follows, a refresh or two later, and when
+// the film has one frame per refresh -- 25 fps on a television at 25 Hz -- that chance
+// is drawn once, when the film starts, and kept. Measured in MPC-HC on a television at
+// 25 Hz, through the video processor with HDR output: Present called on a vertical
+// blank put the picture on the screen 80 ms later, every picture, with the Sync offset
+// reading anything from -8 to +46 ms from one start to the next, since it only says
+// when Present returned.
+//
+// What decides is where in a refresh Present is called. Called at any moment from a
+// blank until a few milliseconds before the next, the picture is shown on the blank
+// after that one: "depth" 1, the compositor's refresh. Called in those last few
+// milliseconds it slips one more, and not every time -- 5 ms before the blank at 25 Hz
+// lost a picture in twelve, 2 ms before did every time; at 60 Hz the last 2 to 3 ms.
+// So Present is called a third of a refresh after a blank, clear of that edge and of
+// the one at the start of a refresh (kCallPhase), and the refresh it then lands on is
+// known in advance.
+//
+// From there the rest follows. DXGI gives the time of the refreshes; the reference
+// clock gives the moment the picture is due; the refresh nearest to that moment is
+// the picture's. A film with a whole number of refreshes per frame then keeps that
+// step, picture after picture, and is only moved -- one picture given a refresh more,
+// or left out -- when the two clocks have drifted three quarters of a refresh apart:
+// the nearest refresh alone would flicker between two whenever the picture's time
+// fell half way. And the sample has to be asked for early enough to be drawn before
+// its Present, which is what CRenderAhead is for.
+//
+// How deep the queue is, is measured and not assumed: DXGI says on which refresh each
+// Present ended up, and three in a row that disagree with the depth in use change it.
+//
+// One picture waits at a time (SetMaximumFrameLatency(1)), and that is what makes a
+// queue that has gone wrong visible at once. Two Presents inside one refresh -- the
+// burst a film starts with -- and the second does not return until the first has been
+// taken; it then goes in just after that refresh instead of well before it, is itself
+// still waiting when the next Present comes, and so on for as long as the film plays:
+// every picture a refresh late, and 35 ms spent inside each Present at 25 Hz. It does
+// not mend by itself. A Present that had to wait says so by the time it took, and the
+// pictures after it are called a refresh later than they would have been, where
+// nothing is in their way; if that leaves them too far from their own time one of
+// them is left out, and they are back where they were.
+
+class CPresentSchedule
+{
+public:
+	// Called this far after a refresh, as a part of the refresh, and never more than
+	// this many milliseconds. Not later, because of the edge described above. Not
+	// earlier either: the start of a refresh is an edge too. In the bench's window a
+	// Present called 3 ms after a refresh was in time or not from one picture to the
+	// next -- every second or third then waited a whole refresh, 22 pictures were lost
+	// in the first 1.6 s of a film at 25 fps, and the depth was measured as 2, then
+	// as 0. A third of the way in is clear of both, there and fullscreen in a player.
+	static constexpr double kCallPhase = 1.0 / 3.0;
+	static constexpr double kCallPhaseMaxMs = 15.0;
+	// A Present later than this before a refresh is not counted on to make it.
+	static constexpr double kGuardPhase = 0.3;
+	static constexpr double kGuardMaxMs = 12.0;
+	// How far a picture may sit from its own time, in refreshes, before the step is broken.
+	static constexpr double kRelock = 0.75;
+	// The first pictures after a start or a seek come as they can, the very first late
+	// by force. Until this many have been shown the nearest refresh is simply taken,
+	// so that the step is the right one when it starts being kept.
+	static constexpr int kSettling = 6;
+
+	struct Plan {
+		bool bValid = false;       // a refresh was chosen; otherwise present as before
+		bool bDrop = false;        // no refresh left worth having: do not present it
+		bool bRepeat = false;      // the picture before it is given a refresh more
+		long long refresh = 0;     // the refresh it is for
+		long long tickCall = 0;    // when to call Present
+		long long tickWanted = 0;  // when it would have been called, had the picture come in time
+		long long tickRefresh = 0; // when that refresh is
+		long long tickDue = 0;     // when the picture's own time is
+	};
+
+	void Reset();   // another swap chain or another display mode
+	void Flush();   // the film goes on from somewhere else
+
+	// DXGI's account of the swap chain, as often as it is read. nominalPeriodMs is the
+	// display mode's, until the refreshes themselves have said better.
+	void Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& stats, double nominalPeriodMs);
+	bool Ready(long long tickNow) const;
+
+	// tickDue: when the reference clock reaches the picture's time, on the performance
+	// counter. frameMs: how long a picture of this film lasts.
+	Plan Choose(long long tickNow, long long tickDue, double frameMs);
+	// msInside: how long Present took to return.
+	void Presented(unsigned presentId, const Plan& plan, long long tickCalled, double msInside);
+
+	// For the statistics. What happened while the film played: the pictures it loses
+	// in the first moments after a start or a seek are not counted.
+	int Depth() const { return m_depth; }
+	unsigned RepeatedCount() const { return m_repeated; }
+	unsigned DroppedCount() const { return m_dropped; }
+	unsigned LateCount() const { return m_late; }      // shown later than the refresh chosen
+	bool ShownKnown() const { return m_bShownKnown; }
+	double ShownOffsetMs() const { return m_shownOffsetMs; } // the last one DXGI reported: its refresh, less its time
+	double PeriodMs() const;
+
+private:
+	long long RefreshTime(long long index) const;
+	double RefreshIndex(long long tick) const;   // fractional
+
+	// The refreshes: the last one DXGI timed, and how long one lasts.
+	bool m_bClock = false;
+	long long m_anchorIndex = 0;
+	long long m_anchorTick = 0;
+	long long m_baseIndex = 0;     // an older one, to measure the period over,
+	long long m_baseTick = 0;
+	long long m_midIndex = 0;      // and the one that takes its place when it has grown too old
+	long long m_midTick = 0;
+	double m_period = 0;           // ticks
+	double m_nominalMs = 0;
+	unsigned m_lastSync = 0;
+
+	// What was presented and is not yet known to be on the screen.
+	struct Pending {
+		unsigned id = 0;
+		long long refresh = 0;     // the one chosen
+		long long firstAfter = 0;  // the first refresh after the call
+		long long tickDue = 0;
+		bool bSafe = false;        // called far enough from both refreshes to tell the depth by
+		bool bCounted = false;     // presented once the film had settled: late counts if it is
+	};
+	static constexpr int kPending = 16;
+	Pending m_pending[kPending] = {};
+	int m_nPending = 0;
+
+	int m_depth = 1;
+	int m_observed[3] = { 1, 1, 1 };
+	int m_nObserved = 0;
+
+	bool m_bLast = false;          // a picture has been given a refresh since the last flush
+	long long m_lastRefresh = 0;
+	int m_sinceFlush = 0;          // how many, up to kSettling
+
+	unsigned m_repeated = 0;
+	unsigned m_dropped = 0;
+	unsigned m_late = 0;
+	bool m_bShownKnown = false;
+	double m_shownOffsetMs = 0;
+};
+
+// CPacingTrace
+//
+// What became of each picture on its way to the screen, one line apiece, for a program
+// to read afterwards: when the picture was taken, drawn and presented, what the
+// reference clock said at that moment, and what DXGI says of the pictures already
+// shown. The statistics drawn on the picture are an average of the last second seen by
+// whoever is looking; whether every picture got a refresh of its own, and which one,
+// is only in a list of them all.
+//
+// Off unless the environment variable MPCVR_PACING_TRACE names a file when the
+// renderer is made. The lines are kept in memory and written when the stream is
+// flushed or the renderer goes: a file written on the thread that presents would be
+// measuring itself.
+
+class CPacingTrace
+{
+public:
+	enum : unsigned {
+		Held        = 1,    // render ahead held it for its time
+		VBlankWait  = 2,    // "wait for VBlank before Present" was done
+		SecondField = 4,
+		NotPresented = 8,   // left out to catch up a refresh
+		HardwareVP  = 16,   // the video processor converted it, not the shaders
+		RtxVideoHDR = 32,
+		HdrOutput   = 64,
+		Exclusive   = 128,
+		Scheduled   = 256,  // presented for a refresh chosen in advance
+		Repeated    = 512,  // the scheduler gave it a second refresh's worth of wait
+		Dropped     = 1024, // the scheduler left it out
+	};
+
+	// DXGI's account of the swap chain at one moment.
+	struct Shown {
+		unsigned lastPresent = 0;     // the number of the last Present call
+		unsigned presentCount = 0;    // the last one that reached the screen...
+		unsigned presentRefresh = 0;  // ...and the refresh it reached it on
+		unsigned syncRefresh = 0;     // a refresh DXGI has timed...
+		long long syncQpc = 0;        // ...and when it was
+	};
+
+	struct Picture {
+		long long rtStart = 0;            // the picture's time, 100 ns
+		long long rtClockAtCall = 0;      // the reference clock as Present was called
+		long long rtClockAtReturn = 0;    // and as it returned
+		long long tickSample = 0;         // performance counter: the sample arrived
+		long long tickDrawn = 0;          // its last command was issued
+		long long tickAfterVBlank = 0;    // the wait for a vertical blank ended (0: none)
+		long long tickPresentCall = 0;
+		long long tickPresentReturn = 0;
+		long long tickTarget = 0;         // the refresh it was meant for (0: none chosen)
+		Shown before, after;              // around the Present call
+		int renderAhead = 0;              // how early the sample was asked for, 100 ns
+		unsigned flags = 0;
+	};
+
+	CPacingTrace();
+	~CPacingTrace() { Write(); }
+
+	bool Enabled() const { return m_bEnabled; }
+	// A line of text ahead of the pictures that follow: the display, the swap chain.
+	void Note(const std::wstring& text);
+	void Add(const Picture& picture);
+	void Write();
+
+private:
+	bool m_bEnabled = false;
+	std::wstring m_path;
+	std::vector<std::wstring> m_notes;
+	std::vector<Picture> m_pictures;
+	unsigned long long m_written = 0;
 };
 
 // CGpuStageTimes
