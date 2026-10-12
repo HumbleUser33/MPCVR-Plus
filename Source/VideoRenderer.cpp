@@ -1655,13 +1655,19 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 // Sent to the video window to have it make its own replacement, on its own thread.
 static const UINT WM_VR_REMAKE = WM_APP + 0x3A1;
 
-HWND CMpcVideoRenderer::CreateVideoWindow()
+// bDisabled: the window being replaced was disabled, and so is this one from the
+// start. MPC-HC disables whatever the renderer puts in its video area once the owner
+// is set, so that the mouse falls through to its own window, which is the one that
+// hides the pointer after two seconds. A replacement made enabled took the mouse for
+// itself, and the pointer stayed over the film until it was closed -- upstream's fault
+// too, with any setting that has the window made again, HDR10/DV first among them.
+HWND CMpcVideoRenderer::CreateVideoWindow(const bool bDisabled)
 {
 	return CreateWindowExW(
 		0,
 		g_szClassName,
 		nullptr,
-		WS_VISIBLE | WS_CHILDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+		WS_VISIBLE | WS_CHILDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | (bDisabled ? WS_DISABLED : 0),
 		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
 		m_hWndParent,
 		nullptr,
@@ -1723,9 +1729,10 @@ HRESULT CMpcVideoRenderer::Init(const bool bCreateWindow/* = false*/)
 			// mouse leaving its video area, is then told the pointer has left while
 			// it sits on the picture -- and never hides it again. If that thread does
 			// not answer, the window is made here as it always was.
+			const bool bDisabled = hWndOld && !IsWindowEnabled(hWndOld);
 			if (hWndOld && GetWindowThreadProcessId(hWndOld, nullptr) != GetCurrentThreadId()) {
 				DWORD_PTR made = 0;
-				if (SendMessageTimeoutW(hWndOld, WM_VR_REMAKE, 0, 0, SMTO_ABORTIFHUNG, 2000, &made)) {
+				if (SendMessageTimeoutW(hWndOld, WM_VR_REMAKE, bDisabled, 0, SMTO_ABORTIFHUNG, 2000, &made)) {
 					m_hWndWindow = reinterpret_cast<HWND>(made);
 				}
 				DLogIf(!m_hWndWindow, L"CMpcVideoRenderer::Init() : the window's thread did not make the new one");
@@ -1734,7 +1741,7 @@ HRESULT CMpcVideoRenderer::Init(const bool bCreateWindow/* = false*/)
 				::SendMessageW(hWndOld, WM_CLOSE, 0, 0);
 			}
 			if (!m_hWndWindow) {
-				m_hWndWindow = CreateVideoWindow();
+				m_hWndWindow = CreateVideoWindow(bDisabled);
 			}
 
 			if (!m_hWndWindow) {
@@ -2521,7 +2528,7 @@ void CMpcVideoRenderer::DoAfterChangingDevice()
 LRESULT CMpcVideoRenderer::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	if (uMsg == WM_VR_REMAKE) {
-		return reinterpret_cast<LRESULT>(CreateVideoWindow());
+		return reinterpret_cast<LRESULT>(CreateVideoWindow(wParam != 0));
 	}
 
 	if (m_hWndDrain && !InSendMessage() && !m_bExclusiveScreen) {

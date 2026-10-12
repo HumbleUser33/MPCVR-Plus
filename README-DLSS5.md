@@ -980,24 +980,27 @@ A fault as old as the renderer, in MPC-HC in fullscreen: change the **HDR10/DV**
 swap effect), close the options, and the mouse pointer stays over the film for good instead of
 going away after two seconds.
 
-Those are the settings for which the renderer makes its video window again. MPC-HC opens a
-film on a worker thread, so the window is first made there; the options apply a setting from
-the interface thread, and the new window was made on that one. MPC-HC tracks the mouse leaving
-its video area, and with a renderer window on its own thread it is told the pointer has left
-while it sits on the picture -- its source says so in `CMouse::InternalOnMouseLeave`, and works
-around it for exclusive fullscreen only. Every such leave cancels the timer that hides the
-pointer.
+Those are the settings for which the renderer makes its video window again. Once it has set
+the owner, MPC-HC disables whatever the renderer put in its video area, so that the mouse falls
+through to its own window: that window is the one that counts two seconds and hides the
+pointer. The window made again was enabled, as any new window is. It took the mouse for itself,
+the player's window never saw it again, and nothing hid the pointer until the film was closed.
 
-The window is now made again on the thread that made it the first time: the old one is asked
-to make its replacement before it closes. If its thread does not answer within two seconds the
-window is made in place, as it always was. A player that opens on its interface thread sees no
-difference.
+The replacement is now made disabled when the window it replaces was. A player that leaves the
+renderer's window enabled sees no difference.
 
-`tools/dlssnr_probe/vrwindow_threads.ps1` shows which thread owns the video window of a running
-player: in MPC-HC 2.8.2 it is not the thread of the main window. `playback_test --rewindow`
-changes the swap effect from another thread and then from its own. Before, the window made
-from the other thread belonged to that thread, and went with it when it ended; now both
-windows stay on the thread of the first, with no frame skipped.
+It was found by watching, not by reading. `mpchc_drive.exe --attach 40` follows a running
+MPC-HC while a hand does the handling; the trace of the fault reads, in order: a `VRWindow`
+made, the old one destroyed, and from then on the pointer `SHOWING` over a `VRWindow`, where
+until then the window under it had always been the player's own. `mpchc_drive.exe <player>
+<film> --combo 1044 --select -1,0,1` then brings it about by itself with the swap effect: on
+the build before, the pointer shows for 4.5 s of 4.5 after each change; on this one it is
+hidden after 1.2 s, as it is when nothing was changed.
+
+A first attempt had blamed the thread. MPC-HC opens a film on a worker thread and the options
+apply from the interface thread, so the window made again changed threads; it is now made on
+the thread of the first (`playback_test --rewindow`, `vrwindow_threads.ps1`). That is tidier
+and was not the fault: the pointer stayed exactly as before.
 
 ---
 

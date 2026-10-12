@@ -175,7 +175,7 @@ private:
 	CSize m_videoSize, m_videoAspectRatio;
 
 	HRESULT Init(const bool bCreateWindow);
-	HWND CreateVideoWindow();
+	HWND CreateVideoWindow(const bool bDisabled);
 
 	std::atomic_bool m_bDisplayModeChanging = false;
 
