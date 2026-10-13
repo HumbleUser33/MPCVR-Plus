@@ -49,7 +49,12 @@ CALL :Run "settings changed while playing"     "playback_test.exe --toggle --sec
 CALL :Run "the processor's extras, both ways"  "playback_test.exe --switch --toggle --seconds 3"
 CALL :Run "pictures from a decoder's device"   "playback_test.exe --gpu --toggle --seconds 3"
 CALL :Run "the Settings page and its lists"    "playback_test.exe --mainpage 2"
-CALL :Run "the DLSS page"                      "playback_test.exe --dlsspage 2"
+CALL :Run "the Settings page, DLSS 5 NR"       "playback_test.exe --mainpage 2 --section 4"
+REM Five graphs made and unmade in one process, DLSS off and on: what a player does
+REM from one film to the next. It was called "the DLSS page" and ran a switch that no
+REM longer existed, so it played these without saying so -- and it is where the fault of
+REM a second film with DLSS Super Resolution was caught, one run in four.
+CALL :Run "DLSS through the filter, five graphs" "playback_test.exe --seconds 20"
 
 ECHO.>> "%REPORT%"
 ECHO Finished %DATE% %TIME%>> "%REPORT%"
