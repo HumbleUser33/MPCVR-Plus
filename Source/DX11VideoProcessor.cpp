@@ -1757,6 +1757,27 @@ HRESULT CDX11VideoProcessor::InitSwapChain(bool bWindowChanged)
 	const bool bFlipModel = (m_iSwapEffect == SWAPEFFECT_Flip && IsWindows8OrGreater())
 		|| bHdrOutput || m_hWndFlipModel == m_hWnd;
 
+	// How many buffers the flip model is given. Upstream gives an SDR picture two, the
+	// one on the screen and the one presented: the next picture is then drawn into the
+	// buffer still on the screen, and the GPU holds that draw, with everything queued
+	// behind it on the device, until the flip. A renderer that waits for nothing never
+	// sees it. One that waits for the GPU does, and waits for the next refresh with it:
+	// at 25 Hz DLSS 5 NR waited 21.9 ms for its input on every picture and a picture
+	// took 39.2 ms to draw, where a third buffer makes it 1.6 and 18.7 -- fullscreen,
+	// exclusive and in a window alike (28.6 against 20.2 at 60 Hz), six buffers no
+	// better than three. With Super Resolution after the network that was 47 pictures
+	// of 517 left out and 44 repeated, against 2 and none. A shader prescaler pays it
+	// too without waiting for anything: FSRCNNX 16 was ready in 39.2 ms and counted late
+	// on every picture, in 17.7 with the third buffer. With nothing heavy in the chain
+	// the two play the same. HDR output keeps upstream's six.
+	// MPCVR_SWAPCHAIN_BUFFERS=n in the environment forces the count, to measure it again.
+	static const UINT s_buffersAsked = [] {
+		wchar_t value[16] = {};
+		const DWORD length = GetEnvironmentVariableW(L"MPCVR_SWAPCHAIN_BUFFERS", value, (DWORD)std::size(value));
+		return (length && length < std::size(value)) ? (UINT)std::clamp(_wtoi(value), 0, 16) : 0u;
+	}();
+	const UINT flipBuffers = s_buffersAsked >= 2 ? s_buffersAsked : (bHdrOutput ? 6u : 3u);
+
 	HRESULT hr = S_OK;
 	DXGI_SWAP_CHAIN_DESC1 desc1 = {};
 
@@ -1772,7 +1793,7 @@ HRESULT CDX11VideoProcessor::InitSwapChain(bool bWindowChanged)
 		desc1.SampleDesc.Quality = 0;
 		desc1.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 		if (bFlipModel) {
-			desc1.BufferCount = bHdrOutput ? 6 : 2;
+			desc1.BufferCount = flipBuffers;
 			desc1.Scaling = DXGI_SCALING_NONE;
 			desc1.SwapEffect = IsWindows10OrGreater() ? DXGI_SWAP_EFFECT_FLIP_DISCARD : DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
 		} else { // SWAPEFFECT_Discard or Windows 7
@@ -1801,7 +1822,7 @@ HRESULT CDX11VideoProcessor::InitSwapChain(bool bWindowChanged)
 		desc1.SampleDesc.Quality = 0;
 		desc1.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 		if (bFlipModel) {
-			desc1.BufferCount = bHdrOutput ? 6 : 2;
+			desc1.BufferCount = flipBuffers;
 			desc1.Scaling = DXGI_SCALING_NONE;
 			desc1.SwapEffect = IsWindows10OrGreater() ? DXGI_SWAP_EFFECT_FLIP_DISCARD : DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
 		} else { // SWAPEFFECT_Discard or Windows 7
@@ -3651,9 +3672,10 @@ void CDX11VideoProcessor::NoteSwapChainForTrace()
 		return;
 	}
 	const std::wstring note = std::format(
-		L"swap chain {}x{} format {} buffers {} effect {} flags {:#x}, refresh {:.4f} ms, wait for vblank {}, adjust present time {}, render ahead {}",
+		L"swap chain {}x{} format {} buffers {} effect {} flags {:#x}, refresh {:.4f} ms, wait for vblank {}, adjust present time {}, render ahead {}, exclusive {}",
 		desc.Width, desc.Height, (int)desc.Format, desc.BufferCount, (int)desc.SwapEffect, desc.Flags,
-		m_dRefreshPeriodMs, m_bVBlankBeforePresent ? 1 : 0, m_bAdjustPresentTime ? 1 : 0, RenderAheadActive() ? 1 : 0);
+		m_dRefreshPeriodMs, m_bVBlankBeforePresent ? 1 : 0, m_bAdjustPresentTime ? 1 : 0, RenderAheadActive() ? 1 : 0,
+		m_bExclusiveScreen ? 1 : 0);
 	if (note != m_strTraceNote) {
 		m_strTraceNote = note;
 		m_PacingTrace.Note(note);

@@ -209,6 +209,11 @@ it does not say:
   draw leaves no room: the same chain, 31 to 33 ms a picture, played at 25 pictures a second
   with the screen left at 60 Hz and at 12.5 once the player had put it at 25 Hz, until the
   schedule learnt to leave the next sample out undrawn instead of the picture it had drawn.
+- **A chain that waits for the GPU shows what the swap chain costs it.** With the two
+  buffers upstream gives an SDR picture, every picture of a heavy chain waited for the next
+  refresh before it was drawn; the filter gives three. `MPCVR_SWAPCHAIN_BUFFERS=n` in the
+  player's environment forces the count, and the trace's first note says how many the swap
+  chain has and whether it is exclusive.
 - **A setting changes what is measured.** The bench takes the filter's settings from the
   registry, the maintainer's own: with *Swap effect: Discard* there is no flip model, DXGI
   gives no refresh times, and none of the scheduled presentation runs. Set what the test is

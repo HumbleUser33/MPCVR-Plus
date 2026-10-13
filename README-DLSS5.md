@@ -1233,6 +1233,27 @@ What it cannot do:
 - **After a change of display mode the compositor takes a moment to settle**: a second or
   two in a window, during which it takes fewer than a picture a refresh whatever is done.
 
+**A third buffer for an SDR picture.** Upstream gives the flip model two buffers when the
+output is SDR and six when it is HDR. Two are the one on the screen and the one presented, so
+the next picture is drawn into the buffer still on the screen, and the GPU holds that draw --
+with everything queued behind it on the device -- until the flip. A renderer that waits for
+nothing never sees it. One that waits for the GPU does, and waits for the next refresh with
+it. In MPC-HC, a 1080p film at 25 fps with DLSS 5 NR and no RTX Video HDR, on an RTX 4060:
+
+| | two buffers | three |
+|---|---|---|
+| fullscreen at 25 Hz: DLSS 5 NR waits for its input / a picture is drawn in | 21.9 ms / 39.2 ms | 1.6 ms / 18.7 ms |
+| exclusive fullscreen at 25 Hz | 22.5 ms / 39.2 ms | 1.6 ms / 18.7 ms |
+| in a window, the screen at 60 Hz | 11.9 ms / 28.6 ms | 1.6 ms / 20.2 ms |
+| with Super Resolution after the network, 25 Hz: pictures left out, repeated | 47 and 44 of 517 | 2 and 0 of 521 |
+| no DLSS, FSRCNNX 16 AR by the shaders: a picture is ready in, counted late | 39.2 ms, 305 times | 17.7 ms, 4 times |
+
+Six buffers measure as three do, and with nothing heavy in the chain two and three play the
+same: 457 pictures presented of a film's first 18 seconds either way, 4 left out as it
+starts. So an SDR picture gets three, and an HDR one keeps upstream's six.
+`MPCVR_SWAPCHAIN_BUFFERS=2` in the player's environment gives the two back, to measure it
+again.
+
 With *Render ahead* off nothing of this is used and the renderer times its `Present` as it
 did; *Wait for VBlank before Present* and *Adjust the frame presentation time* only apply then.
 
@@ -1546,6 +1567,10 @@ A session that stops by itself shows there as pictures DLSS no longer ran on und
 that still asks for it, and nowhere else: the film goes on playing. To see what the renderer
 does about it, `MPCVR_DLSSNR_FAIL_AT=100` in the player's environment makes every hundredth
 evaluation of DLSS 5 NR give up (see *An evaluation that fails*).
+
+The first note of a trace is the swap chain: its size, how many buffers it has and whether it
+is exclusive. `MPCVR_SWAPCHAIN_BUFFERS=n` forces that count (see *A refresh chosen for every
+picture*).
 
 **`freeze_dump.exe`** — run against a player that hangs (by name, by process id, or with no
 argument at all), it asks Windows what every thread is waiting for, names any cycle as the
