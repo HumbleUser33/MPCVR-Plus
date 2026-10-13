@@ -808,6 +808,8 @@ back. In which format is decided by what Super Resolution needs, since the drive
 | Y410, 4:4:4 | no Super Resolution, or *Replace VP chroma upsampling* ticked | under 0.5 dB, and levels within 0.16 of 255 in SDR, 0.29 in PQ | 0.9 ms |
 | P010, 4:2:0 | Super Resolution requested, and the driver takes it on a picture that size | 2.2 to 3.1 dB, and 2.3 to 4.0 dB of chroma where the luma has an edge | 13.7 ms, Super Resolution included |
 
+The tooltip of *Request Super Resolution* says so, since that is where the choice is made.
+
 The P010 row is 4:2:0 met twice: the film's own, and the one Super Resolution asks for. It is
 measured on film frames halved from 4K, against the same frame through the processor once
 (`vp444_probe --after`). That is the price of the driver's sharpening after the network, and

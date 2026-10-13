@@ -191,8 +191,11 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_COMBO8,
 		L"The driver sharpens as the processor enlarges.\n"
 		"Needs \"Use the video processor for resizing\" ticked.\n"
-		"With DLSS 5 NR on it comes after the network, as the processor\n"
-		"enlarges what the network leaves.\n"
+		"With DLSS 5 NR on it comes after the network, and costs colour\n"
+		"fidelity there: the driver only takes 4:2:0, so the picture's\n"
+		"colour is cut to half resolution a second time -- 2.2 to 3.1 dB\n"
+		"measured on film, and 13.7 ms a picture from 1080p to 4K.\n"
+		"Disable keeps the colour whole.\n"
 		"Greys while DLSS Super Resolution enlarges instead, and while\n"
 		"the chroma replacement above is on: the driver will not touch\n"
 		"the 4:4:4 picture it then receives.\n"
