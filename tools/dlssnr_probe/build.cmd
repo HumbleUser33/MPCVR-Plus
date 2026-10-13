@@ -80,9 +80,11 @@ cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x
 
 ECHO Building the video processor probe (what it does with 4:2:0 and with 4:4:4)...
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
-   /DUNICODE /D_UNICODE /I"%SRC%" vp444_probe.cpp ^
+   /DUNICODE /D_UNICODE /I"%SRC%" vp444_probe.cpp shader444_guids.cpp ^
    "%SRC%\D3D11VP.cpp" "%SRC%\DX11Helper.cpp" ^
-   /Fe:vp444_probe.exe /link strmiids.lib || EXIT /B 1
+   "%SRC%\Shaders.cpp" "%SRC%\Helper.cpp" "%SRC%\csputils.cpp" ^
+   "%SRC%\Utils\Util.cpp" "%SRC%\Utils\CPUInfo.cpp" ^
+   /Fe:vp444_probe.exe /link strmiids.lib windowscodecs.lib mfuuid.lib || EXIT /B 1
 
 ECHO Building the 4:4:4 chroma pass test (the shaders the filter generates, compiled)...
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^

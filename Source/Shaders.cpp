@@ -1128,3 +1128,65 @@ HRESULT GetShaderConvertTo444(
 
 	return CompileShader(code, nullptr, "cs_5_0", ppCode);
 }
+
+HRESULT GetShaderRgbToVideo(
+	const int part,
+	const bool bBT2020,
+	const UINT width, const UINT height,
+	const double scale10,
+	ID3DBlob** ppCode)
+{
+	DLog(L"GetShaderRgbToVideo() started for part {} {}x{} {}", part, width, height, bBT2020 ? L"BT.2020" : L"BT.709");
+
+	const double kr = bBT2020 ? 0.2627 : 0.2126;
+	const double kb = bBT2020 ? 0.0593 : 0.0722;
+	const double kg = 1.0 - kr - kb;
+
+	std::string code;
+	code += "Texture2D<float4> tex : register(t0);\n";
+	code += std::format("static const int2 last = int2({}, {});\n", width - 1, height - 1);
+	code += std::format("static const float3 kY = float3({}, {}, {});\n", kr, kg, kb);
+	// The texture written may be a pixel larger than the picture, to be even: what
+	// lies past the picture's edge repeats it.
+	code += "float3 Pixel(int2 p) { return tex.Load(int3(clamp(p, int2(0, 0), last), 0)).rgb; }\n";
+	// Y', Cb and Cr in levels of the 8-bit scale, studio range.
+	code += std::format(
+		"float3 ToYCbCr(float3 c)\n"
+		"{{\n"
+		"	const float y = dot(c, kY);\n"
+		"	return float3(16.0 + 219.0 * y, 128.0 + 224.0 * (c.b - y) / {}, 128.0 + 224.0 * (c.r - y) / {});\n"
+		"}}\n", 2.0 * (1.0 - kb), 2.0 * (1.0 - kr));
+
+	if (part == RGBTOVIDEO_Packed) {
+		// Y410: U, Y, V, A through an R10G10B10A2 view.
+		code += "RWTexture2D<uint> packed : register(u0);\n"
+			"[numthreads(8, 8, 1)]\n"
+			"void main(uint3 id : SV_DispatchThreadID)\n"
+			"{\n";
+		code += std::format("	const uint3 q = (uint3)clamp(round(ToYCbCr(Pixel(int2(id.xy))) * {}), 0.0, 1023.0);\n", scale10);
+		code += "	packed[id.xy] = q.y | (q.x << 10) | (q.z << 20) | (3u << 30);\n"
+			"}\n";
+		return CompileShader(code, nullptr, "cs_5_0", ppCode);
+	}
+
+	// P010 keeps its ten bits in the high bits of sixteen.
+	const double unorm = scale10 * 64.0 / 65535.0;
+	code += "struct PS_INPUT { float4 Pos : SV_POSITION; float2 Tex : TEXCOORD; };\n"
+		"float4 main(PS_INPUT input) : SV_Target\n"
+		"{\n";
+	if (part == RGBTOVIDEO_Luma) {
+		code += std::format("	return float4(ToYCbCr(Pixel(int2(input.Pos.xy))).x * {}, 0, 0, 1);\n", unorm);
+	} else {
+		// One chroma sample for two columns and two rows, where MPEG-2 puts it: on the
+		// even column, between the two rows. 1 2 1 across, the two rows alike.
+		code += "	const int2 p = int2(input.Pos.xy) * 2;\n"
+			"	float3 c = 0;\n"
+			"	for (int r = 0; r < 2; r++) {\n"
+			"		c += 0.125 * Pixel(p + int2(-1, r)) + 0.25 * Pixel(p + int2(0, r)) + 0.125 * Pixel(p + int2(1, r));\n"
+			"	}\n";
+		code += std::format("	return float4(ToYCbCr(c).yz * {}, 0, 1);\n", unorm);
+	}
+	code += "}\n";
+
+	return CompileShader(code, nullptr, "ps_4_0", ppCode);
+}

@@ -16,15 +16,15 @@
 #include "DX11Helper.h"
 #include "IVideoRenderer.h"
 #include "D3D11VP.h"
+#include "Shaders.h"
 #include <wincodec.h>
 #include <d3dcompiler.h>
 
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "dxva2.lib")
 #pragma comment(lib, "windowscodecs.lib")
-
-HRESULT SaveToBMP(BYTE*, UINT, UINT, UINT, UINT, const wchar_t*) { return E_NOTIMPL; }
 
 struct Gpu {
 	CComPtr<ID3D11Device> dev;
@@ -906,6 +906,338 @@ static bool ConvertPacked(Gpu& g, DXGI_FORMAT fmt, const Planes& p, float scale,
 }
 
 
+// ---------------------------------------------------------------------------
+// --after: the processor after a DLSS pass.
+//
+// DLSS 5 NR works on R'G'B' at the source's size and leaves R'G'B'. For the video
+// processor to be the one that enlarges afterwards -- which is what "Use the video
+// processor for resizing" says it does -- that picture has to go back into it, as
+// Y'CbCr, and for the driver's Super Resolution as 4:2:0. The filter's own shaders
+// write it (GetShaderRgbToVideo) into the processor's own input texture
+// (CD3D11VP::InitInputTextures, writable). What has to be known before building on
+// it: does the processor take a picture written that way, does Super Resolution
+// still act on it, and does the picture come back as it went in.
+
+// The test picture as R'G'B', 0 to 1: what a DLSS pass would hand over.
+static std::vector<float> PictureRgb(const Picture& p)
+{
+	std::vector<float> rgb(3 * (size_t)p.w * p.h);
+	for (size_t k = 0; k < (size_t)p.w * p.h; k++) {
+		const float y = (p.y[k] - 16.0f) / 219.0f, cb = (p.cb[k] - 128.0f) / 224.0f, cr = (p.cr[k] - 128.0f) / 224.0f;
+		const float r = y + 1.5748f * cr, b = y + 1.8556f * cb;
+		rgb[3 * k] = r;
+		rgb[3 * k + 1] = (y - 0.2126f * r - 0.0722f * b) / 0.7152f;
+		rgb[3 * k + 2] = b;
+	}
+	return rgb;
+}
+
+static CComPtr<ID3D11ShaderResourceView> RgbTexture(Gpu& g, int w, int h, const std::vector<float>& rgb)
+{
+	std::vector<float> data(4 * (size_t)w * h);
+	for (size_t k = 0; k < (size_t)w * h; k++) {
+		data[4 * k] = rgb[3 * k];
+		data[4 * k + 1] = rgb[3 * k + 1];
+		data[4 * k + 2] = rgb[3 * k + 2];
+		data[4 * k + 3] = 1.0f;
+	}
+	D3D11_TEXTURE2D_DESC d = CreateTex2DDesc(DXGI_FORMAT_R32G32B32A32_FLOAT, w, h, Tex2D_DefaultShader);
+	D3D11_SUBRESOURCE_DATA init = { data.data(), (UINT)(16 * w), 0 };
+	CComPtr<ID3D11Texture2D> tex;
+	CComPtr<ID3D11ShaderResourceView> srv;
+	if (FAILED(g.dev->CreateTexture2D(&d, &init, &tex)) || FAILED(g.dev->CreateShaderResourceView(tex, nullptr, &srv))) {
+		return nullptr;
+	}
+	return srv;
+}
+
+// A triangle over the whole target: the filter draws its own quad, which comes to the same.
+static const char* const kWholeTargetVS = R"(
+struct VS_OUT { float4 Pos : SV_POSITION; float2 Tex : TEXCOORD; };
+VS_OUT main(uint id : SV_VertexID)
+{
+	VS_OUT o;
+	o.Tex = float2((id << 1) & 2, id & 2);
+	o.Pos = float4(o.Tex * float2(2, -2) + float2(-1, 1), 0, 1);
+	return o;
+}
+)";
+
+// The R'G'B' picture written into the processor's input texture by the filter's
+// shaders, then converted by the processor. fmt is P010 (two render targets) or Y410
+// (a compute shader). scale10: see GetShaderRgbToVideo.
+static bool ConvertAfter(Gpu& g, DXGI_FORMAT fmt, int w, int h, ID3D11ShaderResourceView* pRgb, bool pq, double scale10,
+	int superRes, int outW, int outH, Output& out, HRESULT& hrSuperRes, std::string& error)
+{
+	CD3D11VP vp;
+	DXGI_FORMAT o = DXGI_FORMAT_R10G10B10A2_UNORM;
+	HRESULT hr = vp.InitVideoDevice(g.dev, g.ctx, g.vendor);
+	if (SUCCEEDED(hr)) {
+		hr = vp.InitVideoProcessor(fmt, w, h, pq ? Pq2020() : Bt709(false), DEINT_Disable, pq, o);
+	}
+	if (FAILED(hr)) {
+		error = std::format("the processor would not be made for it (0x{:08X})", (unsigned)hr);
+		return false;
+	}
+	hr = vp.InitInputTextures(g.dev, true);
+	if (FAILED(hr)) {
+		error = std::format("no input texture a shader can write (0x{:08X})", (unsigned)hr);
+		return false;
+	}
+	const RECT src = { 0, 0, w, h }, dst = { 0, 0, outW, outH };
+	vp.SetRectangles(&src, &dst);
+	hrSuperRes = vp.SetSuperRes(superRes);
+	vp.SetRTXVideoHDR(false);
+
+	D3D11_TEXTURE2D_DESC d = CreateTex2DDesc(o, outW, outH, Tex2D_DefaultRTarget);
+	CComPtr<ID3D11Texture2D> rt;
+	if (FAILED(g.dev->CreateTexture2D(&d, nullptr, &rt))) {
+		error = "render target failed";
+		return false;
+	}
+
+	CComPtr<ID3DBlob> vsCode, errors;
+	CComPtr<ID3D11VertexShader> vs;
+	if (FAILED(D3DCompile(kWholeTargetVS, strlen(kWholeTargetVS), nullptr, nullptr, nullptr, "main", "vs_4_0", 0, 0, &vsCode, &errors))
+			|| FAILED(g.dev->CreateVertexShader(vsCode->GetBufferPointer(), vsCode->GetBufferSize(), nullptr, &vs))) {
+		error = "vertex shader failed";
+		return false;
+	}
+	CComPtr<ID3D11PixelShader> psLuma, psChroma;
+	CComPtr<ID3D11ComputeShader> csPacked;
+	const bool planar = (fmt == DXGI_FORMAT_P010);
+	{
+		CComPtr<ID3DBlob> a, b;
+		if (planar) {
+			if (FAILED(GetShaderRgbToVideo(RGBTOVIDEO_Luma, pq, w, h, scale10, &a))
+					|| FAILED(GetShaderRgbToVideo(RGBTOVIDEO_Chroma, pq, w, h, scale10, &b))
+					|| FAILED(g.dev->CreatePixelShader(a->GetBufferPointer(), a->GetBufferSize(), nullptr, &psLuma))
+					|| FAILED(g.dev->CreatePixelShader(b->GetBufferPointer(), b->GetBufferSize(), nullptr, &psChroma))) {
+				error = "the filter's P010 shaders did not compile";
+				return false;
+			}
+		} else if (FAILED(GetShaderRgbToVideo(RGBTOVIDEO_Packed, pq, w, h, scale10, &a))
+				|| FAILED(g.dev->CreateComputeShader(a->GetBufferPointer(), a->GetBufferSize(), nullptr, &csPacked))) {
+			error = "the filter's Y410 shader did not compile";
+			return false;
+		}
+	}
+
+	for (int n = 0; n < 3; n++) {
+		ID3D11Texture2D* in = vp.GetNextInputTexture(D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
+		ID3D11ShaderResourceView* srvs[1] = { pRgb };
+		if (planar) {
+			D3D11_RENDER_TARGET_VIEW_DESC rd = {};
+			rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+			CComPtr<ID3D11RenderTargetView> luma, chroma;
+			rd.Format = DXGI_FORMAT_R16_UNORM;
+			hr = g.dev->CreateRenderTargetView(in, &rd, &luma);
+			if (SUCCEEDED(hr)) {
+				rd.Format = DXGI_FORMAT_R16G16_UNORM;
+				hr = g.dev->CreateRenderTargetView(in, &rd, &chroma);
+			}
+			if (FAILED(hr)) {
+				error = std::format("no render target on a plane of the input texture (0x{:08X})", (unsigned)hr);
+				return false;
+			}
+			g.ctx->IASetInputLayout(nullptr);
+			g.ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			g.ctx->VSSetShader(vs, nullptr, 0);
+			g.ctx->PSSetShaderResources(0, 1, srvs);
+			const struct { ID3D11RenderTargetView* target; ID3D11PixelShader* ps; int w, h; } planes[2] = {
+				{ luma, psLuma, w, h }, { chroma, psChroma, w / 2, h / 2 } };
+			for (const auto& plane : planes) {
+				const D3D11_VIEWPORT viewport = { 0, 0, (FLOAT)plane.w, (FLOAT)plane.h, 0, 1 };
+				ID3D11RenderTargetView* targets[1] = { plane.target };
+				g.ctx->OMSetRenderTargets(1, targets, nullptr);
+				g.ctx->RSSetViewports(1, &viewport);
+				g.ctx->PSSetShader(plane.ps, nullptr, 0);
+				g.ctx->Draw(3, 0);
+			}
+			g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
+		} else {
+			ID3D11UnorderedAccessView* uavs[1] = { vp.GetInputUav() };
+			if (!uavs[0]) {
+				error = "no unordered access view on the input texture";
+				return false;
+			}
+			g.ctx->CSSetShader(csPacked, nullptr, 0);
+			g.ctx->CSSetShaderResources(0, 1, srvs);
+			g.ctx->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
+			g.ctx->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+			ID3D11UnorderedAccessView* noUav[1] = {};
+			g.ctx->CSSetUnorderedAccessViews(0, 1, noUav, nullptr);
+			g.ctx->CSSetShader(nullptr, nullptr, 0);
+		}
+		hr = vp.Process(rt, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, false);
+		if (FAILED(hr)) {
+			error = std::format("the processor would not take the picture (0x{:08X})", (unsigned)hr);
+			return false;
+		}
+	}
+	return ReadOutput(g, rt, out);
+}
+
+static double MeanDiff(const Output& o, const std::vector<float>& ref)
+{
+	double s = 0;
+	for (size_t i = 0; i < ref.size(); i++) {
+		s += std::abs(o.rgb[i] - ref[i]);
+	}
+	return ref.empty() ? -1 : 255.0 * s / ref.size();
+}
+
+static void AfterTest(Gpu& g)
+{
+	const int w = 960, h = 540;
+	const Picture p = MakePicture(w, h, 0);
+	const std::vector<float> rgb = PictureRgb(p);
+	CComPtr<ID3D11ShaderResourceView> srv = RgbTexture(g, w, h, rgb);
+	if (!srv) {
+		printf("the R'G'B' picture could not be made\n");
+		return;
+	}
+
+	printf("\nA picture written by the filter's shaders, taken by the processor at its own size.\n"
+	       "Against the R'G'B' it was written from: mean difference in 8-bit levels, then gain and\n"
+	       "offset (levels) of each channel. The first line is the same picture handed over as a\n"
+	       "decoder would, in P010, for what 4:2:0 alone costs it.\n");
+	{
+		RunResult r = Run(g, DXGI_FORMAT_P010, { p, p, p }, false, w, h, SUPERRES_Disable, false, true, 0);
+		if (SUCCEEDED(r.hr)) {
+			double gain[3], offset[3];
+			Fit(r.out, rgb, gain, offset);
+			printf("  %-34s %6.3f   gain %.4f %.4f %.4f   offset %+.2f %+.2f %+.2f\n", "P010 as a decoder gives it", MeanDiff(r.out, rgb),
+				gain[0], gain[1], gain[2], offset[0], offset[1], offset[2]);
+		} else {
+			printf("  P010 as a decoder gives it: failed 0x%08X\n", (unsigned)r.hr);
+		}
+	}
+	const struct { DXGI_FORMAT fmt; bool pq; double scale; const char* what; } cases[] = {
+		{ DXGI_FORMAT_P010, false, 4.0,            "P010 by shader, 64..940" },
+		{ DXGI_FORMAT_P010, false, 1023.0 / 255.0, "P010 by shader, 16..235 of 1023" },
+		{ DXGI_FORMAT_Y410, false, 4.0,            "Y410 by shader, 64..940" },
+		{ DXGI_FORMAT_Y410, false, 1023.0 / 255.0, "Y410 by shader, 16..235 of 1023" },
+		{ DXGI_FORMAT_P010, true,  4.0,            "P010 by shader, PQ, 64..940" },
+		{ DXGI_FORMAT_P010, true,  1023.0 / 255.0, "P010 by shader, PQ, 16..235 of 1023" },
+		{ DXGI_FORMAT_Y410, true,  4.0,            "Y410 by shader, PQ, 64..940" },
+		{ DXGI_FORMAT_Y410, true,  1023.0 / 255.0, "Y410 by shader, PQ, 16..235 of 1023" },
+	};
+	for (const auto& c : cases) {
+		Output out;
+		HRESULT hrSR = E_FAIL;
+		std::string error;
+		if (!ConvertAfter(g, c.fmt, w, h, srv, c.pq, c.scale, SUPERRES_Disable, w, h, out, hrSR, error)) {
+			printf("  %-34s FAILED: %s\n", c.what, error.c_str());
+			continue;
+		}
+		double gain[3], offset[3];
+		Fit(out, rgb, gain, offset);
+		printf("  %-34s %6.3f   gain %.4f %.4f %.4f   offset %+.2f %+.2f %+.2f\n", c.what, MeanDiff(out, rgb),
+			gain[0], gain[1], gain[2], offset[0], offset[1], offset[2]);
+	}
+
+	// The test picture has saturated shapes with hard edges, which 4:2:0 cannot hold
+	// whoever writes it. Without them only the levels are left to get wrong.
+	printf("\nThe same on a picture with no sharp colour, which leaves the levels alone to judge:\n");
+	{
+		Picture smooth = p;
+		std::vector<float> smoothRgb(rgb.size());
+		for (int j = 0; j < h; j++) {
+			for (int i = 0; i < w; i++) {
+				const size_t k = (size_t)j * w + i;
+				const float r = 0.5f + 0.4f * std::sin(i * 0.013f), gg = 0.5f + 0.4f * std::sin(j * 0.017f + 1.0f), b = 0.5f + 0.4f * std::sin((i + j) * 0.009f + 2.0f);
+				const float yl = 0.2126f * r + 0.7152f * gg + 0.0722f * b;
+				smooth.y[k] = 16.0f + 219.0f * yl;
+				smooth.cb[k] = 128.0f + 224.0f * (b - yl) / 1.8556f;
+				smooth.cr[k] = 128.0f + 224.0f * (r - yl) / 1.5748f;
+				smoothRgb[3 * k] = r;
+				smoothRgb[3 * k + 1] = gg;
+				smoothRgb[3 * k + 2] = b;
+			}
+		}
+		CComPtr<ID3D11ShaderResourceView> smoothSrv = RgbTexture(g, w, h, smoothRgb);
+		RunResult r = Run(g, DXGI_FORMAT_P010, { smooth, smooth, smooth }, false, w, h, SUPERRES_Disable, false, true, 0);
+		if (SUCCEEDED(r.hr)) {
+			double gain[3], offset[3];
+			Fit(r.out, smoothRgb, gain, offset);
+			printf("  %-34s %6.3f   gain %.4f %.4f %.4f   offset %+.2f %+.2f %+.2f\n", "P010 as a decoder gives it", MeanDiff(r.out, smoothRgb),
+				gain[0], gain[1], gain[2], offset[0], offset[1], offset[2]);
+		}
+		for (const auto& c : cases) {
+			Output out;
+			HRESULT hrSR = E_FAIL;
+			std::string error;
+			if (!smoothSrv || !ConvertAfter(g, c.fmt, w, h, smoothSrv, c.pq, c.scale, SUPERRES_Disable, w, h, out, hrSR, error)) {
+				printf("  %-34s FAILED: %s\n", c.what, error.c_str());
+				continue;
+			}
+			double gain[3], offset[3];
+			Fit(out, smoothRgb, gain, offset);
+			printf("  %-34s %6.3f   gain %.4f %.4f %.4f   offset %+.2f %+.2f %+.2f\n", c.what, MeanDiff(out, smoothRgb),
+				gain[0], gain[1], gain[2], offset[0], offset[1], offset[2]);
+		}
+	}
+
+	printf("\nSuper Resolution on a picture written that way, 960x540 -> 1920x1080 (what enabling it changes, 8-bit levels):\n");
+	for (const auto& c : cases) {
+		if (c.scale != 4.0) {
+			continue;
+		}
+		Output off, on;
+		HRESULT hrOff = E_FAIL, hrOn = E_FAIL;
+		std::string error;
+		if (!ConvertAfter(g, c.fmt, w, h, srv, c.pq, c.scale, SUPERRES_Disable, 2 * w, 2 * h, off, hrOff, error)
+				|| !ConvertAfter(g, c.fmt, w, h, srv, c.pq, c.scale, SUPERRES_1080p, 2 * w, 2 * h, on, hrOn, error)) {
+			printf("  %-34s FAILED: %s\n", c.what, error.c_str());
+			continue;
+		}
+		printf("  %-34s extension 0x%08X, changes the picture by %.3f\n", c.what, (unsigned)hrOn, Diff(on, off));
+	}
+
+	// What the second trip through the processor costs a film: a frame as a decoder
+	// gives it, converted once (which is what a DLSS pass is handed), then written back
+	// and converted again, each against the frame itself.
+	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	CComPtr<IWICImagingFactory> f;
+	if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&f)))) {
+		return;
+	}
+	WIN32_FIND_DATAW fd = {};
+	const std::wstring dir = L"upscale_refs\\";
+	HANDLE hFind = FindFirstFileW((dir + L"*.png").c_str(), &fd);
+	printf("\nFilm frames halved from 4K, at their own size (PSNR dB: rgb, chroma, chroma at luma edges).\n"
+	       "once: 4:2:0 through the processor. twice: that picture written back by the filter's\n"
+	       "shaders and through the processor again, in P010 and in Y410. last: twice against once.\n");
+	for (BOOL more = hFind != INVALID_HANDLE_VALUE; more; more = FindNextFileW(hFind, &fd)) {
+		int fw = 0, fh = 0;
+		std::vector<float> film;
+		if (!LoadHalved(f, (dir + fd.cFileName).c_str(), fw, fh, film)) {
+			continue;
+		}
+		Output once, twice, twice444;
+		HRESULT hrSR = E_FAIL;
+		std::string error;
+		if (!Convert(g, DXGI_FORMAT_P010, To420(ToYCbCr444(film, fw, fh)), once)) {
+			printf("  %-12S the processor failed\n", fd.cFileName);
+			continue;
+		}
+		CComPtr<ID3D11ShaderResourceView> onceSrv = RgbTexture(g, fw, fh, once.rgb);
+		if (!onceSrv || !ConvertAfter(g, DXGI_FORMAT_P010, fw, fh, onceSrv, false, 1023.0 / 255.0, SUPERRES_Disable, fw, fh, twice, hrSR, error)
+				|| !ConvertAfter(g, DXGI_FORMAT_Y410, fw, fh, onceSrv, false, 1023.0 / 255.0, SUPERRES_Disable, fw, fh, twice444, hrSR, error)) {
+			printf("  %-12S FAILED: %s\n", fd.cFileName, error.c_str());
+			continue;
+		}
+		const Score a = ScoreAgainst(once, film), b = ScoreAgainst(twice, film), c = ScoreAgainst(twice444, film);
+		const Score d = ScoreAgainst(twice, once.rgb), e = ScoreAgainst(twice444, once.rgb);
+		printf("  %-12S once %5.2f %5.2f %5.2f | twice P010 %5.2f %5.2f %5.2f | twice Y410 %5.2f %5.2f %5.2f | P010 %5.2f %5.2f, Y410 %5.2f %5.2f\n",
+			fd.cFileName, a.rgb, a.chroma, a.edges, b.rgb, b.chroma, b.edges, c.rgb, c.chroma, c.edges, d.rgb, d.chroma, e.rgb, e.chroma);
+	}
+	if (hFind != INVALID_HANDLE_VALUE) {
+		FindClose(hFind);
+	}
+}
+
 // Everything the filter needs to know before it can hand the processor a 4:4:4
 // picture: that a shader can write one, that the processor still takes it, and
 // that what only the processor does still happens on it.
@@ -1198,6 +1530,10 @@ int wmain(int argc, wchar_t* argv[])
 	}
 	if (argc > 1 && !wcscmp(argv[1], L"--hdrconv")) {
 		HdrConvTest(g);
+		return 0;
+	}
+	if (argc > 1 && !wcscmp(argv[1], L"--after")) {
+		AfterTest(g);
 		return 0;
 	}
 

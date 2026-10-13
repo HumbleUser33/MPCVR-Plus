@@ -85,3 +85,29 @@ HRESULT GetShaderConvertTo444(
 	const int chromaScaling,
 	const DXGI_FORMAT packedFormat,
 	ID3DBlob** ppCode);
+
+// The way back: the R'G'B' picture a DLSS pass leaves, written as the Y'CbCr the D3D11
+// video processor takes, so that the processor can enlarge it after the pass. Nothing
+// is converted but the matrix -- the transfer function and the primaries stay as they
+// are, and the processor is told the picture is in the space it already is in.
+//
+// Three shaders. P010, which the driver's Super Resolution acts on, is written a plane
+// at a time: RGBTOVIDEO_Luma into the R16 view of the texture, RGBTOVIDEO_Chroma into
+// its R16G16 view at half the size, the chroma sited as MPEG-2 sites it. Y410, for a
+// picture whose chroma the shaders were asked to keep whole, is one compute shader
+// through an R32_UINT view, as GetShaderConvertTo444 writes it.
+//
+// width and height are the picture's; scale10 is how many codes of the 10-bit scale a
+// level of the 8-bit one is written as (4, or 1023/255 where a driver reads the studio
+// range from the full scale).
+enum : int {
+	RGBTOVIDEO_Luma = 0,
+	RGBTOVIDEO_Chroma,
+	RGBTOVIDEO_Packed,
+};
+HRESULT GetShaderRgbToVideo(
+	const int part,
+	const bool bBT2020,
+	const UINT width, const UINT height,
+	const double scale10,
+	ID3DBlob** ppCode);
