@@ -340,7 +340,10 @@ def cstr(s):
 
 def replace_block(path, begin, end, block, anchor):
     """Puts block between the begin and end markers, or before anchor the first time."""
-    text = open(path, encoding="utf-8").read()
+    # Read as it is on disk: left to translate, Python hands every line ending over as
+    # "\n", the test below never finds a Windows one and the file is written back with
+    # Unix endings. compile_shaders.cmd has Windows ones, and cmd.exe needs them.
+    text = open(path, encoding="utf-8", newline="").read()
     newline = "\r\n" if "\r\n" in text else "\n"
     text = text.replace("\r\n", "\n")
     body = "\n".join([begin] + block + [end]) + "\n"

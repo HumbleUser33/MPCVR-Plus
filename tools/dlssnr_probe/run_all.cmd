@@ -13,9 +13,10 @@ REM
 REM Build the filter (build_mpcvr.cmd Build Release x64 and Win32) and the tools
 REM (build.cmd) first: this only measures.
 REM
-REM This file keeps Windows line endings, and has to. With Unix ones cmd.exe looks for a
-REM label 512 bytes at a time and misses one that the edge of a read cuts in two: three
-REM lines added here, and the CALL of "chroma through the filter, 8-bit" no longer found
+REM This file has to have Windows line endings, as every batch file here, and
+REM .gitattributes has git write them. With Unix ones cmd.exe looks for a label 512
+REM bytes at a time and misses one that the edge of a read cuts in two: three lines
+REM added here, and the CALL of "chroma through the filter, 8-bit" no longer found
 REM :Run. One line on stderr, and the script went on to the step after.
 
 SETLOCAL ENABLEDELAYEDEXPANSION

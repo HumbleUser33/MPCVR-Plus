@@ -20,6 +20,8 @@ Read it top to bottom:
   5. resource identifiers used by both sides, which would compile in silence and
      load the wrong resource
   6. whether the generated files will need regenerating afterwards
+  7. whether the batch files of this working folder have the line endings cmd.exe
+     needs to find its labels
 
 The procedure around it is in MERGING-UPSTREAM.md.
 """
@@ -29,6 +31,10 @@ import re
 import subprocess
 import sys
 import time
+
+# "Writes nothing" includes the __pycache__ Python would leave beside this file.
+sys.dont_write_bytecode = True
+import batch_endings
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -209,6 +215,18 @@ def main():
         print("      Shaders\\compile_shaders.cmd")
     else:
         print("  upstream has not touched the files the shader generator writes into.")
+
+    # ---------------------------------------------------------------- 7 ------
+    rule("7. Batch files in this working folder")
+    unix = batch_endings.faults(ROOT)
+    if not unix:
+        print("  all with Windows line endings, which cmd.exe needs to find its labels.")
+    else:
+        print("  %d with Unix line endings, where cmd.exe can lose a label and skip the" % len(unix))
+        print("  step that calls it. Before building or measuring anything:")
+        print("      python tools\\batch_endings.py --fix")
+        for path, bare, lines in unix:
+            print("    %-40s %d of %d lines" % (path, bare, lines))
 
     print("\nNext: MERGING-UPSTREAM.md, step 2.\n")
 

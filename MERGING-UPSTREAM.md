@@ -43,7 +43,8 @@ python tools\upstream_check.py
 The report is read-only — no fetch of its own, no merge, no file written. It gives you:
 where we stand, the upstream commits that touch our files, a risk table, a **trial merge**
 with the conflicts you will actually get, a check for resource numbers used by both sides,
-and whether the generated files will need regenerating.
+whether the generated files will need regenerating, and whether the batch files of this
+working folder have the line endings cmd.exe needs.
 
 ### 2. Read the commits it lists — the step that matters
 
@@ -195,6 +196,15 @@ notice its absence.
   `SaveSettings`, which wrote its own defaults to the registry. Append, always, and if the
   `settings kept:` line of `playback_test --file` ever disagrees with what was asked for,
   this is why.
+- **Batch files.** `.gitattributes` has git write every `*.cmd` and `*.bat` to the working
+  folder with Windows line endings, because cmd.exe loses labels in one with Unix endings
+  (`CLAUDE.md` says how). What git stores is left alone -- Unix endings, upstream's own
+  blobs -- so a merge sees nothing of the rule: the 0.10.8 merge played again with it gave
+  the same two conflicts, both replayed by `git rerere`, and the same files. Do not go the
+  other way and commit a batch file with Windows endings in it. Every line then differs from
+  upstream's, and the first change upstream makes to the file is a conflict the size of the
+  file: 439 lines for `build_mpcvr.cmd`, tried. `-X ignore-cr-at-eol` hides that conflict
+  and leaves the file with both kinds of ending.
 - **Two known conflict points**, both already met: the order of `superRes` and `rtxHDR` in
   `InitializeD3D11VP` (upstream moved it; keep their order, keep our condition), and
   `SetDirty()` in `PropPage.h` (upstream added a guard; keep it and keep our

@@ -1,0 +1,9 @@
+# Batch files are written to the working folder with Windows line endings, whatever
+# core.autocrlf says. In one with Unix endings cmd.exe looks for a label 512 bytes at a
+# time and loses one that the edge of a read cuts in two.
+#
+# What git stores does not change: Unix endings, as upstream has them, so a merge sees
+# nothing of this. Do not widen the rule to other files, a dozen of which are stored
+# with Windows endings and one with both. CLAUDE.md has the rest.
+*.cmd text eol=crlf
+*.bat text eol=crlf

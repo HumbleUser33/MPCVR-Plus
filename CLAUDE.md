@@ -73,13 +73,23 @@ It is published as **MPCVR-Plus**: `origin` is HumbleUser33/MPCVR-Plus, the bran
   to a file rather than through a shell heredoc, which turns the `\n` inside its strings
   into real line breaks.
 
-- **A batch file that calls a label wants Windows line endings.** With Unix ones cmd.exe
-  looks for the label 512 bytes at a time and misses one that the edge of a read cuts in
-  two. The `CALL` is then not made, the script goes on, and all there is to see is one line
-  on stderr: three lines added to `tools/dlssnr_probe/run_all.cmd` and a step of the battery
-  was no longer run. That file is CRLF since, and counts its steps. Every other batch file
-  here is still LF, `build_mpcvr.cmd` and its five labels among them: after editing one,
-  check that everything in it still runs, and read what it writes on stderr.
+- **Batch files are the exception: `.gitattributes` has git write them with Windows line
+  endings.** In one with Unix endings cmd.exe looks for a label 512 bytes at a time and
+  misses one that the edge of a read cuts in two. A `CALL` is then not made, the script goes
+  on, and all there is to see is one line on stderr; a `GOTO` ends the script; and a read
+  that starts on the `:Name` of another line takes that line for the label. Three lines
+  added to `tools/dlssnr_probe/run_all.cmd` and a step of the battery was no longer run.
+  The rule covers every `*.cmd` and `*.bat`, upstream's among them, and changes nothing of
+  what git stores, which stays LF as upstream has it. Never commit one as CRLF:
+  `MERGING-UPSTREAM.md` says what that costs.
+
+- **Git applies that rule only when it writes the file.** A working folder older than the
+  rule keeps its LF batch files, and a tool that rewrites one can put LF back: `git status`
+  then shows nothing, or ` M` with an empty diff. `python tools\batch_endings.py` says which
+  files are at fault and `--fix` puts them right; `tools\dlssnr_probe\build.cmd` runs it
+  first and `upstream_check.py` ends on it. The other way round, a commit older than the
+  rule checked out in the same folder shows the batch files as modified, which is only the
+  CRLF left on disk: `git checkout -- "*.cmd"` clears it.
 
 ## Building and measuring
 

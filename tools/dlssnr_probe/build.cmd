@@ -5,6 +5,11 @@ REM The shim source is shared with the NgxShim project -- there is only one copy
 SETLOCAL
 PUSHD %~dp0
 
+REM The batch files have to have Windows line endings: with Unix ones cmd.exe loses
+REM labels, and a step of the battery was once left out that way. Git writes them so,
+REM but a tool that rewrites one can put Unix endings back without git showing it.
+python ..\batch_endings.py || EXIT /B 1
+
 FOR /F "usebackq tokens=*" %%i IN (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) DO SET VSPATH=%%i
 IF "%VSPATH%"=="" (
   ECHO Visual Studio not found.
