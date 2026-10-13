@@ -1,8 +1,8 @@
 # The reference numbers
 
 `run_all_report.txt` here is what the whole battery measured on 13 October 2026, on an
-RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all nineteen steps green. The
-filter is `565855d`, build 2681, and filter and tools are built by MSVC 14.44. It is the thing
+RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all twenty-three steps green.
+The filter is `569600f`, build 2686, and filter and tools are built by MSVC 14.44. It is the thing
 a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
@@ -27,7 +27,10 @@ down. The tables move with:
   next section measures, so regenerate the baseline on the machine you compare on;
 - **the reference pictures** in `upscale_refs/`, which are not in the repository (they are
   film frames). Comparing two reports means comparing runs over the same folder;
-- **the DLSS DLLs** present, for the suites that need them.
+- **the DLSS DLLs** present, for the suites that need them;
+- **the film** in `upscale_refs/` and **LAV Filters** where an installed MPC-HC or MPC-BE keeps
+  them (`file_graph.inl`), for the two steps that play a real film. Without either they fail,
+  and say which.
 
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
@@ -74,6 +77,29 @@ share, 2 moved, both the pipeline's bare times; none is gone; 46 are new, the tw
 The filter's settings are read from the registry of whoever runs the battery, and the
 presentation steps follow them: this report was taken with *Swap effect* on Flip, the one
 before with Discard, and the steps that present gave the same rows both ways.
+
+## 13 October 2026, later: the processor after DLSS 5 NR
+
+The report of that morning, at `565855d`, is in the history. Since then the video processor
+resizes what DLSS 5 NR leaves, and the battery has four more steps:
+
+- "what the Settings page greys", the page's rule with each DLSS box ticked;
+- "the processor enlarging after DLSS 5 NR" and "the processor after DLSS 5 NR, PQ picture":
+  a real film, paused at the same place under each way of enlarging and read off the desktop.
+  They are the only steps that bring the hardware processor in on a decoder's pictures after
+  the network -- the bench's own film is RGB and never does;
+- "every step ran", which counts the steps in the report against those `run_all.cmd` names.
+
+Of the 2599 rows the two reports share, 7 moved, none of them a measurement of the code: five
+are the *On screen* lines' counts of late pictures, two the pipeline's bare times. None is
+gone; 16 are new, the two film steps'.
+
+The last of the four steps is there because of what the first run of the afternoon did. It
+passed every step it ran, and it had not run "chroma through the filter, 8-bit": `run_all.cmd`
+had Unix line endings, and with the three steps added cmd.exe came back from a `CALL` to a
+label a line too far. No error, no verdict. The comparison is what said so -- the step
+`MISSING from the new report`, sixteen rows gone -- and that report was not kept. The file has
+Windows line endings since (`569600f`), and the report in this folder is from after.
 
 ## What the first run here found
 
