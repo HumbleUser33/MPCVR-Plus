@@ -497,6 +497,15 @@ HRESULT CBaseVideoRenderer2::ShouldDrawSampleNow(IMediaSample *pMediaSample,
     // Don't call us unless there's a clock interface to synchronise with
     ASSERT(m_pClock);
 
+    // A picture delay asked for in the settings: the picture is due that long after
+    // its stamp, and lateness, quality messages and the wait below all work from
+    // there. A stream time is never made negative, here no more than below.
+    {
+        const REFERENCE_TIME trDelay = std::max<REFERENCE_TIME>(GetVideoDelay(), -*ptrStart);
+        *ptrStart += trDelay;
+        *ptrEnd += trDelay;
+    }
+
     // We lose a bit of time depending on the monitor type waiting for the next
     // screen refresh.  On average this might be about 8mSec - so it will be
     // later than we think when the picture appears.  To compensate a bit

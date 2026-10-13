@@ -168,6 +168,13 @@ constexpr inline auto SHARPEN_LEVEL_MIN = 1;
 constexpr inline auto SHARPEN_LEVEL_MAX = 5;
 constexpr inline auto SHARPEN_LEVEL_DEF = 3;
 
+// The picture delay, in milliseconds. Later is what a slow sound asks for; earlier is
+// there for a television that takes longer over the picture than the sound takes to
+// arrive. The step is the slider's: a picture moves by whole refreshes in any case.
+constexpr inline auto VIDEO_DELAY_MIN  = -200;
+constexpr inline auto VIDEO_DELAY_MAX  = 500;
+constexpr inline auto VIDEO_DELAY_STEP = 5;
+
 struct Settings_t {
 	bool bUseD3D11;
 	bool bShowStats;
@@ -259,6 +266,11 @@ struct Settings_t {
 	bool bUpscalingSmall;
 	int  iUpscalingSmall;   // UPSCALE_*
 
+	// Every picture shown this many milliseconds after its time, VIDEO_DELAY_*: for a
+	// sound that reaches the ear late. The picture is all a renderer can move, and an
+	// amplifier that decodes behind the television is seen by nothing in the player.
+	int  iVideoDelay;
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -336,6 +348,7 @@ struct Settings_t {
 		iDlssSRPreset                   = DLSSSR_PRESET_DEF;
 		szDlssSRDllPath[0]              = L'\0';
 		bDlssRenderAhead                = true;
+		iVideoDelay                     = 0;
 	}
 };
 

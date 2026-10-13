@@ -94,6 +94,7 @@
 #define OPT_UpscalingSmall                 L"UpscalingSmall"
 #define OPT_UpscalingSmallFilter           L"UpscalingSmallFilter"
 #define OPT_DlssRenderAhead                L"DlssRenderAhead"
+#define OPT_VideoDelay                     L"VideoDelay"
 
 static std::atomic_int g_nInstance = 0;
 
@@ -309,6 +310,11 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_UpscalingSmallFilter, dw)) {
 		sets.iUpscalingSmall = discard<int>(dw, UPSCALE_Jinc2, 0, UPSCALE_COUNT-1);
 	}
+	// Signed, in a registry that only keeps unsigned values: it goes in as it is and
+	// comes back through the same cast.
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VideoDelay, dw)) {
+		sets.iVideoDelay = discard<int>((int)dw, 0, VIDEO_DELAY_MIN, VIDEO_DELAY_MAX);
+	}
 }
 
 static void WriteSettings(CRegKey& key, const Settings_t& sets)
@@ -375,6 +381,7 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_DlssRenderAhead,     sets.bDlssRenderAhead);
 	key.SetDWORDValue(OPT_UpscalingSmall,      sets.bUpscalingSmall);
 	key.SetDWORDValue(OPT_UpscalingSmallFilter, sets.iUpscalingSmall);
+	key.SetDWORDValue(OPT_VideoDelay,          (DWORD)sets.iVideoDelay);
 }
 
 // Presets: eight keys beside the settings, each holding a whole Settings_t under
@@ -385,12 +392,13 @@ static std::wstring PresetKeyPath(int slot)
 }
 
 // What belongs to the installation and not to a taste stays out of a preset:
-// where the two DLLs are, and the DLSS toggle key.
+// where the two DLLs are, the DLSS toggle key, and how late the room's sound is.
 static void KeepInstallation(Settings_t& sets, const Settings_t& current)
 {
 	sets.iDlssNRToggleKey = current.iDlssNRToggleKey;
 	wcscpy_s(sets.szDlssNRDllPath, current.szDlssNRDllPath);
 	wcscpy_s(sets.szDlssSRDllPath, current.szDlssSRDllPath);
+	sets.iVideoDelay = current.iVideoDelay;
 }
 
 

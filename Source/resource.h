@@ -261,6 +261,10 @@
 #define IDC_STATIC_SMALL_NOTE           1280
 #define IDC_STATIC_DESC_PRESETS         1281
 #define IDC_STATIC_PRESETS_NOTE         1282
+#define IDC_STATIC_HEAD_SOUND           1283
+#define IDC_STATIC_VIDEO_DELAY          1284
+#define IDC_SLIDER8                     1285
+#define IDC_EDIT10                      1286
 #define IDC_PRESET_NAME1                   1300
 #define IDC_PRESET_NAME2                   1301
 #define IDC_PRESET_NAME3                   1302

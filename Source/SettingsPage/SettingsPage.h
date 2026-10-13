@@ -65,6 +65,7 @@ private:
 
 	Settings_t m_SetsPP;
 	int m_oldSDRDisplayNits = SDR_NITS_DEF;
+	int m_oldVideoDelay = 0;
 
 	// Dolby Vision is the one thing about the film the page still watches: it takes
 	// the processor out of the chain, which is a different page and not a shade of

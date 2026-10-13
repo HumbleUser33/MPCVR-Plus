@@ -201,6 +201,7 @@ public:
 	HRESULT Receive(IMediaSample* pMediaSample) override;
 	HRESULT WaitForRenderTime() override;
 	int GetRenderAhead() override { return m_VideoProcessor ? m_VideoProcessor->GetRenderAhead() : 0; }
+	int GetVideoDelay() override { return m_Sets.iVideoDelay * 10000; }
 
 	HRESULT BeginFlush() override;
 	HRESULT EndFlush() override;

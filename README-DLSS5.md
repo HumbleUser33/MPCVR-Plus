@@ -1259,6 +1259,46 @@ again.
 With *Render ahead* off nothing of this is used and the renderer times its `Present` as it
 did; *Wait for VBlank before Present* and *Adjust the frame presentation time* only apply then.
 
+### A video delay, for a sound that arrives late
+
+All of the above puts the picture where the reference clock says, and the clock is the sound
+card's: it says when the sound leaves the computer, not when it is heard. An amplifier that
+decodes Dolby Atmos behind the television takes its time over it, and nothing in a player sees
+that. The picture is all a renderer can move, so **Video delay** (Settings page, *Presentation*,
+the *Sound* box) shows every picture that many milliseconds after its time: later for a sound
+that arrives after the picture, from −200 to +500 ms. A negative value shows the picture
+earlier, for a television that takes longer over the picture than the sound does to arrive.
+
+It is applied where a picture is given its time, so everything else works from there: the
+sample is asked for that much later, the refresh nearest the delayed time is the picture's, and
+*Sync offset* and *On screen* in the statistics go on reading against the time the picture is
+due. A line of its own says the rest while a delay is set:
+
+    Video delay   : +40 ms asked for, the picture +37 ms from its own time
+
+Measured in MPC-HC, a 24 fps film in 4K HDR with its Atmos track bitstreamed, fullscreen at
+24 Hz, four starts at each value, the pacing trace reading each picture's refresh against the
+time stamped on it:
+
+| Video delay | the picture on the screen, after its own time | pictures lost while playing |
+|---|---|---|
+| 0 | +1.4, −13.2, −7.8, −11.4 ms | none |
+| +40 ms | +21.3, +37.1, +43.1, +35.0 ms | none |
+| +80 ms | +57.9, +91.5, +84.6, +75.5 ms | none |
+
+And in the bench's window, the screen at 60 Hz: +40.2 ms for +40, +100.0 for +100, +250.5 for
++250 and −99.9 for −100, medians over ten seconds.
+
+**A picture only moves by whole refreshes.** At 24 Hz that is 41.7 ms, so the value asked for
+is met to the nearest refresh, and which one is drawn afresh at every start and every seek:
+the spread of the table, about twenty milliseconds either way. The line in the statistics says where
+the picture really is. A screen at 120 Hz for a 24 fps film has a refresh every 8.3 ms, and
+would hold the value five times closer.
+
+The slider applies as it is dragged, since it is set by ear with a film playing, and the
+schedule takes the new time at the next picture rather than keeping its step. The value is
+kept out of the presets, like the DLL paths: it belongs to the room.
+
 ## When the graph's clock stops
 
 Every picture is scheduled against the reference clock the graph gets from one of its filters,
@@ -1347,6 +1387,7 @@ On the **Settings** page, bottom right:
 | Setting | Default | Notes |
 |---|---|---|
 | Render ahead to keep audio sync | on | See above. Gives every picture a refresh chosen in advance, and starts each early enough for it. Needs Direct3D 11, and the flip model for the first of the two |
+| Video delay | 0 ms | See *A video delay, for a sound that arrives late*. Every picture shown that long after its time, −200 to +500 ms, to the nearest refresh. Applies as the slider is dragged; kept out of the presets |
 
 In the **Shader video processor** box, the two lists are ordered best first (see *Upscaling*
 above) and each entry keeps its own number, so a setting already saved still means what it did:
@@ -1391,9 +1432,9 @@ The **Presets** tab holds eight sets of settings. Each line has a name, a key, *
   and neither is 1: the filter swallows the exact combination and leaves the rest to the
   player. While a text box is being typed in, it swallows nothing.
 
-A preset is every setting there is, with three exceptions that belong to the installation or
-to the moment and not to a taste: the two DLL paths, the DLSS 5 NR toggle key, and whether the
-statistics are showing -- a preset saved while they were up used to bring them up with it. Recalling one that changes
+A preset is every setting there is, with four exceptions that belong to the installation or
+to the moment and not to a taste: the two DLL paths, the DLSS 5 NR toggle key, the video
+delay, and whether the statistics are showing -- a preset saved while they were up used to bring them up with it. Recalling one that changes
 Direct3D 11, the swap effect, exclusive fullscreen or the texture format restarts the
 rendering, the same short break those options cause from the page; between two presets that
 differ only in the picture, the change is immediate. Measured with `playback_test --presets`,

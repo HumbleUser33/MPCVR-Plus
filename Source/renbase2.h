@@ -190,6 +190,11 @@ public:
     // returns more than 0 must hold the finished picture until its time itself.
     virtual int GetRenderAhead() { return 0; }
 
+    // How long after its time stamp a picture is due, in 100 ns units: later for a
+    // sound that arrives late, negative for earlier. Every decision is then made
+    // against that time, as if the stamps themselves said it.
+    virtual int GetVideoDelay() { return 0; }
+
     virtual HRESULT SendQuality(REFERENCE_TIME trLate, REFERENCE_TIME trRealStream);
     STDMETHODIMP JoinFilterGraph(__inout_opt IFilterGraph * pGraph, __in_opt LPCWSTR pName);
 

@@ -300,6 +300,7 @@ CDX9VideoProcessor::CDX9VideoProcessor(CMpcVideoRenderer* pFilter, const Setting
 	m_iHdrToggleDisplay    = HDRTD_Disabled;
 	m_bConvertToSdr        = config.bConvertToSdr;
 	m_iSDRDisplayNits      = config.iSDRDisplayNits;
+	m_rtVideoDelay         = (REFERENCE_TIME)config.iVideoDelay * 10000;
 
 	m_nCurrentAdapter = D3DADAPTER_DEFAULT;
 
@@ -1298,7 +1299,9 @@ HRESULT CDX9VideoProcessor::ProcessSample(IMediaSample* pSample)
 		m_pFilter->StreamTime(rtClock);
 	}
 
-	m_RenderStats.syncoffset = rtClock - rtStart;
+	// Against the time the picture is due: its stamp and the picture delay, which the
+	// base class has already waited for.
+	m_RenderStats.syncoffset = rtClock - rtStart - m_rtVideoDelay;
 
 	int so = (int)std::clamp(m_RenderStats.syncoffset, -UNITS, UNITS);
 #if SYNC_OFFSET_EX
@@ -1307,7 +1310,7 @@ HRESULT CDX9VideoProcessor::ProcessSample(IMediaSample* pSample)
 	m_Syncs.Add(so);
 
 	if (m_bDoubleFrames) {
-		if (rtEnd < rtClock) {
+		if (rtEnd + m_rtVideoDelay < rtClock) {
 			m_RenderStats.dropped2++;
 			return S_FALSE; // skip frame
 		}
@@ -1320,7 +1323,7 @@ HRESULT CDX9VideoProcessor::ProcessSample(IMediaSample* pSample)
 			m_pFilter->StreamTime(rtClock);
 		}
 
-		m_RenderStats.syncoffset = rtClock - rtStart;
+		m_RenderStats.syncoffset = rtClock - rtStart - m_rtVideoDelay;
 
 		so = (int)std::clamp(m_RenderStats.syncoffset, -UNITS, UNITS);
 #if SYNC_OFFSET_EX
@@ -1619,7 +1622,9 @@ HRESULT CDX9VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTim
 	}
 
 	if (m_bAdjustPresentTime) {
-		SyncFrameToStreamTime(frameStartTime);
+		// To the time the picture is due, or a picture asked for earlier than its
+		// stamp would be held here until the stamp all the same.
+		SyncFrameToStreamTime(frameStartTime != INVALID_TIME ? frameStartTime + m_rtVideoDelay : INVALID_TIME);
 	}
 
 	if (m_d3dpp.SwapEffect == D3DSWAPEFFECT_DISCARD) {
@@ -1929,6 +1934,7 @@ void CDX9VideoProcessor::Configure(const Settings_t& config)
 	m_bAdjustPresentTime   = config.bAdjustPresentTime;
 	m_bDeintBlend          = config.bDeintBlend;
 	m_iSDRDisplayNits      = config.iSDRDisplayNits;
+	m_rtVideoDelay         = (REFERENCE_TIME)config.iVideoDelay * 10000;
 
 	// checking what needs to be changed
 
@@ -3155,6 +3161,11 @@ HRESULT CDX9VideoProcessor::DrawStats(IDirect3DSurface9* pRenderTarget)
 		m_RenderStats.t5 * 1000 / GetPreciseTicksPerSecond(),
 		m_RenderStats.t6 * 1000 / GetPreciseTicksPerSecond());
 #endif
+	// The Sync offset is read against the time the picture is due, which with a
+	// picture delay is not its stamp any more.
+	if (m_rtVideoDelay) {
+		str += std::format(L"\nVideo delay   : {:+} ms asked for", m_rtVideoDelay / 10000);
+	}
 
 	// The box is made to fit the text.
 	if (UpdateStatsLayout(str)) {

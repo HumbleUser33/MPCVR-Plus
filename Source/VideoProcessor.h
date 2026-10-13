@@ -70,6 +70,9 @@ protected:
 	int  m_iHdrOsdBrightness               = 0;
 	bool m_bConvertToSdr                   = true;
 	int  m_iSDRDisplayNits                 = SDR_NITS_DEF;
+	// The picture delay of the settings, 100 ns: every picture is due this long after
+	// its stamp. The base class wakes for it by the same amount (GetVideoDelay).
+	REFERENCE_TIME m_rtVideoDelay          = 0;
 
 	bool m_bVPScalingUseShaders = false;
 

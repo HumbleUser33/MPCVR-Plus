@@ -486,6 +486,7 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_iHdrOsdBrightness    = config.iHdrOsdBrightness;
 	m_bConvertToSdr        = config.bConvertToSdr;
 	m_iSDRDisplayNits      = config.iSDRDisplayNits;
+	m_rtVideoDelay         = (REFERENCE_TIME)config.iVideoDelay * 10000;
 	m_bDlssNR              = config.bDlssNR;
 	m_DlssParams           = DlssParamsFromSettings(config);
 	m_strDlssNRDllPath     = config.szDlssNRDllPath;
@@ -2615,7 +2616,10 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 		m_pFilter->StreamTime(rtClock);
 	}
 
-	m_RenderStats.syncoffset = rtClock - rtStart;
+	// Against the time the picture is due, which is its stamp and the picture delay:
+	// an offset that read +40 for a picture shown where it was asked to be would say
+	// nothing of how the renderer is doing.
+	m_RenderStats.syncoffset = rtClock - rtStart - m_rtVideoDelay;
 	// The same offset carried forward to the refresh the picture is due on.
 	m_bOnScreenKnown = m_tickOnScreen != 0;
 	if (m_bOnScreenKnown) {
@@ -2687,7 +2691,7 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 	m_Syncs.Add(so);
 
 	if (m_bDoubleFrames) {
-		if (rtEnd < rtClock) {
+		if (rtEnd + m_rtVideoDelay < rtClock) {
 			m_RenderStats.dropped2++;
 			return S_FALSE; // skip frame
 		}
@@ -2700,7 +2704,7 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 			m_pFilter->StreamTime(rtClock);
 		}
 
-		m_RenderStats.syncoffset = rtClock - rtStart;
+		m_RenderStats.syncoffset = rtClock - rtStart - m_rtVideoDelay;
 
 		so = (int)std::clamp(m_RenderStats.syncoffset, -UNITS, UNITS);
 #if SYNC_OFFSET_EX
@@ -3404,6 +3408,9 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	// held against a clock that has stopped, every picture would wait its full bound.
 	const bool bTimed = field && frameStartTime != INVALID_TIME
 		&& m_pFilter->m_filterState == State_Running && !m_pFilter->m_bClockStalled;
+	// When it is due: its stamp, and the picture delay of the settings. The stamp
+	// itself stays what the trace and the subtitles go by.
+	const REFERENCE_TIME frameDueTime = (frameStartTime != INVALID_TIME) ? frameStartTime + m_rtVideoDelay : INVALID_TIME;
 
 	// The refresh this picture is for, and the moment to call Present to get it
 	// (CPresentSchedule). It is what "render ahead" has become: every picture asked for
@@ -3415,7 +3422,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		if (SUCCEEDED(m_pFilter->StreamTime(rtNow))) {
 			const long long tickNow = (long long)GetPreciseTick();
 			const long long tickDue = tickNow
-				+ (long long)((double)(frameStartTime - rtNow) * GetPreciseTicksPerSecond() / 10000000.0);
+				+ (long long)((double)(frameDueTime - rtNow) * GetPreciseTicksPerSecond() / 10000000.0);
 			const double frameMs = m_pFilter->m_FrameStats.GetAverageFrameDuration() / 10000.0 / (m_bDoubleFrames ? 2 : 1);
 			// What a picture costs before it can be presented: this one's drawing, or the
 			// longest the GPU has lately taken to be done with one, which the render
@@ -3491,9 +3498,9 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 			}
 		}
 		if (bHold) {
-			HoldUntilPresentTime(frameStartTime, field == 1);
+			HoldUntilPresentTime(frameDueTime, field == 1);
 		} else if (m_bAdjustPresentTime) {
-			SyncFrameToStreamTime(frameStartTime);
+			SyncFrameToStreamTime(frameDueTime);
 		}
 	}
 
@@ -3672,10 +3679,10 @@ void CDX11VideoProcessor::NoteSwapChainForTrace()
 		return;
 	}
 	const std::wstring note = std::format(
-		L"swap chain {}x{} format {} buffers {} effect {} flags {:#x}, refresh {:.4f} ms, wait for vblank {}, adjust present time {}, render ahead {}, exclusive {}",
+		L"swap chain {}x{} format {} buffers {} effect {} flags {:#x}, refresh {:.4f} ms, wait for vblank {}, adjust present time {}, render ahead {}, exclusive {}, video delay {} ms",
 		desc.Width, desc.Height, (int)desc.Format, desc.BufferCount, (int)desc.SwapEffect, desc.Flags,
 		m_dRefreshPeriodMs, m_bVBlankBeforePresent ? 1 : 0, m_bAdjustPresentTime ? 1 : 0, RenderAheadActive() ? 1 : 0,
-		m_bExclusiveScreen ? 1 : 0);
+		m_bExclusiveScreen ? 1 : 0, m_rtVideoDelay / 10000);
 	if (note != m_strTraceNote) {
 		m_strTraceNote = note;
 		m_PacingTrace.Note(note);
@@ -5917,6 +5924,15 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	m_bAdjustPresentTime   = config.bAdjustPresentTime;
 	m_bDeintBlend          = config.bDeintBlend;
 
+	// A picture delay that changes is taken at the next picture. Left to itself the
+	// schedule would keep the step it has for as long as the picture sat within three
+	// quarters of a refresh of its new time, and a slider moved by 20 ms on a screen
+	// at 24 Hz would do nothing at all.
+	if (const REFERENCE_TIME rtVideoDelay = (REFERENCE_TIME)config.iVideoDelay * 10000; rtVideoDelay != m_rtVideoDelay) {
+		m_rtVideoDelay = rtVideoDelay;
+		m_PresentSchedule.Flush();
+	}
+
 	// checking what needs to be changed
 
 	{
@@ -6823,6 +6839,15 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		m_RenderStats.t5 * 1000 / GetPreciseTicksPerSecond(),
 		m_RenderStats.t6 * 1000 / GetPreciseTicksPerSecond());
 #endif
+	// The Sync offset and On screen lines are read against the time the picture is
+	// due. With a picture delay that is not its stamp any more, and where the picture
+	// really is against the sound is the sum: the delay asked for, and the refresh it got.
+	if (m_rtVideoDelay) {
+		const double delayMs = m_rtVideoDelay / 10000.0;
+		const double offsetMs = (m_bScheduled && m_PresentSchedule.ShownKnown()) ? m_PresentSchedule.ShownOffsetMs()
+			: m_bOnScreenKnown ? m_rtOnScreenOffset / 10000.0 : m_RenderStats.syncoffset / 10000.0;
+		str += std::format(L"\nVideo delay   : {:+.0f} ms asked for, the picture {:+.0f} ms from its own time", delayMs, delayMs + offsetMs);
+	}
 
 	std::wstring times;
 	const auto AddTime = [&](const wchar_t* name, double ms) {

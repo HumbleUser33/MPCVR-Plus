@@ -76,6 +76,12 @@ static std::wstring StabilizerText(int value)
 	return value ? std::to_wstring(value) : std::wstring(L"off");
 }
 
+// The video delay goes both ways, so it says which.
+static std::wstring DelayText(int ms)
+{
+	return ms ? std::format(L"{:+} ms", ms) : std::wstring(L"0 ms");
+}
+
 static HWND CreateHintWindow(HWND parent, int timePop)
 {
 	HWND hhint = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr,
@@ -391,6 +397,14 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"The statistics then say \"scheduled\", and how many pictures had\n"
 		"to be repeated or dropped to keep the step. Needs the Flip swap\n"
 		"effect (an HDR picture always has it). Direct3D 11." },
+	{ IDC_SLIDER8,
+		L"Shows every picture this long after its time, for a sound that\n"
+		"arrives late: an amplifier that decodes behind the television.\n"
+		"Negative shows it earlier.\n"
+		"A picture only moves by whole refreshes, 42 ms at 24 Hz and 8 ms\n"
+		"at 120 Hz: the statistics say where it really is.\n"
+		"Applies as it is dragged. It belongs to the room and not to a\n"
+		"taste, so the presets leave it alone." },
 	{ IDC_CHECK2,
 		L"Draws the renderer's own statistics over the picture: formats,\n"
 		"what each stage costs, sync offset.\n"
@@ -521,10 +535,12 @@ HRESULT CVRSettingsPPage::OnDisconnect()
 		return E_UNEXPECTED;
 	}
 
-	if (m_SetsPP.iSDRDisplayNits != m_oldSDRDisplayNits) {
-		// OK or Apply was not pressed, and the nits slider applies as it is dragged.
+	if (m_SetsPP.iSDRDisplayNits != m_oldSDRDisplayNits || m_SetsPP.iVideoDelay != m_oldVideoDelay) {
+		// OK or Apply was not pressed, and the nits and the video delay apply as
+		// their sliders are dragged.
 		m_pVideoRenderer->GetSettings(m_SetsPP);
 		m_SetsPP.iSDRDisplayNits = m_oldSDRDisplayNits;
+		m_SetsPP.iVideoDelay = m_oldVideoDelay;
 		m_pVideoRenderer->SetSettings(m_SetsPP);
 	}
 
@@ -668,6 +684,16 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_SLIDER7, TBM_SETRANGE, 0, MAKELONG(DLSSNR_STAB_MIN, DLSSNR_STAB_MAX));
 	Send(IDC_SLIDER7, TBM_SETLINESIZE, 0, 1);
 	Send(IDC_SLIDER7, TBM_SETPAGESIZE, 0, 10);
+
+	// A range that goes below zero does not fit the two words of TBM_SETRANGE. And
+	// the slider is told to redraw with it: zero is where it starts and where it is
+	// most often set, a position that has not changed moves nothing, and the thumb
+	// stayed at the left end, where zero was in the range it was made with.
+	Send(IDC_SLIDER8, TBM_SETRANGEMIN, FALSE, VIDEO_DELAY_MIN / VIDEO_DELAY_STEP);
+	Send(IDC_SLIDER8, TBM_SETRANGEMAX, TRUE, VIDEO_DELAY_MAX / VIDEO_DELAY_STEP);
+	Send(IDC_SLIDER8, TBM_SETTIC, 0, 0);
+	Send(IDC_SLIDER8, TBM_SETLINESIZE, 0, 1);
+	Send(IDC_SLIDER8, TBM_SETPAGESIZE, 0, 5);
 }
 
 void CVRSettingsPPage::SetControls()
@@ -723,6 +749,8 @@ void CVRSettingsPPage::SetControls()
 	SetCheck(IDC_CHECK16, m_SetsPP.bReinitByDisplay);
 	SetCheck(IDC_CHECK26, m_SetsPP.bDlssRenderAhead);
 	Send(IDC_COMBO6, CB_SETCURSEL, m_SetsPP.iResizeStats, 0);
+	Send(IDC_SLIDER8, TBM_SETPOS, TRUE, (LPARAM)(m_SetsPP.iVideoDelay / VIDEO_DELAY_STEP));
+	SetText(IDC_EDIT10, DelayText(m_SetsPP.iVideoDelay).c_str());
 
 	SetCheck(IDC_CHECK20, m_SetsPP.bDlssNR);
 	SetCheck(IDC_CHECK21, m_SetsPP.bDlssNRAutoMask);
@@ -848,6 +876,7 @@ HRESULT CVRSettingsPPage::OnActivate()
 
 	m_pVideoRenderer->GetSettings(m_SetsPP);
 	m_oldSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
+	m_oldVideoDelay = m_SetsPP.iVideoDelay;
 	m_bDlssNRSeen = m_SetsPP.bDlssNR;
 	m_bDoViByShaders = (m_pVideoRenderer->GetVideoProcessorUse() & VPUSE_DoViByShaders) != 0;
 
@@ -1283,6 +1312,21 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 			}
 			return (INT_PTR)1;
 		}
+		if (hCtrl == Item(IDC_SLIDER8)) {
+			const int value = (int)Send(IDC_SLIDER8, TBM_GETPOS) * VIDEO_DELAY_STEP;
+			if (value != m_SetsPP.iVideoDelay) {
+				m_SetsPP.iVideoDelay = value;
+				SetText(IDC_EDIT10, DelayText(value).c_str());
+				SetDirty();
+				// This one applies as it is dragged too: it is set by ear, with the film
+				// playing, and a round of Apply for every try would be nobody's patience.
+				Settings_t sets;
+				m_pVideoRenderer->GetSettings(sets);
+				sets.iVideoDelay = m_SetsPP.iVideoDelay;
+				m_pVideoRenderer->SetSettings(sets);
+			}
+			return (INT_PTR)1;
+		}
 
 		// The DLSS sliders are not applied on drag: a settings round-trip per pixel
 		// of travel would recreate state on every mouse move.
@@ -1465,9 +1509,12 @@ bool CVRSettingsPPage::OnPresetCommand(int nID, int action)
 		if (action == BN_CLICKED) {
 			Settings_t sets;
 			if (S_OK == m_pVideoRenderer->LoadPreset(slot, sets)) {
-				// Where the DLLs are and the toggle key belong to the installation.
+				// Where the DLLs are and the toggle key belong to the installation,
+				// and the video delay to the room: a preset saved before there was
+				// one would otherwise bring it back to zero.
 				sets.iDlssNRToggleKey = m_SetsPP.iDlssNRToggleKey;
 				sets.bShowStats = m_SetsPP.bShowStats;
+				sets.iVideoDelay = m_SetsPP.iVideoDelay;
 				wcscpy_s(sets.szDlssNRDllPath, m_SetsPP.szDlssNRDllPath);
 				wcscpy_s(sets.szDlssSRDllPath, m_SetsPP.szDlssSRDllPath);
 				m_SetsPP = sets;
@@ -1527,6 +1574,7 @@ HRESULT CVRSettingsPPage::OnApplyChanges()
 	ApplyPresetNames();
 
 	m_oldSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
+	m_oldVideoDelay = m_SetsPP.iVideoDelay;
 	m_bDlssNRSeen = m_SetsPP.bDlssNR;
 
 	EnableControls(); // what was just applied decides part of the greying

@@ -30,6 +30,8 @@
 //   playback_test.exe --chroma10 <png>  --chroma in ten bits: P010 against a Y410 reference
 //   playback_test.exe --chroma <png> --interlaced   the media type says interlaced, to see
 //   playback_test.exe --toggle          settings changed in full playback, as the player does
+//   playback_test.exe --delay N [--delayto M]   the Video delay setting, and moved while it plays;
+//                                     with MPCVR_PACING_TRACE set, pacing_report.py says where the pictures went
 //                                     which processor then converts the picture
 
 #include <windows.h>
@@ -108,6 +110,8 @@ static bool g_bThemedHost = false;     // --themed: and a player that paints it
 static bool g_bDlaa = false;           // --dlaa: let DLSS SR run without enlarging
 static bool g_bAfterNR = false;        // --afternr: who enlarges what DLSS 5 NR leaves, on a real film (--file)
 static int g_smallUpscaling = -1;      // --small N: another method under 5 %
+static int g_videoDelay = 0;           // --delay N: every picture N ms after its time (the Video delay setting)
+static int g_videoDelayTo = INT_MIN;   // --delayto N: and changed to N three seconds in, as the page's slider does
 static int g_hz = 0;                   // --hz N: put the screen at N Hz for the run, and back after
 static bool g_bJolt = false;           // --jolt: change a setting while it plays, and watch the queue
 static bool g_bPresetKeys = false;     // --presets: save two, recall each by its key while it plays
@@ -1018,6 +1022,9 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		sets.iUpscalingSmall = g_smallUpscaling;
 	}
 	sets.bDlssRenderAhead = config.bAhead;
+	// --delay N. Without it there is none, whatever the registry holds: a delay set by
+	// ear in somebody's room is not what the other runs measure.
+	sets.iVideoDelay = g_videoDelay;
 	if (config.iUpscaling >= 0) {
 		sets.iUpscaling = config.iUpscaling;
 	}
@@ -1245,6 +1252,18 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 					StatsLine(text, L"Scaling       : ").c_str(), now.iUpscaling, now.iSharpen,
 					StatsLine(text, L"Frames        : ").c_str());
 			}
+		}
+		if (g_videoDelayTo != INT_MIN && i == 30) {
+			// The slider of the page: the delay changed while the film plays.
+			Settings_t moved;
+			pVR->GetSettings(moved);
+			moved.iVideoDelay = g_videoDelayTo;
+			pVR->SetSettings(moved);
+			printf("   %4.1f s  -- Video delay changed from %d to %d ms --\n", i / 10.0, g_videoDelay, g_videoDelayTo);
+		}
+		if ((g_videoDelay || g_videoDelayTo != INT_MIN) && i % 10 == 9) {
+			wprintf(L"   %4.1f s  sync %s | on screen %s | %s\n", i / 10.0, sync.c_str(),
+				StatsLine(text, L"On screen     : ").c_str(), StatsLine(text, L"Video delay   : ").c_str());
 		}
 		if (g_bJolt) {
 			// Three seconds in, the Upscaling method is changed and changed back, as a
@@ -2057,6 +2076,10 @@ int wmain(int argc, wchar_t* argv[])
 			g_hz = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--small")) {
 			g_smallUpscaling = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--delay")) {
+			g_videoDelay = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--delayto")) {
+			g_videoDelayTo = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--hover")) {
 			g_hoverIds.push_back(_wtoi(argv[i + 1]));
 		} else if (!wcscmp(argv[i], L"--click")) {
