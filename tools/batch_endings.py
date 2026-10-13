@@ -11,7 +11,7 @@ a batch file can put Unix ones back with nothing in `git status` to show for it.
 
 It reads the batch files git tracks and ends on 1 when one of them has a line that
 does not end the Windows way. With --fix it gives those lines their carriage return,
-which is what git would have written, and touches nothing else.
+which is what git would have written, and has git read the file again.
 """
 
 import os
@@ -55,12 +55,26 @@ def main():
         return 2
 
     bad = faults()
-    if bad and args:
-        for path, bare, lines in bad:
+    if args:
+        unix = {path: (bare, lines) for path, bare, lines in bad}
+        for path in tracked():
             full = os.path.join(ROOT, path)
-            data = open(full, "rb").read()
-            open(full, "wb").write(data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
-            print("  %-36s %d of %d lines given their carriage return" % (path, bare, lines))
+            if not os.path.isfile(full):
+                continue
+            # Asked before the file is touched: does it hold a change of its own?
+            edited = subprocess.run(["git", "diff", "--quiet", "--", path], cwd=ROOT,
+                                    capture_output=True).returncode != 0
+            if path in unix:
+                data = open(full, "rb").read()
+                open(full, "wb").write(data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+                print("  %-36s %d of %d lines given their carriage return" % ((path,) + unix[path]))
+            # Git remembers the size a file had and, finding another, calls it modified
+            # without reading it: ` M` and an empty diff from then on, which a refresh
+            # does not clear. Adding the file makes git read it, find what it already
+            # stores and stage nothing. So every batch file is added, those put right by
+            # an earlier run too; one that holds a change is left to whoever made it.
+            if not edited:
+                subprocess.run(["git", "add", "--", path], cwd=ROOT, capture_output=True)
         bad = faults()
 
     if not bad:

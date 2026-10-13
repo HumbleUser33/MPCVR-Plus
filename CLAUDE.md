@@ -87,7 +87,9 @@ It is published as **MPCVR-Plus**: `origin` is HumbleUser33/MPCVR-Plus, the bran
   rule keeps its LF batch files, and a tool that rewrites one can put LF back: `git status`
   then shows nothing, or ` M` with an empty diff. `python tools\batch_endings.py` says which
   files are at fault and `--fix` puts them right; `tools\dlssnr_probe\build.cmd` runs it
-  first and `upstream_check.py` ends on it. The other way round, a commit older than the
+  first and `upstream_check.py` ends on it. That ` M` is git going by the size the file had:
+  it stays, on a file whose endings alone were changed, until git reads the file again, which
+  `git add` does and a refresh does not. `--fix` adds what it puts right for that reason. The other way round, a commit older than the
   rule checked out in the same folder shows the batch files as modified, which is only the
   CRLF left on disk: `git checkout -- "*.cmd"` clears it.
 
