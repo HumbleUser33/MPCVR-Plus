@@ -96,9 +96,11 @@ gone; 16 are new, the two film steps'.
 
 The last of the four steps is there because of what the first run of the afternoon did. It
 passed every step it ran, and it had not run "chroma through the filter, 8-bit": `run_all.cmd`
-had Unix line endings, and with the three steps added cmd.exe came back from a `CALL` to a
-label a line too far. No error, no verdict. The comparison is what said so -- the step
-`MISSING from the new report`, sixteen rows gone -- and that report was not kept. The file has
+had Unix line endings, and with the three steps added cmd.exe no longer found the label of
+one `CALL`: it looks for a label 512 bytes at a time in such a file, and misses one that the
+edge of a read cuts in two. One line on stderr, which the script that ran the battery that
+day was filtering out, and no verdict. The comparison is what said so -- the step `MISSING
+from the new report`, sixteen rows gone -- and that report was not kept. The file has
 Windows line endings since (`569600f`), and the report in this folder is from after.
 
 ## What the first run here found

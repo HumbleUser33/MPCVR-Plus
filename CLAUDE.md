@@ -74,11 +74,12 @@ It is published as **MPCVR-Plus**: `origin` is HumbleUser33/MPCVR-Plus, the bran
   into real line breaks.
 
 - **A batch file that calls a label wants Windows line endings.** With Unix ones cmd.exe
-  comes back from `CALL :label` a line too far at some lengths of file, and says nothing:
-  three lines added to `tools/dlssnr_probe/run_all.cmd` and a step of the battery was no
-  longer run. That file is CRLF since, and counts its steps. Every other batch file here is
-  still LF, `build_mpcvr.cmd` and its five labels among them: after editing one, check that
-  everything in it still runs.
+  looks for the label 512 bytes at a time and misses one that the edge of a read cuts in
+  two. The `CALL` is then not made, the script goes on, and all there is to see is one line
+  on stderr: three lines added to `tools/dlssnr_probe/run_all.cmd` and a step of the battery
+  was no longer run. That file is CRLF since, and counts its steps. Every other batch file
+  here is still LF, `build_mpcvr.cmd` and its five labels among them: after editing one,
+  check that everything in it still runs, and read what it writes on stderr.
 
 ## Building and measuring
 
