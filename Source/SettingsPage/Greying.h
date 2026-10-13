@@ -83,13 +83,18 @@ inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDo
 	g.bDownscalingList = !bVPResizes;
 	g.bUpscalingList = !bVPResizes && !(s.bUseD3D11 && s.bDlssSR);
 
-	// RTX Video Super Resolution lives inside the processor and only does something
-	// while the processor is the one enlarging the picture -- which is what "Use the
-	// video processor for resizing" gives it, and what a DLSS pass takes away. It
-	// also needs a subsampled picture: the driver leaves a 4:4:4 one untouched, so it
-	// can do nothing while the chroma replacement is really handing one over.
+	// RTX Video Super Resolution lives inside the processor and is asked for with "Use
+	// the video processor for resizing". A DLSS pass takes the enlarging from the
+	// processor and not the extension: held at the source's size, the driver still
+	// runs it on every picture -- it changes a 960x540 picture by 2.29 levels of 255
+	// with nothing to enlarge, against 4.02 when it doubles it (vp444_probe), and
+	// costs 16 ms a picture at 1080p on an RTX 4060. So the control stays live there:
+	// greyed, it was a setting still at work that could not be turned off without
+	// turning DLSS off first. It does need a subsampled picture: the driver leaves a
+	// 4:4:4 one untouched, so it can do nothing while the chroma replacement is
+	// really handing one over.
 #ifdef _WIN64
-	g.bSuperRes = s.bUseD3D11 && bWin10 && bVPResizes && !bChromaToShaders;
+	g.bSuperRes = s.bUseD3D11 && bWin10 && bVPTakesPicture && s.bVPScaling && !bChromaToShaders;
 #else
 	g.bSuperRes = false;   // the extension is x64 only
 #endif

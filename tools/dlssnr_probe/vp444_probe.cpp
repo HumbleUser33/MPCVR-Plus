@@ -1252,6 +1252,20 @@ int wmain(int argc, wchar_t* argv[])
 		printf("  %-22s extension 0x%08X, changes the picture by %.3f\n", Name(f), (unsigned)on.hrSuperRes, Diff(on.out, off.out));
 	}
 
+	// The same extension with nothing to enlarge: the processor held at the picture's
+	// own size, which is where a DLSS pass leaves it (CDX11VideoProcessor::UpdateTexures)
+	// while the user's Super Resolution stays asked for. Does it still do anything there?
+	printf("\nSuper Resolution, 960x540 -> 960x540, nothing to enlarge (what enabling it changes, 8-bit levels):\n");
+	for (const DXGI_FORMAT f : formats) {
+		RunResult off = Run(g, f, { a, a, a }, false, 960, 540, SUPERRES_Disable, false, false);
+		RunResult on = Run(g, f, { a, a, a }, false, 960, 540, SUPERRES_SD, false, false);
+		if (FAILED(off.hr) || FAILED(on.hr)) {
+			printf("  %-22s failed 0x%08X / 0x%08X\n", Name(f), (unsigned)off.hr, (unsigned)on.hr);
+			continue;
+		}
+		printf("  %-22s extension 0x%08X, changes the picture by %.3f\n", Name(f), (unsigned)on.hrSuperRes, Diff(on.out, off.out));
+	}
+
 	// RTX Video HDR: SDR in, HDR10 out, with and without it.
 	printf("\nRTX Video HDR, 960x540 SDR -> HDR10 (what enabling it changes, 8-bit levels of the 10-bit output):\n");
 	for (const DXGI_FORMAT f : formats) {

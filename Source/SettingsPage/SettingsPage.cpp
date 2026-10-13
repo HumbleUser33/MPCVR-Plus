@@ -188,9 +188,12 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"an HDR10 layer." },
 	{ IDC_COMBO8,
 		L"The driver sharpens as the processor enlarges.\n"
-		"Needs \"Use the video processor for resizing\" ticked, and greys\n"
-		"while DLSS is enlarging instead.\n"
-		"Greys as well while the chroma replacement above is on: the\n"
+		"Needs \"Use the video processor for resizing\" ticked.\n"
+		"With DLSS 5 NR or DLSS SR on, the processor no longer enlarges\n"
+		"but the driver still runs this on every picture, at its own\n"
+		"size: 16 ms at 1080p on an RTX 4060. Disable it here if the\n"
+		"film then stutters.\n"
+		"Greys while the chroma replacement above is on: the\n"
 		"driver will not touch the 4:4:4 picture it then receives.\n"
 		"Nvidia RTX (x64) or Intel UHD 610 and later." },
 	{ IDC_COMBO2,

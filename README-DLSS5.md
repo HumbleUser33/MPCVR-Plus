@@ -690,13 +690,27 @@ choice does not arise.
 *Use for resizing* decides the resizing and nothing else -- the chroma is the business of the
 format boxes and of *Replace VP chroma upsampling*. What it also decides is whether
 **Request Super Resolution** can do anything at all: that extension lives inside the video
-processor and only acts while the processor is the one enlarging the picture, so it greys
-without it, greys while a DLSS pass has taken the enlarging back, and greys while the chroma
+processor, so it greys without it, and greys while the chroma
 pre-pass is on, because the processor is then handed a 4:4:4 picture the driver will not
 touch. The driver is
 still asked for it exactly as upstream asks -- nothing is taken away from it here -- but a
 control that cannot change the picture should say so rather than look available, and the
 statistics read `D3D11 (No Super Resolution when chroma by shaders)`.
+
+It does not grey while DLSS 5 NR or DLSS SR has taken the enlarging back, though it used to.
+Held at the source's size the processor enlarges nothing, and the driver runs the extension
+on every picture all the same: with nothing to enlarge it changes a 960x540 picture by
+**2.29** levels of 255, against 4.02 when it doubles it (`vp444_probe`), and it costs
+**16 ms** a picture at 1080p on an RTX 4060. That is enough, before DLSS 5 NR and with
+FSRCNNX 16 after it, to take a 25 fps film from its 25 pictures a second to 18 (47.5 ms a
+picture, 24.1 without it, on a screen at 25 Hz). Greyed, it was a setting still at work that
+could not be turned off without turning DLSS off first. The statistics say so --
+
+    Scaling       : 1920x1080 -> 3840x2160 FSRCNNX 16 AR, SuperResolution* at 1:1
+
+-- where they used to read `D3D11 SuperResolution*` for a picture FSRCNNX had enlarged.
+Whether the extension is worth its time there is the user's to say, with the control to say
+it.
 
 **Replace VP chroma upsampling**, under the list, moves that one job to the shaders without
 taking the picture away from the processor. A compute shader reads the planes of a progressive
@@ -1465,6 +1479,7 @@ manual carried them for two versions and someone may remember them.
 | "tick *Replace VP chroma upsampling* as well and RTX Video HDR starts working on a 10-bit source" | It never needed the pre-pass. What it needed was for the renderer to keep the processor out of PQ passthrough on a 10-bit source, which is what upstream does and what 1.45 had undone |
 | 8-bit 52.25 → 30.19, 10-bit 49.60 → 51.61, pre-pass → 30.22, given as the picture moving end to end | Void. They came from a bench whose `--file` never built the film's graph: every "film" run played its own 800x450 RGB32 pattern, which the renderer converts with shaders and which never brings the hardware processor in at all. Measured again on a real 10-bit film, the same configuration now moves 51.61 → **30.38**, the 8-bit signature |
 | Super Resolution "is not requested" while the pre-pass is on | It is requested exactly as upstream requests it. The driver answers that it will and then leaves the 4:4:4 picture alone; the page greys the control and the scaling line says so, but nothing is taken away from the driver |
+| *Request Super Resolution* "only acts while the processor is the one enlarging the picture", and the control greyed while DLSS 5 NR or DLSS SR was on | It acts at the picture's own size as well: **2.29** levels of change with nothing to enlarge, and 16 ms a picture at 1080p. The control is live there now, and the *Scaling* line names the filter that enlarged, with `SuperResolution* at 1:1` after it, instead of `D3D11 SuperResolution*` |
 
 Two structural faults found with them, both this fork's own and both now fixed: a method of
 ours sat in the middle of `IVideoRenderer` and a field of ours in the middle of `Settings_t`,

@@ -324,6 +324,12 @@ private:
 	// And every picture counts while pictures are being presented for a refresh chosen
 	// in advance: each has to be asked for early to be there for its own.
 	bool RenderAheadActive() const { return m_bDlssRenderAhead && (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_bMpvLumaRan); }
+
+	// The video processor only resizes while no DLSS pass has taken that back from it
+	// (UpdateTexures): DLSS 5 NR works at the source's size, and DLSS Super Resolution
+	// enlarges from it itself.
+	bool VPMayResize() const { return m_bVPScaling && !m_bDlssNRActive && !m_bDlssSRActive; }
+	void UpdateVPSuperRes(const int depth);
 	bool m_bMpvLumaRan = false;
 	void MarkPictureSubmitted();
 	void HoldUntilPresentTime(const REFERENCE_TIME frameStartTime, const bool bMeasure);
@@ -507,8 +513,7 @@ public:
 		if (!m_D3D11VP.IsReady()) {
 			return dovi;
 		}
-		// It only resizes while no DLSS pass has taken that back from it (UpdateTexures).
-		const bool bResizes = m_bVPScaling && !m_bVPScalingUseShaders && !m_bDlssNRActive && !m_bDlssSRActive;
+		const bool bResizes = VPMayResize() && !m_bVPScalingUseShaders;
 		// With the chroma rebuilt before it, the processor is handed 4:4:4 and the
 		// chroma list is the shaders', so it is not the one converting chroma.
 		return dovi | (m_bChromaReplacedVP ? 0 : VPUSE_Converting) | (bResizes ? VPUSE_Resizing : 0);

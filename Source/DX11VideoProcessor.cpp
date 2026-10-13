@@ -2309,9 +2309,7 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 	// one the driver answers yes to: on a PQ BT.2020 source in P010 the extension
 	// changes the picture by 3.928, against 3.903 on the same frame in SDR
 	// (tools/dlssnr_probe vp444_probe).
-	auto superRes = (m_bVPScaling
-		&& (params.CDepth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
-	m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
+	UpdateVPSuperRes(params.CDepth);
 
 	// Turning the driver's tone mapping on or off changes what the swap chain has to
 	// be, and the swap chain is made before the media type: so the processor is set up
@@ -3834,7 +3832,7 @@ void CDX11VideoProcessor::UpdateTexures()
 		// to run at source resolution, and letting the VP scale first would both
 		// cost far more and defeat the point.
 		// Nor with DLSS Super Resolution, which scales from the source itself.
-		if (m_bVPScaling && !m_bDlssNRActive && !m_bDlssSRActive) {
+		if (VPMayResize()) {
 			CSize texsize = m_videoRect.Size();
 			hr = m_TexConvertOutput.CheckCreate(m_pDevice, m_D3D11OutputFmt, texsize.cx, texsize.cy, Tex2D_DefaultShaderRTarget);
 			if (FAILED(hr)) {
@@ -4593,6 +4591,18 @@ void CDX11VideoProcessor::DrawSubtitles(ID3D11Texture2D* pRenderTarget)
 			pRenderTargetView->Release();
 		}
 	}
+}
+
+// The driver's Super Resolution, asked for in one place. It is the user's choice of
+// upscaler and no DLSS pass takes it away: while one of them holds the processor at
+// the source's size (UpdateTexures) the extension still runs there, enlarging nothing,
+// and costs what it costs -- with DLSS 5 NR on a 1080p film in MPC-HC an RTX 4060 drew
+// a picture in 39.0 ms with it and in 22.7 ms without. The statistics say which filter
+// really enlarged, so that the choice can be made knowingly.
+void CDX11VideoProcessor::UpdateVPSuperRes(const int depth)
+{
+	const int superRes = (m_bVPScaling && (depth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
+	m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
 }
 
 std::wstring CDX11VideoProcessor::GetDlssStatus()
@@ -5912,8 +5922,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	}
 
 	if (changeSuperRes) {
-		auto superRes = (m_bVPScaling && (m_srcParams.CDepth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
-		m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
+		UpdateVPSuperRes(m_srcParams.CDepth);
 	}
 
 	UpdateStatsStatic();
@@ -6335,7 +6344,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	if (m_srcRectWidth != dstW || m_srcRectHeight != dstH) {
 		// With DLSS Super Resolution on, the video processor never scales, and the
 		// resize after DLSS reads as no scaling at all.
-		if (m_D3D11VP.IsReady() && m_bVPScaling && !m_bVPScalingUseShaders && !m_bDlssSRActive) {
+		if (m_D3D11VP.IsReady() && VPMayResize() && !m_bVPScalingUseShaders) {
 			str.append(L" D3D11");
 			if (m_srcRectWidth < dstW && m_srcRectHeight < dstH) {
 				// The driver is asked for it exactly as upstream asks, and answers
@@ -6360,6 +6369,12 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 				str.append(m_strShaderY);
 			}
 		}
+	}
+	// Asked for, and the processor held at the source's size by a DLSS pass: the
+	// driver runs it all the same, and this is the one place that says where the
+	// time goes (UpdateVPSuperRes).
+	if (m_D3D11VP.IsReady() && m_bVPUseSuperRes && m_bVPScaling && !VPMayResize() && !m_bChromaReplacedVP) {
+		str.append(L", SuperResolution* at 1:1");
 	}
 
 	if (m_strCorrection || m_pPostScaleShaders.size() || m_bDitherUsed) {
@@ -6458,7 +6473,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	};
 
 	// The mpv prescalers' GPU time, while they run.
-	if (m_MpvLuma.IsLoaded()) {
+	if (m_MpvLuma.IsLoaded() && m_bMpvLumaRan) {
 		AddTime(m_MpvLuma.Info()->name, m_DlssStageTimes.MeanMs(CGpuStageTimes::MpvLuma));
 	}
 	if (m_bMpvChromaActive && !m_D3D11VP.IsReady()) {
