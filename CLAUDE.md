@@ -177,6 +177,19 @@ it does not say:
   `Present` reaches the screen a refresh sooner in it once it has settled, and one called
   3 ms after a refresh was in time or not from picture to picture there, which fullscreen in
   MPC-HC it always was. What holds in one has to be measured in the other.
+- **The toggle key and the preset keys take a real key.** A keyboard hook on the player's
+  thread reads them, and a posted `WM_KEYDOWN` never goes through it: eight toggles sent that
+  way did nothing at all. `SendInput` or `keybd_event`, with the player's window in front --
+  and check that it is first, or the key goes to whatever window is.
+- **Ask the trace whether DLSS ran.** A session that has switched itself off does not stop
+  the film and shows nowhere else: `pacing_report.py trace.csv --dlss` says, stretch by
+  stretch, on how many pictures DLSS 5 NR and DLSS SR really ran, and what they said of
+  themselves when it changed. `MPCVR_DLSSNR_FAIL_AT=n` makes every n-th evaluation fail.
+- **Judge a heavy chain at the film's rate, in the television's own mode.** At 25 Hz a
+  picture has to be ready 67 ms before its refresh, and one that takes most of a frame to
+  draw leaves no room: the same chain, 31 to 33 ms a picture, played at 25 pictures a second
+  with the screen left at 60 Hz and at 12.5 once the player had put it at 25 Hz, until the
+  schedule learnt to leave the next sample out undrawn instead of the picture it had drawn.
 - **A setting changes what is measured.** The bench takes the filter's settings from the
   registry, the maintainer's own: with *Swap effect: Discard* there is no flip model, DXGI
   gives no refresh times, and none of the scheduled presentation runs. Set what the test is

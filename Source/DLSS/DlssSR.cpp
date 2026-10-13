@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include "Helper.h"
+#include "NgxRuntime.h"
 #include "DlssSR.h"
 
 #pragma comment(lib, "shlwapi.lib")
@@ -158,22 +159,6 @@ private:
 	CComPtr<ID3DDeviceContextState> m_pPrevious;
 };
 
-std::wstring DirOf(const std::wstring& path)
-{
-	const size_t sep = path.find_last_of(L"\\/");
-	return (sep == std::wstring::npos) ? std::wstring(L".") : path.substr(0, sep);
-}
-
-std::wstring ThisModuleDir()
-{
-	wchar_t buf[MAX_PATH] = {};
-	HMODULE hMod = nullptr;
-	GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-	                   (LPCWSTR)&ThisModuleDir, &hMod);
-	GetModuleFileNameW(hMod, buf, (DWORD)std::size(buf));
-	return DirOf(buf);
-}
-
 HRESULT ClearTexture(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, ID3D11Texture2D* pTexture, float value)
 {
 	CComPtr<ID3D11RenderTargetView> pTarget;
@@ -236,7 +221,7 @@ std::vector<std::wstring> CDlssSR::CandidateDllPaths(const wchar_t* pConfigured)
 		return out;   // a path the user gave is the only one tried
 	}
 
-	const std::wstring dir = ThisModuleDir();
+	const std::wstring dir = NgxRuntime::ModuleDir();
 	out.push_back(dir + L"\\" + kSnippetName);
 	out.push_back(dir + L"\\dlss\\" + kSnippetName);
 	out.push_back(dir + L"\\..\\" + kSnippetName);
@@ -289,7 +274,7 @@ bool CDlssSR::FindSnippet(const wchar_t* pConfiguredDllPath)
 			return Fail(State::DllNotFound, std::format(L"the DLL must be named {}", kSnippetName));
 		}
 		m_DllPath = full;
-		m_SnippetDir = DirOf(m_DllPath);
+		m_SnippetDir = NgxRuntime::DirOf(m_DllPath);
 		Log(L"snippet: " + m_DllPath);
 		return true;
 	}
@@ -298,40 +283,12 @@ bool CDlssSR::FindSnippet(const wchar_t* pConfiguredDllPath)
 
 bool CDlssSR::LoadCore()
 {
-	// Where the driver installed its NGX runtime.
-	HKEY hKey = nullptr;
-	if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-		wchar_t dir[MAX_PATH] = {};
-		DWORD size = sizeof(dir) - sizeof(wchar_t);
-		DWORD type = 0;
-		if (RegQueryValueExW(hKey, L"FullPath", nullptr, &type, (LPBYTE)dir, &size) == ERROR_SUCCESS
-				&& (type == REG_SZ || type == REG_EXPAND_SZ) && dir[0]) {
-			const std::wstring path = std::wstring(dir) + L"\\_nvngx.dll";
-			m_hCore = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-		}
-		RegCloseKey(hKey);
-	}
-
-	if (!m_hCore) {
-		WIN32_FIND_DATAW fd = {};
-		const std::wstring root = L"C:\\Windows\\System32\\DriverStore\\FileRepository\\";
-		HANDLE hFind = FindFirstFileW((root + L"nv_disp*").c_str(), &fd);
-		if (hFind != INVALID_HANDLE_VALUE) {
-			do {
-				if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-					const std::wstring path = root + fd.cFileName + L"\\_nvngx.dll";
-					if (PathFileExistsW(path.c_str())) {
-						m_hCore = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-					}
-				}
-			} while (!m_hCore && FindNextFileW(hFind, &fd));
-			FindClose(hFind);
-		}
-	}
-
+	std::wstring path;
+	m_hCore = NgxRuntime::Load(&path);
 	if (!m_hCore) {
 		return Fail(State::CoreNotFound, L"the driver's NGX runtime (_nvngx.dll) was not found");
 	}
+	Log(L"runtime: " + path);
 
 	m_pfnInitExt     = (PFN_NGX_D3D11_Init_Ext)               GetProcAddress(m_hCore, "NVSDK_NGX_D3D11_Init_Ext");
 	m_pfnGetCaps     = (PFN_NGX_D3D11_GetCapabilityParameters)GetProcAddress(m_hCore, "NVSDK_NGX_D3D11_GetCapabilityParameters");

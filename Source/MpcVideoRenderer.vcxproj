@@ -123,6 +123,7 @@
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowD3D11.h" />
     <ClInclude Include="DLSS\DlssSR.h" />
     <ClInclude Include="DLSS\DlssTiming.h" />
+    <ClInclude Include="DLSS\NgxRuntime.h" />
     <ClInclude Include="Upscale\MpvShader.h" />
     <ClInclude Include="Upscale\MpvShaderTables.h" />
     <ClInclude Include="DLSS\NGXTypes.h" />

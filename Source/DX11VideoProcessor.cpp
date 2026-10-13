@@ -754,11 +754,7 @@ void CDX11VideoProcessor::ReleaseVP()
 	m_TexConvertOutput.Release();
 	m_TexResize.Release();
 	m_TexsPostScale.Release();
-	m_TexDlssIn.Release();
-	m_TexDlssOut.Release();
-	m_DlssNR.ReleaseFeature();
-	m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the shared motion vectors go away
-	m_DlssStabilizer.Release();
+	ReleaseDlssNRTextures(true);
 	m_DlssSR.ReleaseFeature();
 	m_DlssSRMotion.Release();
 	m_RenderAhead.Reset();
@@ -3278,6 +3274,8 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		}
 	}
 
+	RecoverDlssNR();
+
 	// GPU time of each DLSS stage and of the mpv prescalers, only while the
 	// statistics show it.
 	const bool bTimeDlss = m_bShowStats && (m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded() || m_bMpvChromaActive);
@@ -3874,11 +3872,7 @@ void CDX11VideoProcessor::UpdateTexures()
 		const UINT w = m_bDlssNRAfterUpscale ? (UINT)m_renderRect.Width()  : (UINT)m_srcRectWidth;
 		const UINT h = m_bDlssNRAfterUpscale ? (UINT)m_renderRect.Height() : (UINT)m_srcRectHeight;
 		if (!w || !h) {
-			m_TexDlssIn.Release();
-			m_TexDlssOut.Release();
-			m_DlssNR.ReleaseFeature();
-			m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the shared motion vectors go away
-			m_DlssStabilizer.Release();
+			ReleaseDlssNRTextures(true);
 			return;
 		}
 
@@ -3886,8 +3880,7 @@ void CDX11VideoProcessor::UpdateTexures()
 		// size must not sit in the parameter block when the feature is created.
 		// DlssNRPass makes a new one.
 		if (m_DlssStabilizer.IsCreated() && !m_DlssStabilizer.Matches(w, h, DlssMotionSource())) {
-			m_DlssNR.SetGuides(CDlssNR::Guides{});
-			m_DlssStabilizer.Release();
+			ReleaseDlssNRTextures(false);
 		}
 
 		// Both textures are shared with the private D3D12 device, so the input
@@ -3916,17 +3909,24 @@ void CDX11VideoProcessor::UpdateTexures()
 		}
 
 		if (!m_bDlssNRActive) {
-			m_TexDlssIn.Release();
-			m_TexDlssOut.Release();
-			m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the shared motion vectors go away
-			m_DlssStabilizer.Release();
+			ReleaseDlssNRTextures(true);
 		}
 	} else {
+		ReleaseDlssNRTextures(true);
+	}
+}
+
+// Everything DLSS 5 NR holds that is the size of the picture: the feature and its
+// guides first, which are open on the other device, then what they were made of.
+// bFeature false leaves the feature for a stabilizer that alone is being replaced.
+void CDX11VideoProcessor::ReleaseDlssNRTextures(const bool bFeature)
+{
+	m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the shared motion vectors go away
+	m_DlssStabilizer.Release();
+	if (bFeature) {
+		m_DlssNR.ReleaseFeature();
 		m_TexDlssIn.Release();
 		m_TexDlssOut.Release();
-		m_DlssNR.ReleaseFeature();
-		m_DlssNR.SetGuides(CDlssNR::Guides{});
-		m_DlssStabilizer.Release();
 	}
 }
 
@@ -4663,6 +4663,30 @@ void CDX11VideoProcessor::UpdateDlssNR()
 	m_bDlssNRActive = m_DlssNR.IsInitialised();
 }
 
+// A session that failed while the film played, started again from nothing once its
+// time has come: the libraries, the device, the feature. Called between two pictures.
+// What the session works on has not changed -- the video processor was never told
+// DLSS had stopped -- so there is nothing else to rebuild.
+void CDX11VideoProcessor::RecoverDlssNR()
+{
+	if (!m_tickDlssNRRecover || GetPreciseTick() < m_tickDlssNRRecover) {
+		return;
+	}
+	m_tickDlssNRRecover = 0;
+	if (!m_bDlssNR || m_bDlssNRActive) {
+		return;
+	}
+	DLog(L"CDX11VideoProcessor::RecoverDlssNR() : attempt {} of {}", m_nDlssNRRecoveries, kDlssNRRecoveries);
+	ReleaseDlssNRTextures(true);
+	m_DlssNR.Shutdown();
+	UpdateDlssNR();
+	if (m_bDlssNRActive) {
+		UpdateTexures();
+		m_bDlssNewPicture = true;
+	}
+	UpdateStatsStatic();
+}
+
 // One neural-rendering pass at source resolution. On any failure the caller's
 // input texture is left untouched and the chain runs exactly as before.
 HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSrc, Tex2D_t** ppResult)
@@ -4715,8 +4739,7 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 		}
 		bStabilize = m_DlssStabilizer.IsCreated();
 	} else if (m_DlssStabilizer.IsCreated()) {
-		m_DlssNR.SetGuides(CDlssNR::Guides{});
-		m_DlssStabilizer.Release();
+		ReleaseDlssNRTextures(false);
 		UpdateStatsStatic();
 	}
 
@@ -4746,8 +4769,14 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	m_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
 
 	if (!m_DlssNR.Evaluate(m_DlssParams)) {
-		// Latch off rather than retrying every frame.
+		// Off rather than failing on every picture, and given another go a moment
+		// later (RecoverDlssNR): one evaluation the GPU did not answer in time used to
+		// leave the rest of the film without it.
 		m_bDlssNRActive = false;
+		if (m_nDlssNRRecoveries < kDlssNRRecoveries) {
+			m_nDlssNRRecoveries++;
+			m_tickDlssNRRecover = GetPreciseTick() + 2 * GetPreciseTicksPerSecondI();
+		}
 		UpdateStatsStatic();
 		return E_FAIL;
 	}
@@ -5650,6 +5679,8 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		m_bDlssNRActive = false;
 	}
 	if (changeDlssReload || changeDlssSession) {
+		m_nDlssNRRecoveries = 0;   // asked for again, by hand
+		m_tickDlssNRRecover = 0;
 		UpdateDlssNR();
 	} else if (changeDlssFeature) {
 		m_DlssNR.ReleaseFeature();
@@ -5968,6 +5999,13 @@ void CDX11VideoProcessor::Flush()
 	}
 	m_DlssNR.RequestReset();
 	m_DlssStabilizer.Reset();
+	// Another place in the film, another chance for a session that gave up on this one.
+	m_nDlssNRRecoveries = 0;
+	if (m_bDlssNR && !m_bDlssNRActive && !m_tickDlssNRRecover
+			&& (m_DlssNR.GetState() == CDlssNR::State::EvaluateFailed || m_DlssNR.GetState() == CDlssNR::State::DeviceLost)) {
+		m_nDlssNRRecoveries = 1;
+		m_tickDlssNRRecover = GetPreciseTick();
+	}
 	m_DlssSR.RequestReset();
 	m_DlssSRMotion.Reset();
 

@@ -231,6 +231,11 @@ private:
 	int  m_iDlssNRMotion = DLSSNR_MOTION_DEF;
 	bool m_bDlssNRMotionVectors = false; // Optical Flow vectors to the network as well
 	bool m_bDlssNewPicture = false;     // the next DLSS pass sees a new picture, not a redraw
+	// A session whose evaluation failed is started again, a moment later and no more
+	// than this many times until the film is flushed or the setting changes.
+	static constexpr int kDlssNRRecoveries = 2;
+	int m_nDlssNRRecoveries = 0;
+	uint64_t m_tickDlssNRRecover = 0;   // when the next one is due; 0: none
 
 	// DLSS Super Resolution in place of the resize shaders when the picture grows.
 	CDlssSR m_DlssSR;
@@ -557,6 +562,8 @@ private:
 	HRESULT DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSrc, Tex2D_t** ppResult);
 	bool DlssNRSupportedHere() const;
 	void UpdateDlssNR();
+	void ReleaseDlssNRTextures(const bool bFeature);
+	void RecoverDlssNR();
 	std::wstring GetDlssStatus() override;
 	// Scales rSrc of the input to dstRect, before rotation, through DLSS Super
 	// Resolution. S_FALSE where it does not apply -- the picture does not grow on

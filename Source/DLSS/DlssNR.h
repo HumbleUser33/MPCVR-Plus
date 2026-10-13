@@ -26,13 +26,25 @@
  * pictures and sharing failures. Both directions now block on the CPU: two
  * short stalls per frame, one ordering rule, no way to get it subtly wrong.
  *
- * Bring-up order, all of it established empirically:
+ * Bring-up order, all of it established empirically, and the order Init keeps:
  *   1. hook NvAPI_GPU_GetArchInfo before anything loads (see m_bArchOverride)
- *   2. load the driver core (_nvngx.dll) and initialise it -- SDK version 0x13
- *   3. load the snippet (nvngx_dlssnr.dll)
- *   4. load the caller shim (nvngx.dll); every guarded entry point goes through it
- *   5. obtain a parameter block from the core, else use our own
- *   6. initialise the snippet on the D3D12 device, then create the feature
+ *   2. load the snippet (nvngx_dlssnr.dll); it says which SDK version it speaks
+ *   3. load the caller shim (nvngx.dll); every guarded entry point goes through it
+ *   4. make the private D3D12 device and the two fences shared with the renderer's
+ *   5. load the driver's runtime (_nvngx.dll), initialise it on that device and
+ *      take a parameter block from it, else use our own
+ *   6. initialise the snippet on the D3D12 device
+ * The feature is created afterwards, when the renderer has its textures.
+ *
+ * What is unloaded and what is not
+ * --------------------------------
+ * Shutdown frees all three libraries: the snippet is a 165 MB module with half a
+ * gigabyte of GPU memory behind it, and nothing of it is kept once the feature is
+ * off for good. That is safe here and was not for DLSS Super Resolution (see
+ * CDlssSR::LoadCore): this snippet is loaded and freed by us, so nothing outlives
+ * the runtime it was given. Checked in MPC-HC with each of the four modules made to
+ * come back at another address at every film -- _nvngx.dll, nvngx_dlssnr.dll,
+ * nvngx.dll and nvofapi64.dll, six or seven times each: no fault.
  */
 
 #pragma once
@@ -294,6 +306,7 @@ private:
 	bool m_bUseShim      = false;
 	bool m_bResetPending = true;
 	bool m_bArchOverride = false;
+	bool m_bHoldsArchOverride = false;   // this session armed the hook and has yet to give it back
 
 	std::wstring     m_DetailError;   // what exactly went wrong, for the UI
 	State            m_State      = State::Off;

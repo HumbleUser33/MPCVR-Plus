@@ -26,6 +26,7 @@
 #include <format>
 #include "../Utils/Util.h"
 #include "../../external/minhook/include/MinHook.h"
+#include "NgxRuntime.h"
 #include "DlssNR.h"
 
 #pragma comment(lib, "shlwapi.lib")
@@ -33,6 +34,17 @@
 
 static const wchar_t s_SnippetName[] = L"nvngx_dlssnr.dll";
 static const wchar_t s_ShimName[]    = L"nvngx.dll";
+
+// For a test of what the renderer does when an evaluation fails, which nothing else
+// provokes on demand: with MPCVR_DLSSNR_FAIL_AT=n in the environment every n-th
+// Evaluate of the process gives up as if the GPU had not answered. Unset, it costs a
+// comparison.
+static const int s_FailAt = []() {
+	wchar_t value[16] = {};
+	const DWORD length = GetEnvironmentVariableW(L"MPCVR_DLSSNR_FAIL_AT", value, (DWORD)std::size(value));
+	return (length > 0 && length < std::size(value)) ? _wtoi(value) : 0;
+}();
+static int s_Evaluations = 0;
 
 // The snippet's parameter keys. UI, UIAlpha and BidirectionalDistortionField are
 // never set. MVec, Depth and ControlMask are optional guides (SetGuides): without
@@ -63,6 +75,28 @@ static const wchar_t s_ShimName[]    = L"nvngx.dll";
 #define P_MVEC         "DLSSNR.MVec"
 #define P_DEPTH        "DLSSNR.Depth"
 #define P_CONTROLMASK  "DLSSNR.ControlMask"
+
+// Every texture comes with the part of it that is meant, four keys under its name.
+// They cover the whole surface: the snippet rejects any mismatch with the feature's
+// dimensions ("Invalid Color/Output rect configuration").
+struct SubrectKeys { const char* baseX; const char* baseY; const char* width; const char* height; };
+#define SUBRECT_KEYS(name) { "DLSSNR." name "SubrectBaseX", "DLSSNR." name "SubrectBaseY", \
+                             "DLSSNR." name "SubrectWidth", "DLSSNR." name "SubrectHeight" }
+static const SubrectKeys s_RectColor       = SUBRECT_KEYS("Color");
+static const SubrectKeys s_RectOutput      = SUBRECT_KEYS("Output");
+static const SubrectKeys s_RectBackbuffer  = SUBRECT_KEYS("Backbuffer");
+static const SubrectKeys s_RectMVec        = SUBRECT_KEYS("MVec");
+static const SubrectKeys s_RectDepth       = SUBRECT_KEYS("Depth");
+static const SubrectKeys s_RectControlMask = SUBRECT_KEYS("ControlMask");
+#undef SUBRECT_KEYS
+
+static void SetWholeSubrect(NVSDK_NGX_Parameter* p, const SubrectKeys& keys, UINT w, UINT h)
+{
+	p->Set(keys.baseX,  (unsigned int)0);
+	p->Set(keys.baseY,  (unsigned int)0);
+	p->Set(keys.width,  (unsigned int)w);
+	p->Set(keys.height, (unsigned int)h);
+}
 
 const wchar_t* NgxResultName(NVSDK_NGX_Result r)
 {
@@ -160,6 +194,7 @@ namespace {
 	unsigned int g_SpoofArch = 0;
 	HMODULE g_hSpoofFor = nullptr;   // the module whose calls get the spoofed answer
 	bool g_bArchHookInstalled = false;
+	int g_SpoofUsers = 0;            // the sessions that asked for the override and are still up
 
 	int __cdecl ArchInfoDetour(void* hGpu, NV_GPU_ARCH_INFO* info)
 	{
@@ -239,22 +274,6 @@ void CDlssNR::Log(const wchar_t* fmt, ...)
 	}
 }
 
-static std::wstring DirOf(const std::wstring& path)
-{
-	const size_t sep = path.find_last_of(L"\\/");
-	return (sep == std::wstring::npos) ? std::wstring(L".") : path.substr(0, sep);
-}
-
-static std::wstring ThisModuleDir()
-{
-	wchar_t buf[MAX_PATH] = {};
-	HMODULE hMod = nullptr;
-	GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-	                   (LPCWSTR)&ThisModuleDir, &hMod);
-	GetModuleFileNameW(hMod, buf, std::size(buf));
-	return DirOf(buf);
-}
-
 std::vector<std::wstring> CDlssNR::CandidateDllPaths(const wchar_t* pConfigured)
 {
 	std::vector<std::wstring> out;
@@ -270,7 +289,7 @@ std::vector<std::wstring> CDlssNR::CandidateDllPaths(const wchar_t* pConfigured)
 		out.push_back(c);
 	}
 
-	const std::wstring dir = ThisModuleDir();
+	const std::wstring dir = NgxRuntime::ModuleDir();
 	out.push_back(dir + L"\\" + s_SnippetName);
 	out.push_back(dir + L"\\dlss\\" + s_SnippetName);
 	out.push_back(dir + L"\\..\\" + s_SnippetName);
@@ -284,34 +303,13 @@ std::vector<std::wstring> CDlssNR::CandidateDllPaths(const wchar_t* pConfigured)
 
 bool CDlssNR::LoadCore()
 {
-	m_hCore = LoadLibraryW(L"_nvngx.dll");
-
-	if (!m_hCore) {
-		WIN32_FIND_DATAW fd = {};
-		const std::wstring root = L"C:\\Windows\\System32\\DriverStore\\FileRepository\\";
-		HANDLE hFind = FindFirstFileW((root + L"nv_disp*").c_str(), &fd);
-		if (hFind != INVALID_HANDLE_VALUE) {
-			do {
-				if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-					continue;
-				}
-				const std::wstring cand = root + fd.cFileName + L"\\_nvngx.dll";
-				if (!PathFileExistsW(cand.c_str())) {
-					continue;
-				}
-				m_hCore = LoadLibraryExW(cand.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-				if (m_hCore) {
-					break;
-				}
-			} while (FindNextFileW(hFind, &fd));
-			FindClose(hFind);
-		}
-	}
-
+	std::wstring path;
+	m_hCore = NgxRuntime::Load(&path);
 	if (!m_hCore) {
 		Log(L"_nvngx.dll not found");
 		return false;
 	}
+	Log(L"runtime: %s", path.c_str());
 
 	m_pfnCoreAlloc   = (PFN_NGX_D3D11_AllocateParameters)GetProcAddress(m_hCore, "NVSDK_NGX_D3D12_AllocateParameters");
 	m_pfnCoreDestroy = (PFN_NGX_D3D11_DestroyParameters) GetProcAddress(m_hCore, "NVSDK_NGX_D3D12_DestroyParameters");
@@ -329,7 +327,7 @@ bool CDlssNR::LoadSnippet(const wchar_t* pConfiguredDllPath)
 			wchar_t full[MAX_PATH] = {};
 			GetModuleFileNameW(m_hSnippet, full, std::size(full));
 			m_DllPath    = full[0] ? full : cand;
-			m_SnippetDir = DirOf(m_DllPath);
+			m_SnippetDir = NgxRuntime::DirOf(m_DllPath);
 			Log(L"snippet: %s", m_DllPath.c_str());
 			return true;
 		}
@@ -347,7 +345,7 @@ bool CDlssNR::LoadShim()
 {
 	// Must be a module whose path contains "nvngx.dll": the snippet refuses any
 	// other caller with PlatformError and logs "Not called from NGX runtime".
-	const std::wstring dir = ThisModuleDir();
+	const std::wstring dir = NgxRuntime::ModuleDir();
 	const std::wstring cands[] = {
 		dir + L"\\dlss\\" + s_ShimName,
 		dir + L"\\" + s_ShimName,
@@ -581,22 +579,24 @@ bool CDlssNR::Init(ID3D11Device* pDevice, const wchar_t* pConfiguredDllPath, boo
 
 	m_State = State::Off;
 	m_LastResult = 0;
+	m_DetailError.clear();
 	m_bArchOverride = bArchOverride;
 
-	// Fences need the 11.4 interfaces.
-	if (FAILED(pDevice->QueryInterface(IID_PPV_ARGS(&m_pDev11)))) {
-		Log(L"ID3D11Device5 unavailable; shared fences need Windows 10 1703+");
-		m_State = State::NoD3D12;
+	// Whatever a step that fails leaves behind goes with it, so that the next attempt
+	// starts from nothing; the state says which step it was.
+	const auto Abandon = [this](State state) {
+		m_State = state;
+		Shutdown();
 		return false;
-	}
-	{
-		CComPtr<ID3D11DeviceContext> pCtx;
-		pDevice->GetImmediateContext(&pCtx);
-		if (!pCtx || FAILED(pCtx->QueryInterface(IID_PPV_ARGS(&m_pCtx11)))) {
-			Log(L"ID3D11DeviceContext4 unavailable");
-			m_State = State::NoD3D12;
-			return false;
-		}
+	};
+
+	// Fences need the 11.4 interfaces.
+	CComPtr<ID3D11DeviceContext> pCtx;
+	pDevice->GetImmediateContext(&pCtx);
+	if (FAILED(pDevice->QueryInterface(IID_PPV_ARGS(&m_pDev11)))
+			|| !pCtx || FAILED(pCtx->QueryInterface(IID_PPV_ARGS(&m_pCtx11)))) {
+		Log(L"ID3D11Device5 or ID3D11DeviceContext4 unavailable; shared fences need Windows 10 1703+");
+		return Abandon(State::NoD3D12);
 	}
 
 	// NGX writes its logs and model cache here.
@@ -610,16 +610,18 @@ bool CDlssNR::Init(ID3D11Device* pDevice, const wchar_t* pConfiguredDllPath, boo
 		m_DataPath = tmp;
 	}
 
-	// Before anything loads: the snippet reads the architecture during init and
+	// 1. Before anything loads: the snippet reads the architecture during init and
 	// caches it, so the hook has to be in place first.
-	if (m_bArchOverride) {
-		InstallArchOverride();
+	if (m_bArchOverride && InstallArchOverride()) {
+		m_bHoldsArchOverride = true;
+		g_SpoofUsers++;
 	}
 
+	// 2. The snippet, which says which SDK version it speaks.
 	if (!LoadSnippet(pConfiguredDllPath)) {
-		return false;
+		return Abandon(m_State);   // not found or not loaded, as LoadSnippet said
 	}
-	if (m_bArchOverride) {
+	if (m_bHoldsArchOverride) {
 		g_hSpoofFor = m_hSnippet;   // loaded, not yet initialised: its arch query is still to come
 	}
 
@@ -632,10 +634,8 @@ bool CDlssNR::Init(ID3D11Device* pDevice, const wchar_t* pConfiguredDllPath, boo
 	m_pfnGetReq    = (PFN_NGX_D3D11_GetFeatureRequirements)GetProcAddress(m_hSnippet, "NVSDK_NGX_D3D11_GetFeatureRequirements");
 
 	if (!m_pfnInit || !m_pfnPopulate || !m_pfnCreate || !m_pfnEvaluate) {
-		m_State = State::ExportsMissing;
 		Log(L"required D3D12 exports missing from %s", s_SnippetName);
-		Shutdown();
-		return false;
+		return Abandon(State::ExportsMissing);
 	}
 
 	// The snippet declares which SDK version it speaks; the core rejects newer.
@@ -650,18 +650,18 @@ bool CDlssNR::Init(ID3D11Device* pDevice, const wchar_t* pConfiguredDllPath, boo
 	}
 	Log(L"snippet 0x%08X, SDK version 0x%02X", m_SnippetVer, m_SdkVersion);
 
+	// 3. The caller shim: every guarded entry point of the snippet goes through it.
 	if (!LoadShim()) {
-		Shutdown();
-		return false;
+		return Abandon(State::ShimMissing);
 	}
 
+	// 4. The private Direct3D 12 device and the two fences it shares with the renderer's.
 	if (!CreateD3D12(pDevice)) {
-		m_State = State::NoD3D12;
-		Shutdown();
-		return false;
+		return Abandon(State::NoD3D12);
 	}
 
-	// The driver core first, on the same SDK version.
+	// 5. The driver's runtime, on the same device and SDK version, for the parameter
+	// block it allocates. The snippet runs without it, on a block of our own.
 	NVSDK_NGX_FeatureCommonInfo fci = {};
 	const wchar_t* pathList[1] = { m_SnippetDir.c_str() };
 	fci.PathListInfo.Path = pathList;
@@ -692,13 +692,12 @@ bool CDlssNR::Init(ID3D11Device* pDevice, const wchar_t* pConfiguredDllPath, boo
 
 	QueryRequirements();
 
+	// 6. The snippet itself. The feature comes later, with the textures (CreateFeature).
 	const NVSDK_NGX_Result r = CallInit();
 	m_LastResult = r;
 	if (NGX_FAILED(r)) {
-		m_State = State::ApiInitFailed;
 		Log(L"Init_Ext failed: 0x%08X %s", r, NgxResultName(r));
-		Shutdown();
-		return false;
+		return Abandon(State::ApiInitFailed);
 	}
 
 	CallPopulate(m_pParams);
@@ -769,9 +768,17 @@ void CDlssNR::Shutdown()
 
 	// The architecture hook stays installed for the process: MinHook removal
 	// while another thread is inside the detour is not worth the risk, and the
-	// override is inert once g_SpoofArch is cleared.
-	g_SpoofArch = 0;
-	g_hSpoofFor = nullptr;
+	// override is inert once g_SpoofArch is cleared -- which it is when the last
+	// session that asked for it goes, not the first: a second renderer in the same
+	// process may be about to start its own.
+	if (m_bHoldsArchOverride) {
+		m_bHoldsArchOverride = false;
+		if (--g_SpoofUsers <= 0) {
+			g_SpoofUsers = 0;
+			g_SpoofArch = 0;
+			g_hSpoofFor = nullptr;
+		}
+	}
 
 	if (m_State == State::Ready) {
 		m_State = State::Off;
@@ -962,11 +969,11 @@ bool CDlssNR::SetGuides(const Guides& g)
 
 void CDlssNR::PushGuideParams(NVSDK_NGX_Parameter* p)
 {
-	struct Entry { const char* key; const char* subrect; const GuideSlot& slot; };
+	struct Entry { const char* key; const SubrectKeys& subrect; const GuideSlot& slot; };
 	const Entry entries[] = {
-		{ P_MVEC,        "DLSSNR.MVecSubrect",        m_GuideMVec },
-		{ P_DEPTH,       "DLSSNR.DepthSubrect",       m_GuideDepth },
-		{ P_CONTROLMASK, "DLSSNR.ControlMaskSubrect", m_GuideMask },
+		{ P_MVEC,        s_RectMVec,        m_GuideMVec },
+		{ P_DEPTH,       s_RectDepth,       m_GuideDepth },
+		{ P_CONTROLMASK, s_RectControlMask, m_GuideMask },
 	};
 
 	for (const Entry& e : entries) {
@@ -974,11 +981,7 @@ void CDlssNR::PushGuideParams(NVSDK_NGX_Parameter* p)
 		// an earlier frame must not linger in the block.
 		p->Set(e.key, (ID3D12Resource*)e.slot.p12.p);
 		if (e.slot.p12) {
-			char name[64];
-			sprintf_s(name, "%sBaseX", e.subrect);  p->Set(name, (unsigned int)0);
-			sprintf_s(name, "%sBaseY", e.subrect);  p->Set(name, (unsigned int)0);
-			sprintf_s(name, "%sWidth", e.subrect);  p->Set(name, (unsigned int)e.slot.w);
-			sprintf_s(name, "%sHeight", e.subrect); p->Set(name, (unsigned int)e.slot.h);
+			SetWholeSubrect(p, e.subrect, e.slot.w, e.slot.h);
 		}
 	}
 	p->Set(P_MVECSCALEX, m_fMVecScaleX);
@@ -998,10 +1001,7 @@ bool CDlssNR::CreateFeature(ID3D11Texture2D* pShared11In, ID3D11Texture2D* pShar
 		return false;
 	}
 
-	DrainGpu();
 	ReleaseFeature();
-	m_pTex12In.Release();
-	m_pTex12Out.Release();
 
 	// Open the renderer's textures on the D3D12 side. They were created with
 	// Tex2D_DefaultShaderRTargetUAVShared, so they carry an NT share handle and
@@ -1048,12 +1048,18 @@ bool CDlssNR::CreateFeature(ID3D11Texture2D* pShared11In, ID3D11Texture2D* pShar
 	return true;
 }
 
+// The feature and our hold on the renderer's two textures, which it is about to
+// release or has released: kept open here, two RGBA16F textures the size of the
+// picture would stay allocated for as long as the feature is off.
 void CDlssNR::ReleaseFeature()
 {
 	if (m_pFeature) {
+		DrainGpu();
 		CallRelease(m_pFeature);
 		m_pFeature = nullptr;
 	}
+	m_pTex12In.Release();
+	m_pTex12Out.Release();
 	m_featW = m_featH = 0;
 	m_featPreset = -1;
 	m_pShared11In = nullptr;
@@ -1084,18 +1090,9 @@ void CDlssNR::PushEvaluateParams(NVSDK_NGX_Parameter* p, const Params& s, bool b
 	p->Set(P_OUTPUT,     (ID3D12Resource*)m_pTex12Out);
 	p->Set(P_BACKBUFFER, (ID3D12Resource*)m_pTex12Out);
 
-	// Subrects cover the whole surface; the snippet rejects any mismatch with
-	// the feature dimensions ("Invalid Color/Output rect configuration").
-	static const char* const prefixes[] = {
-		"DLSSNR.ColorSubrect", "DLSSNR.OutputSubrect", "DLSSNR.BackbufferSubrect"
-	};
-	for (const char* pre : prefixes) {
-		char name[64];
-		sprintf_s(name, "%sBaseX", pre);  p->Set(name, (unsigned int)0);
-		sprintf_s(name, "%sBaseY", pre);  p->Set(name, (unsigned int)0);
-		sprintf_s(name, "%sWidth", pre);  p->Set(name, (unsigned int)w);
-		sprintf_s(name, "%sHeight", pre); p->Set(name, (unsigned int)h);
-	}
+	SetWholeSubrect(p, s_RectColor, w, h);
+	SetWholeSubrect(p, s_RectOutput, w, h);
+	SetWholeSubrect(p, s_RectBackbuffer, w, h);
 }
 
 bool CDlssNR::Evaluate(const Params& p)
@@ -1108,8 +1105,25 @@ bool CDlssNR::Evaluate(const Params& p)
 		return false;
 	}
 
-	LARGE_INTEGER qpf = {}, t0 = {}, t1 = {}, t2 = {}, t3 = {};
-	QueryPerformanceFrequency(&qpf);
+	// A wait that ran out leaves the command list where it stopped, and the session
+	// is not to be used again as it is: the caller starts another (State says so).
+	const auto GaveUp = [this](const wchar_t* what) {
+		m_DetailError = what;
+		m_State = State::EvaluateFailed;
+		m_LastResult = NGX_Result_Fail;
+		Log(L"%s", what);
+		return false;
+	};
+	if (s_FailAt > 0 && ++s_Evaluations % s_FailAt == 0) {
+		return GaveUp(L"made to fail for a test (MPCVR_DLSSNR_FAIL_AT)");
+	}
+
+	static const double s_ticksPerMs = []() {
+		LARGE_INTEGER qpf = {};
+		QueryPerformanceFrequency(&qpf);
+		return qpf.QuadPart / 1000.0;
+	}();
+	LARGE_INTEGER t0 = {}, t1 = {}, t2 = {}, t3 = {};
 	QueryPerformanceCounter(&t0);
 
 	// The renderer has just written the input texture. Make that work reach the
@@ -1120,8 +1134,7 @@ bool CDlssNR::Evaluate(const Params& p)
 	m_pCtx11->Signal(m_pFenceUp11, m_FenceValue);
 	m_pCtx11->Flush();
 	if (!WaitForFence(m_pFenceUp12, m_FenceValue)) {
-		Log(L"input never became ready");
-		return false;
+		return GaveUp(L"the input was not ready after two seconds");
 	}
 	QueryPerformanceCounter(&t1);
 
@@ -1135,6 +1148,7 @@ bool CDlssNR::Evaluate(const Params& p)
 
 	m_LastResult = r;
 	if (NGX_FAILED(r)) {
+		m_DetailError.clear();
 		m_State = State::EvaluateFailed;
 		Log(L"Evaluate failed: 0x%08X %s", r, NgxResultName(r));
 		ExecuteAndWait();   // keep the list in a usable state
@@ -1142,13 +1156,12 @@ bool CDlssNR::Evaluate(const Params& p)
 	}
 
 	if (!ExecuteAndWait()) {
-		Log(L"could not submit the Evaluate work");
-		return false;
+		return CheckDeviceLost() ? false : GaveUp(L"the GPU had not run the network after two seconds");
 	}
 	QueryPerformanceCounter(&t3);
-	m_Timing.inputWaitMs = double(t1.QuadPart - t0.QuadPart) * 1000.0 / qpf.QuadPart;
-	m_Timing.recordMs    = double(t2.QuadPart - t1.QuadPart) * 1000.0 / qpf.QuadPart;
-	m_Timing.gpuWaitMs   = double(t3.QuadPart - t2.QuadPart) * 1000.0 / qpf.QuadPart;
+	m_Timing.inputWaitMs = double(t1.QuadPart - t0.QuadPart) / s_ticksPerMs;
+	m_Timing.recordMs    = double(t2.QuadPart - t1.QuadPart) / s_ticksPerMs;
+	m_Timing.gpuWaitMs   = double(t3.QuadPart - t2.QuadPart) / s_ticksPerMs;
 
 	m_bResetPending = false;
 	return true;
@@ -1172,9 +1185,13 @@ std::wstring CDlssNR::GetStatusLine() const
 	case State::ShareFailed:
 		return m_DetailError.empty() ? std::wstring(L"could not share textures with Direct3D 12")
 		                            : (L"share failed: " + m_DetailError);
+	case State::EvaluateFailed:
+		if (!m_DetailError.empty()) {
+			return L"unavailable: " + m_DetailError;
+		}
+		[[fallthrough]];
 	case State::ApiInitFailed:
 	case State::FeatureCreateFailed:
-	case State::EvaluateFailed:
 		return std::format(L"unavailable: 0x{:08X} {}", m_LastResult, NgxResultName(m_LastResult));
 	case State::Ready:
 		return m_pFeature ? std::format(L"ready {}x{} preset {}", m_featW, m_featH, m_featPreset)

@@ -194,6 +194,9 @@
     <ClInclude Include="DLSS\DlssTiming.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="DLSS\NgxRuntime.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
     <ClInclude Include="Upscale\MpvShader.h">
       <Filter>Header Files</Filter>
     </ClInclude>

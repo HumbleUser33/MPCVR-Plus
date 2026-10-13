@@ -143,6 +143,54 @@ anything newer with `FAIL_OutOfDate`), the driver's NGX core does not know featu
 so the snippet must be loaded directly, and the working set is about **500 MB of video
 memory at 1080p**, growing with resolution.
 
+**The runtime is the installed driver's.** `_nvngx.dll` lives in the driver store, and the
+store keeps the packages of the drivers that were replaced. DLSS 5 NR used to take the first
+one the store listed, which is the oldest: on a machine with three, it ran on the runtime of
+a driver two versions back (32.0.15.9186) while DLSS Super Resolution, which asked the
+registry, ran on the installed one (32.0.16.1656). Both ask the registry now, and only when it
+names none take the newest the store holds (`Source/DLSS/NgxRuntime.h`).
+
+### An evaluation that fails
+
+The renderer switches DLSS 5 NR off rather than fail on every picture, and until now nothing
+switched it on again but the toggle key: one evaluation the GPU did not answer within two
+seconds, and the rest of the film went without. The session is now started again from
+nothing two seconds later, twice at most, and again after a seek.
+
+Made to fail on purpose in MPC-HC, every hundredth evaluation (`MPCVR_DLSSNR_FAIL_AT=100`
+in the player's environment): 99 pictures with it, 50 without while the film plays on, back
+for 99, the same once more, then off -- until the seek, which brings it back, as the toggle
+key does. Starting the session again takes about 0.7 s, during which 16 pictures were not
+shown. The statistics say what happened (`DLSS 5 NR : unavailable: ...`), and so does the
+trace (see *Diagnostic tools*).
+
+### What it was put through
+
+In MPC-HC, a 1080p film at 25 fps on a television at 25 Hz, with the trace saying for every
+picture whether DLSS 5 NR ran on it: the toggle key while playing, while paused, and three
+times within a second; seeks short and long, forwards and back, three in half a second;
+subtitles next, off and on; another sound track; pause and play; out of fullscreen and back;
+the next file and the previous one. DLSS 5 NR was back after each: 2 403 pictures of 2 581,
+the rest being the stretches it was switched off for and the two to five pictures a restart
+loses.
+
+The same handling, shorter, in each way it can be set up:
+
+| | pictures | DLSS 5 NR ran on |
+|---|---|---|
+| the shaders converting instead of the video processor | 1 131 | 1 015 |
+| after upscaling, at 3840x2160 | 1 014 | 482 |
+| without the stabilizer | 1 152 | 1 047 |
+| the stabilizer on the shader detector | 1 151 | 1 047 |
+| Optical Flow, vectors not given to the network | 1 151 | 1 047 |
+| DLSS Super Resolution after it | 1 137 | 1 033, and DLSS SR on 1 106 |
+| a 4K HDR film at 23.976 fps, the network at 3840x1600 | 1 010 | 480 |
+
+No fault in any of them. The network takes 14 to 15 ms of GPU at 1920x1080 on an RTX 4060,
+45 ms at 3840x1600 and 62 ms at 3840x2160, which is longer than a frame lasts: that is the
+second row and the last, where about half the pictures are left out before they are drawn
+and the film stays with its sound (see *A refresh chosen for every picture*).
+
 ---
 
 ## Temporal stabilizer
@@ -1387,6 +1435,22 @@ rate against the performance counter; on which refresh each picture was shown an
 were shown a refresh too long or not at all, with the times; how long after its own time each
 reached the screen; where in a refresh `Present` was called and how long it took to return.
 Every figure in *A refresh chosen for every picture* comes from it.
+
+The same line says whether DLSS 5 NR and DLSS Super Resolution really ran on the picture,
+which motion the stabilizer had, and where DLSS 5 NR's time went: waiting for Direct3D 11 to
+finish its input, recording, waiting for the GPU. A note is written whenever what the two
+sessions say of themselves changes. `pacing_report.py trace.csv --dlss` reads only that:
+
+```
+  # dlss: NR on (ready 1920x1080 preset 0; stabilizer: Optical Flow 960x540)
+      0.0 s to     9.6 s, film at      0.0 s:   244 picture(s), NR on   239 (flow 239, detector 0, vectors 239), SR on     0, not shown 5, longest wait 80 ms
+            drawing 24.9 ms (median), 90.3 at most; of which DLSS 5 NR waited 3.4 ms for its input, recorded for 1.0 and waited 14.6 for the GPU
+```
+
+A session that stops by itself shows there as pictures DLSS no longer ran on under a note
+that still asks for it, and nowhere else: the film goes on playing. To see what the renderer
+does about it, `MPCVR_DLSSNR_FAIL_AT=100` in the player's environment makes every hundredth
+evaluation of DLSS 5 NR give up (see *An evaluation that fails*).
 
 **`freeze_dump.exe`** — run against a player that hangs (by name, by process id, or with no
 argument at all), it asks Windows what every thread is waiting for, names any cycle as the
