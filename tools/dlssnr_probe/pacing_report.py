@@ -9,7 +9,8 @@ on, how long after its own time, and whether the one before it had left.
     python pacing_report.py trace.csv --dlss
 
 --dlss says instead what the DLSS passes did: for every stretch between two notes,
-how many of its pictures DLSS 5 NR and DLSS Super Resolution really ran on.
+how many of its pictures DLSS 5 NR and DLSS Super Resolution really ran on, and how
+many the video processor enlarged after DLSS 5 NR.
 
 DXGI numbers every Present call and says, of the last picture shown, which call it
 was and on which refresh. Read before and after every Present, that gives the
@@ -33,6 +34,7 @@ MORE = "nrWaitUs nrRecordUs nrGpuUs".split()
 HELD, VBLANK, FIELD2, NOT_PRESENTED, VP, RTX_HDR, HDR, EXCLUSIVE, SCHEDULED, REPEATED, DROPPED = (
     1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
 DLSS_NR, NR_FLOW, NR_DETECTOR, NR_VECTORS, DLSS_SR, SKIPPED = 2048, 4096, 8192, 16384, 32768, 65536
+VP_AFTER_NR = 131072
 
 
 def read(path):
@@ -332,15 +334,16 @@ def dlss_timeline(qpf, stretches):
         detector = sum(1 for r in rows if r["flags"] & NR_DETECTOR)
         vectors = sum(1 for r in rows if r["flags"] & NR_VECTORS)
         sr = sum(1 for r in rows if r["flags"] & DLSS_SR)
+        vp = sum(1 for r in rows if r["flags"] & VP_AFTER_NR)
         lost = sum(1 for r in rows if r["flags"] & (NOT_PRESENTED | DROPPED | SKIPPED))
         gaps = [(b - a) * 1000.0 / qpf for a, b in zip(ticks, ticks[1:])]
         total += len(rows)
         on_nr += nr
         on_sr += sr
         print("  %7.1f s to %7.1f s, film at %8.1f s: %5d picture(s), NR on %5d (flow %d, detector %d, vectors %d), "
-              "SR on %5d, not shown %d, longest wait %.0f ms" % (
+              "SR on %5d, enlarged by the processor %5d, not shown %d, longest wait %.0f ms" % (
                   (ticks[0] - first) / qpf, (ticks[-1] - first) / qpf, rows[0]["rtStart"] / 1e7,
-                  len(rows), nr, flow, detector, vectors, sr, lost, max(gaps) if gaps else 0.0))
+                  len(rows), nr, flow, detector, vectors, sr, vp, lost, max(gaps) if gaps else 0.0))
         draws = sorted((r["tickDrawn"] - r["tickSample"]) * 1000.0 / qpf for r in rows if not r["flags"] & SKIPPED) or [0.0]
         line = "            drawing %.1f ms (median), %.1f at most" % (draws[len(draws) // 2], draws[-1])
         timed = [r for r in rows if r["flags"] & DLSS_NR and r["nrGpuUs"]]

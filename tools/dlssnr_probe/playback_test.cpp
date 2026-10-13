@@ -106,6 +106,7 @@ static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
 static int g_frameSeconds = 0;         // --frame N: the page inside a real property frame
 static bool g_bThemedHost = false;     // --themed: and a player that paints it
 static bool g_bDlaa = false;           // --dlaa: let DLSS SR run without enlarging
+static bool g_bAfterNR = false;        // --afternr: who enlarges what DLSS 5 NR leaves, on a real film (--file)
 static int g_smallUpscaling = -1;      // --small N: another method under 5 %
 static int g_hz = 0;                   // --hz N: put the screen at N Hz for the run, and back after
 static bool g_bJolt = false;           // --jolt: change a setting while it plays, and watch the queue
@@ -571,6 +572,9 @@ struct Config {
 	bool bReplaceChroma = false; // --chroma: the processor keeps the picture, the shaders its chroma
 	bool bHdrOut = false;        // --chroma: HDR passthrough, for the RTX Video HDR runs
 	int iRtxHdr = -1;            // and the extension: -1 leaves the setting, 0 off, 1 on
+	int iVPScale = -1;           // --afternr: "Use the video processor for resizing", 0 or 1
+	int iSuperRes = -1;          // and Request Super Resolution, SUPERRES_*
+	int iPrepass = -1;           // and "Replace VP chroma upsampling", 0 or 1
 };
 
 struct Result {
@@ -591,10 +595,14 @@ struct Result {
 	std::wstring nrLine, srLine, dlssTimes, aheadLine;
 	std::wstring onScreenLine;   // what DXGI saw of a picture, and what the schedule had to do
 	std::wstring vprocLine, scalingLine, prescaleTimes;
+	std::wstring hdrLine;        // what the picture is on its way out: SDR, or PQ and how
 	std::wstring statsAll; // --chroma: the whole overlay, to see what else differs
 	std::vector<BYTE> picture;      // BGRA, top-down, as displayed
 	std::vector<BYTE> statsPicture; // the same with the statistics drawn over it
 	int pictureW = 0, pictureH = 0;
+	unsigned vpUse = 0;             // VPUSE_*, as the film played
+	std::vector<BYTE> stillCrop;    // --afternr: the paused picture as the desktop showed it
+	int stillW = 0, stillH = 0;
 	double stopSeconds[3] = {};
 	std::string error;
 };
@@ -851,7 +859,109 @@ static int ShowGreying()
 	       "Dolby Vision row is meant to differ: the processor is not in the chain at\n"
 	       "all there, so everything inside it is out and everything the shaders do is\n"
 	       "theirs again.\n");
-	return 0;
+
+	// The DLSS boxes. DLSS 5 NR works at the source's size and leaves the resizing to
+	// whoever had it, so its rows have to read as the rows without it; DLSS Super
+	// Resolution enlarges by itself, and takes the Upscaling list and the driver's
+	// Super Resolution with it whatever the resizing box says.
+	printf("\nand with the DLSS boxes ticked, the processor in the chain\n\n");
+	printf("%-22s %-9s %-8s %-10s %-12s %-7s\n",
+		"ticked", "resizing", "prepass", "upscaling", "downscaling", "superres");
+	const struct { const char* what; bool bNR, bSR; } passes[] = {
+		{ "neither",               false, false },
+		{ "DLSS 5 NR",             true,  false },
+		{ "DLSS SR",               false, true  },
+		{ "DLSS 5 NR and DLSS SR", true,  true  },
+	};
+	int wrong = 0;
+	Greying without[2][2] = {};
+	for (const auto& pass : passes) {
+		for (const bool bResizing : { true, false }) {
+			for (const bool bPrepass : { false, true }) {
+				Settings_t sets;
+				sets.bUseD3D11 = true;
+				sets.bVPScaling = bResizing;
+				sets.VPFmts.bNV12 = sets.VPFmts.bP01x = sets.VPFmts.bYUY2 = sets.VPFmts.bOther = true;
+				sets.bDlssNR = pass.bNR;
+				sets.bDlssSR = pass.bSR;
+				sets.bVPReplaceChroma = bPrepass;
+				const Greying g = GreyingFor(sets, true, true, false);
+				bool bWrong = false;
+				if (!pass.bNR && !pass.bSR) {
+					without[bResizing][bPrepass] = g;
+				} else if (!pass.bSR) {
+					const Greying& w = without[bResizing][bPrepass];
+					bWrong = g.bUpscalingList != w.bUpscalingList || g.bDownscalingList != w.bDownscalingList
+						|| g.bSuperRes != w.bSuperRes || g.bChromaList != w.bChromaList;
+				} else {
+					bWrong = g.bUpscalingList || g.bSuperRes || !g.bDownscalingList;
+				}
+				wrong += bWrong;
+				printf("%-22s %-9s %-8s %-10s %-12s %-7s%s\n",
+					(bResizing && !bPrepass) ? pass.what : "",
+					bResizing ? "ticked" : "off",
+					bPrepass ? "on" : "off",
+					g.bUpscalingList ? "live" : "GREYED",
+					g.bDownscalingList ? "live" : "GREYED",
+					g.bSuperRes ? "live" : "GREYED",
+					bWrong ? "   <-- WRONG" : "");
+			}
+		}
+	}
+	printf("\n%s\n", wrong
+		? "DLSS 5 NR has to leave every line as it is without it, and DLSS SR has to grey\n"
+		  "Upscaling and Super Resolution and leave Downscaling live."
+		: "DLSS 5 NR changes no line, and DLSS SR takes the enlarging.");
+	printf("%d failure(s)\n", wrong);
+	return wrong ? 1 : 0;
+}
+
+// How far two pictures of the same still are apart in colour, whatever enlarged them.
+// The mean of a 16x16 block does not depend on the filter that made the picture that
+// size, and it moves at once when a matrix or a range is wrong.
+struct StillDifference {
+	bool ok = false;
+	double shift[3] = {};   // R, G, B: the whole picture's mean against the reference's
+	double mean = 0;        // of the blocks' differences
+	double most = 0;
+};
+
+static StillDifference CompareStills(const std::vector<BYTE>& picture, const std::vector<BYTE>& reference, int w, int h)
+{
+	StillDifference d;
+	const int size = 16;
+	const int bw = w / size, bh = h / size;
+	if (!bw || !bh || picture.size() != reference.size() || picture.size() < (size_t)w * h * 4) {
+		return d;
+	}
+	double sum = 0;
+	for (int by = 0; by < bh; by++) {
+		for (int bx = 0; bx < bw; bx++) {
+			double a[3] = {}, b[3] = {};
+			for (int y = 0; y < size; y++) {
+				const size_t row = ((size_t)(by * size + y) * w + (size_t)bx * size) * 4;
+				for (int x = 0; x < size; x++) {
+					for (int c = 0; c < 3; c++) {
+						a[c] += picture[row + x * 4 + (2 - c)];
+						b[c] += reference[row + x * 4 + (2 - c)];
+					}
+				}
+			}
+			for (int c = 0; c < 3; c++) {
+				const double delta = (a[c] - b[c]) / (size * size);
+				d.shift[c] += delta;
+				sum += std::abs(delta);
+				d.most = std::max(d.most, std::abs(delta));
+			}
+		}
+	}
+	const double blocks = (double)bw * bh;
+	for (double& v : d.shift) {
+		v /= blocks;
+	}
+	d.mean = sum / (3 * blocks);
+	d.ok = true;
+	return d;
 }
 
 static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE source, SIZE window, int seconds)
@@ -955,6 +1065,16 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		}
 		if (g_filmStats >= 0) {
 			sets.bShowStats = g_filmStats != 0;
+		}
+		// --afternr: who resizes is each run's own business.
+		if (config.iVPScale >= 0) {
+			sets.bVPScaling = config.iVPScale != 0;
+		}
+		if (config.iSuperRes >= 0) {
+			sets.iVPSuperRes = config.iSuperRes;
+		}
+		if (config.iPrepass >= 0) {
+			sets.bVPReplaceChroma = config.iPrepass != 0;
 		}
 	}
 	if (g_bScalers && !g_bHardwareVP) {
@@ -1177,9 +1297,11 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	result.vprocLine = StatsLine(text, L"VideoProcessor: ");
 	result.statsAll = text;
 	result.scalingLine = StatsLine(text, L"Scaling       : ");
+	result.hdrLine = StatsLine(text, L"HDR processing: ");
 	result.prescaleTimes = StatsLine(text, L"Prescale (ms) : ");
 	if (g_filmFile) {
 		ReportVPUse(pVR);
+		result.vpUse = pVR->GetActive() ? pVR->GetVideoProcessorUse() : 0;
 	}
 	if (g_filmFile) {
 		// Two renderers can only be compared on the same picture, and playback never
@@ -1211,6 +1333,20 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 			}
 			previous = result.picture;
 			Pump(250);
+		}
+	}
+	if (g_bAfterNR && watch.Ready()) {
+		// The same still under every run, as the desktop shows it. The filter's own
+		// snapshot is drawn without the DLSS passes, so it would compare the runs on a
+		// picture none of them put on the screen.
+		SetForegroundWindow(hwnd);
+		BringWindowToTop(hwnd);
+		Pump(600);
+		const CScreenWatch::Reading still = watch.Measure(hwnd);
+		if (still.ok) {
+			result.stillCrop = still.crop;
+			result.stillW = still.cropW;
+			result.stillH = still.cropH;
 		}
 	}
 
@@ -1964,6 +2100,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bJolt = true;
 		} else if (!wcscmp(argv[i], L"--greying")) {
 			g_bGreying = true;
+		} else if (!wcscmp(argv[i], L"--afternr")) {
+			g_bAfterNR = true;
 		} else if (!wcscmp(argv[i], L"--dlaa")) {
 			g_bDlaa = true;
 		} else if (!wcscmp(argv[i], L"--themed")) {
@@ -2119,8 +2257,25 @@ int wmain(int argc, wchar_t* argv[])
 		{ "4:2:0, hardware VP, HDR out, RTX Video HDR ON",  false, false, true, -1, -1, true, false, false, true, 1 },
 		{ "4:2:0, VP + 4:4:4 pre-pass, HDR out, RTX Video HDR ON", false, false, true, -1, CHROMA_CatmullRom, true, false, true, true, 1 },
 	};
-	const Config* configs = g_bChroma ? chromaConfigs : g_bScalers ? scalerConfigs : dlssConfigs;
-	const int configCount = (int)(g_bChroma ? std::size(chromaConfigs)
+	// --afternr: DLSS 5 NR at the source's size, and each of the ways the picture it
+	// leaves can be enlarged. A run where the shaders enlarge, which they have always
+	// done, is what the runs after it are compared with. There are two of those: the
+	// chroma replacement changes the colours by itself, before any of this -- on a
+	// 10-bit film the processor's own conversion sits 0.6 of a level off in Cb and Cr
+	// and the replacement does not (--chroma10) -- so its run has a reference of its own.
+	static const Config afterNRConfigs[] = {
+		{ "DLSS 5 NR, the shaders enlarge",                           true, false, true, UPSCALE_CatmullRom, -1, false, false, false, false, -1, 0, SUPERRES_Disable, 0 },
+		{ "DLSS 5 NR, the processor enlarges",                        true, false, true, -1, -1, false, false, false, false, -1, 1, SUPERRES_Disable, 0 },
+		{ "DLSS 5 NR, the processor enlarges, Super Resolution",      true, false, true, -1, -1, false, false, false, false, -1, 1, SUPERRES_1440p,   0 },
+		{ "DLSS 5 NR, chroma replaced, the shaders enlarge",          true, false, true, UPSCALE_CatmullRom, -1, false, false, false, false, -1, 0, SUPERRES_Disable, 1 },
+		{ "DLSS 5 NR, chroma replaced, the processor enlarges",       true, false, true, -1, -1, false, false, false, false, -1, 1, SUPERRES_1440p,   1 },
+	};
+	if (g_bAfterNR && !g_filmFile) {
+		printf("--afternr plays a real film: --file <film> [--seek <seconds>]\n");
+		return 1;
+	}
+	const Config* configs = g_bAfterNR ? afterNRConfigs : g_bChroma ? chromaConfigs : g_bScalers ? scalerConfigs : dlssConfigs;
+	const int configCount = (int)(g_bAfterNR ? std::size(afterNRConfigs) : g_bChroma ? std::size(chromaConfigs)
 		: g_bScalers ? std::size(scalerConfigs) : std::size(dlssConfigs));
 
 	printf("Film %ldx%ld at %.3f fps in a %ldx%ld window, %d s per configuration after 5 s to settle.\n",
@@ -2135,6 +2290,11 @@ int wmain(int argc, wchar_t* argv[])
 		printf("where the renderer chose one (\"scheduled\"); when Present returned, where it did not.\n\n");
 	}
 
+	if (g_bAfterNR) {
+		printf("--afternr: the film paused at the same place under each run, read off the desktop.\n");
+		printf("still: against the last run the shaders enlarged, each channel's shift and the difference\n");
+		printf("of 16x16 blocks, in 8-bit levels. A filter moves neither; a wrong matrix or range moves both.\n\n");
+	}
 	const std::wstring exeDir = std::wstring(exe).substr(0, std::wstring(exe).find_last_of(L'\\'));
 	std::vector<BYTE> firstPicture;
 	int firstW = 0, firstH = 0;
@@ -2150,6 +2310,74 @@ int wmain(int argc, wchar_t* argv[])
 		if (!r.error.empty()) {
 			printf("   FAILED: %s\n", r.error.c_str());
 			failures++;
+			continue;
+		}
+		if (g_bAfterNR) {
+			const bool bProcessor = config.iVPScale == 1;
+			const bool bResizes = (r.vpUse & VPUSE_Resizing) != 0;
+			wprintf(L"   scaling      : %s\n", r.scalingLine.c_str());
+			wprintf(L"   DLSS (ms)    : %s\n", r.dlssTimes.c_str());
+			printf("   the processor: %s\n", !(r.vpUse & (VPUSE_Converting | VPUSE_Resizing)) ? "not in the chain"
+				: bResizes ? "converts and resizes" : "converts");
+			// PQ or not decides which of its two arrangements the second turn is made in.
+			wprintf(L"   on its way out: %s\n", r.hdrLine.empty() ? L"SDR" : r.hdrLine.c_str());
+			if (r.dlssTimes.find(L"NR ") == std::wstring::npos) {
+				wprintf(L"   FAIL: DLSS 5 NR did not run (%s)\n", r.nrLine.c_str());
+				failures++;
+			}
+			if (bProcessor != bResizes) {
+				printf("   FAIL: %s\n", bProcessor ? "the processor did not enlarge what DLSS 5 NR left"
+					: "the processor resized where the shaders were asked to");
+				failures++;
+			}
+			if (bProcessor && r.dlssTimes.find(L"resize ") == std::wstring::npos) {
+				printf("   FAIL: the statistics give the processor's second turn no time\n");
+				failures++;
+			}
+			const bool bStar = r.scalingLine.find(L"SuperResolution*") != std::wstring::npos;
+			if (bStar != (config.iSuperRes != SUPERRES_Disable && config.iPrepass != 1 && bProcessor)) {
+				printf("   FAIL: Super Resolution %s\n", bStar ? "is on in a run that did not ask for it"
+					: "was asked for and the processor's second turn does not have it");
+				failures++;
+			}
+			if (r.stillCrop.empty()) {
+				printf("   FAIL: no still read off the desktop\n");
+				failures++;
+			} else {
+				SaveBmp(exeDir + L"\\afternr_" + std::to_wstring(c) + L".bmp", r.stillCrop, r.stillW, r.stillH);
+				if (!bProcessor) {
+					firstPicture = r.stillCrop;
+					firstW = r.stillW;
+					firstH = r.stillH;
+					printf("   this is the still the next are measured against\n");
+				} else {
+					const StillDifference d = (r.stillW == firstW && r.stillH == firstH)
+						? CompareStills(r.stillCrop, firstPicture, firstW, firstH) : StillDifference{};
+					if (!d.ok) {
+						printf("   FAIL: the still is not the size of the first\n");
+						failures++;
+					} else {
+						printf("   still        : shift R %+.2f G %+.2f B %+.2f, blocks mean %.2f\n",
+							d.shift[0], d.shift[1], d.shift[2], d.mean);
+						// Measured: 0.11 to 0.67 of mean and 0.67 of shift at most, the driver's
+						// sharpening included. A BT.709 matrix read as BT.2020, or a studio
+						// range read as full, is several levels.
+						if (d.mean > 2.5 || std::max({ std::abs(d.shift[0]), std::abs(d.shift[1]), std::abs(d.shift[2]) }) > 2.0) {
+							printf("   FAIL: the colours are not those of the run the shaders enlarged\n");
+							failures++;
+						}
+						// The block furthest off says what a mean cannot: a band of rows
+						// from somewhere else, a picture a pixel out of place. It moves
+						// from run to run with the sharpening (3 to 13 measured), so it is
+						// judged and not printed among the rows two reports are compared on.
+						if (d.most > 40.0) {
+							printf("   FAIL: a block of the still is %.0f levels from the other's\n", d.most);
+							failures++;
+						}
+					}
+				}
+			}
+			printf("\n");
 			continue;
 		}
 		if (g_bChroma) {

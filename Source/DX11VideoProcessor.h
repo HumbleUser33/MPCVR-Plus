@@ -330,11 +330,45 @@ private:
 	// in advance: each has to be asked for early to be there for its own.
 	bool RenderAheadActive() const { return m_bDlssRenderAhead && (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_bMpvLumaRan); }
 
-	// The video processor only resizes while no DLSS pass has taken that back from it
-	// (UpdateTexures): DLSS 5 NR works at the source's size, and DLSS Super Resolution
-	// enlarges from it itself.
-	bool VPMayResize() const { return m_bVPScaling && !m_bDlssNRActive && !m_bDlssSRActive; }
+	// Who resizes when "Use the video processor for resizing" is ticked: the processor,
+	// in whichever of its two turns comes after everything that needs the source's
+	// size. On its first and only one in the ordinary way, as it converts. With DLSS 5 NR
+	// before the resizing, the network needs the picture at the source's size, so the
+	// first turn only converts and the processor is given the network's picture to
+	// enlarge in a second (VPScalePass). DLSS Super Resolution enlarges by itself and
+	// takes the resizing from both.
+	bool VPResizesFirst() const { return m_bVPScaling && !m_bDlssSRActive && !(m_bDlssNRActive && !m_bDlssNRAfterUpscale); }
+	bool VPResizesAfterNR() const { return m_bVPScaling && !m_bDlssSRActive && m_bDlssNRActive && !m_bDlssNRAfterUpscale; }
 	void UpdateVPSuperRes(const int depth);
+
+	// The processor's second turn.
+	CD3D11VP m_D3D11VPScale;
+	Tex2D_t m_TexVPScaleOut;                    // what it enlarges into, the size of the picture on the screen
+	// What it was made for; anything else and it is made again.
+	struct VPScaleKey {
+		UINT w = 0, h = 0;                      // the picture DLSS 5 NR leaves
+		int superRes = 0;                       // Super Resolution as asked for
+		bool bPq = false;                       // the first turn hands over PQ BT.2020
+		bool bKeepChroma = false;               // "Replace VP chroma upsampling": 4:4:4 all the way
+		DXGI_FORMAT outFmt = DXGI_FORMAT_UNKNOWN;  // what the first turn leaves it in
+		bool operator==(const VPScaleKey&) const = default;
+	};
+	VPScaleKey m_VPScaleKey;
+	DXGI_FORMAT m_VPScaleInputFmt = DXGI_FORMAT_UNKNOWN;  // P010 for Super Resolution to act on, Y410 otherwise
+	CComPtr<ID3D11PixelShader>   m_pPSRgbToLuma;
+	CComPtr<ID3D11PixelShader>   m_pPSRgbToChroma;
+	CComPtr<ID3D11ComputeShader> m_pCSRgbToPacked;
+	struct VPScalePlanes {
+		ID3D11Texture2D* pTexture = nullptr;    // identity only
+		CComPtr<ID3D11RenderTargetView> pLuma, pChroma;
+	};
+	std::vector<VPScalePlanes> m_VPScalePlanes; // the planes of its input textures, as the render targets they are written through
+	bool m_bVPScaleSuperRes = false;            // the driver's Super Resolution is on in it
+	bool m_bVPScaleFailed   = false;            // it could not be made, or refused a picture: the shaders enlarge
+	bool m_bVPScaled        = false;            // it enlarged the last picture
+	void UpdateVPScale();
+	void ReleaseVPScale();
+	HRESULT VPScalePass(Tex2D_t* pInputTexture, const CRect& rSrc, Tex2D_t** ppResult);
 	bool m_bMpvLumaRan = false;
 	void MarkPictureSubmitted();
 	void HoldUntilPresentTime(const REFERENCE_TIME frameStartTime, const bool bMeasure);
@@ -518,7 +552,7 @@ public:
 		if (!m_D3D11VP.IsReady()) {
 			return dovi;
 		}
-		const bool bResizes = VPMayResize() && !m_bVPScalingUseShaders;
+		const bool bResizes = (VPResizesFirst() && !m_bVPScalingUseShaders) || m_bVPScaled;
 		// With the chroma rebuilt before it, the processor is handed 4:4:4 and the
 		// chroma list is the shaders', so it is not the one converting chroma.
 		return dovi | (m_bChromaReplacedVP ? 0 : VPUSE_Converting) | (bResizes ? VPUSE_Resizing : 0);

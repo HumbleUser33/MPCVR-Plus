@@ -51,6 +51,14 @@ It is published as **MPCVR-Plus**: `origin` is HumbleUser33/MPCVR-Plus, the bran
   all of upstream's that follow, silently: `playback_test --file` prints a `settings kept:`
   line for exactly this.
 
+- **One thing resizes the picture, and DLSS 5 NR is not it.** DLSS SR if it is ticked, the
+  video processor if *Use the video processor for resizing* is, the shader lists otherwise.
+  DLSS 5 NR works at the source's size and leaves the resizing where it was: with the
+  processor resizing, the processor takes a second turn on what the network leaves
+  (`VPResizesFirst()`, `VPResizesAfterNR()`, `VPScalePass`). The driver's Super Resolution is
+  asked for on the turn that resizes and on no other. `Source/SettingsPage/Greying.h` is the
+  page's side of the same rule, and `playback_test --greying` fails when the two part.
+
 - **A compute pass sets no render target.** If the caller has just drawn into a texture the
   pass reads, Direct3D drops that texture's shader resource view and the pass reads zeros
   (black for luma, green for chroma). Unbind the render targets before any dispatch placed
@@ -120,7 +128,7 @@ again after changing a source the other tools share.
 
 ### Running the battery
 
-- **It needs a display that is awake and nobody at the machine**, for about 35 minutes on an
+- **It needs a display that is awake and nobody at the machine**, for about 40 minutes on an
   RTX 4060. The playback steps present to the screen and watch the desktop. Once Windows has
   put the display to sleep its vertical blanks stop coming (`IDXGIOutput::WaitForVBlank`
   returns at once) and nothing those steps time means anything. Hold the display awake for
@@ -145,7 +153,10 @@ A copy of the working folder carries all of this; a clone carries none of it, an
 - `nvngx_dlssnr.dll` and `nvngx_dlss.dll`, at the root: NVIDIA's, never committed and never
   put in a release zip. The harness's DLSS suites need them.
 - `tools/dlssnr_probe/upscale_refs/`: the 4K film frames every picture-quality suite reads,
-  and a film. Not ours to redistribute. `run_all.cmd` measures on `4K1.png` from there.
+  and a film. Not ours to redistribute. `run_all.cmd` measures on `4K1.png` from there, and
+  plays the film for the two steps that need the hardware video processor on real pictures.
+  Those two also take LAV Filters from where an installed MPC-HC or MPC-BE keeps them
+  (`file_graph.inl`), read and never written.
 - `tools/dlssnr_probe/upscalers/`: the mpv shaders the generator translates, with glslang and
   SPIRV-Cross in its `tools` folder.
 - `external/onnxruntime/` and `tools/dlssnr_probe/models/`: the harness's neural rows

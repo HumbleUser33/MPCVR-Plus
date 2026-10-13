@@ -799,6 +799,8 @@ void CDX11VideoProcessor::ReleaseDevice()
 	m_bDlssSRActive = false;
 	m_DlssStageTimes.Release();
 	m_pPictureDoneQuery.Release();
+	ReleaseVPScale();
+	m_D3D11VPScale.ReleaseVideoDevice();
 	m_D3D11VP.ReleaseVideoDevice();
 
 	m_StatsBackground.InvalidateDeviceObjects();
@@ -1557,6 +1559,7 @@ HRESULT CDX11VideoProcessor::SetDevice(ID3D11Device *pDevice, ID3D11DeviceContex
 	UpdateDlssSR();
 
 	HRESULT hr2 = m_D3D11VP.InitVideoDevice(m_pDevice, m_pDeviceContext, m_VendorId);
+	m_D3D11VPScale.InitVideoDevice(m_pDevice, m_pDeviceContext, m_VendorId);   // its second turn, after DLSS 5 NR
 	DLogIf(FAILED(hr2), L"CDX11VideoProcessor::SetDevice() : InitVideoDevice failed with error {}", HR2Str(hr2));
 
 	D3D11_SAMPLER_DESC SampDesc = {};
@@ -3830,7 +3833,7 @@ void CDX11VideoProcessor::UpdateTexures()
 		// to run at source resolution, and letting the VP scale first would both
 		// cost far more and defeat the point.
 		// Nor with DLSS Super Resolution, which scales from the source itself.
-		if (VPMayResize()) {
+		if (VPResizesFirst()) {
 			CSize texsize = m_videoRect.Size();
 			hr = m_TexConvertOutput.CheckCreate(m_pDevice, m_D3D11OutputFmt, texsize.cx, texsize.cy, Tex2D_DefaultShaderRTarget);
 			if (FAILED(hr)) {
@@ -3910,9 +3913,19 @@ void CDX11VideoProcessor::UpdateTexures()
 
 		if (!m_bDlssNRActive) {
 			ReleaseDlssNRTextures(true);
+			// The network was counted on to take the picture at the source's size, and
+			// it is not there: the processor's first turn has the resizing back.
+			UpdateTexures();
+			return;
 		}
 	} else {
 		ReleaseDlssNRTextures(true);
+	}
+
+	// Whichever of the processor's turns resizes is the one with Super Resolution.
+	UpdateVPScale();
+	if (m_D3D11VP.IsReady()) {
+		UpdateVPSuperRes(m_srcParams.CDepth);
 	}
 }
 
@@ -3924,10 +3937,258 @@ void CDX11VideoProcessor::ReleaseDlssNRTextures(const bool bFeature)
 	m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the shared motion vectors go away
 	m_DlssStabilizer.Release();
 	if (bFeature) {
+		ReleaseVPScale();   // it enlarges what the network leaves
 		m_DlssNR.ReleaseFeature();
 		m_TexDlssIn.Release();
 		m_TexDlssOut.Release();
 	}
+}
+
+void CDX11VideoProcessor::ReleaseVPScale()
+{
+	m_VPScalePlanes.clear();
+	m_D3D11VPScale.ReleaseVideoProcessor();
+	m_TexVPScaleOut.Release();
+	m_pPSRgbToLuma.Release();
+	m_pPSRgbToChroma.Release();
+	m_pCSRgbToPacked.Release();
+	m_VPScaleKey = {};
+	m_VPScaleInputFmt = DXGI_FORMAT_UNKNOWN;
+	m_bVPScaleSuperRes = false;
+	m_bVPScaleFailed = false;
+	m_bVPScaled = false;
+}
+
+// The video processor's second turn, made for the picture DLSS 5 NR leaves.
+//
+// "Use the video processor for resizing" says the processor resizes, and with DLSS 5 NR
+// on it did not: the network needs the picture at the source's size, the processor
+// comes before it, and the shaders enlarged afterwards whatever the box said. So the
+// processor is given a second turn. The network's R'G'B' is written back as the
+// Y'CbCr a processor takes (GetShaderRgbToVideo) and enlarged by it, in the space the
+// first turn left it in -- PQ BT.2020 or SDR -- so that nothing is converted but the
+// matrix, there and back.
+//
+// As P010 when Super Resolution is asked for, since the driver only acts on 4:2:0;
+// as Y410 otherwise, and whenever the chroma was asked to be kept from the processor.
+// Measured on film frames (vp444_probe --after): the second trip costs 2.2 to 3.1 dB
+// in P010, which is 4:2:0 met twice, and under half a decibel in Y410.
+void CDX11VideoProcessor::UpdateVPScale()
+{
+	const UINT w = m_TexDlssOut.pTexture ? m_TexDlssOut.desc.Width : 0;
+	const UINT h = m_TexDlssOut.pTexture ? m_TexDlssOut.desc.Height : 0;
+	const UINT outW = m_videoRect.Width(), outH = m_videoRect.Height();
+	// A picture already the size it is shown at is left alone: there is nothing to
+	// resize, and a second turn would only take it through Y'CbCr and back.
+	if (!VPResizesAfterNR() || !m_D3D11VP.IsReady() || !m_D3D11VPScale.IsVideoDeviceOk()
+			|| !w || !h || !outW || !outH || (w == outW && h == outH) || !m_DlssNR.IsFeatureReady()) {
+		ReleaseVPScale();
+		return;
+	}
+
+	VPScaleKey key;
+	key.w = w;
+	key.h = h;
+	key.superRes = (m_srcParams.CDepth == 8 || !m_bACMEnabled) ? m_iVPSuperRes : SUPERRES_Disable;
+	key.bPq = m_D3D11VP.IsPqSupported() != FALSE;
+	key.bKeepChroma = m_bVPReplaceChroma;
+	key.outFmt = m_D3D11OutputFmt;
+	if (key == m_VPScaleKey) {
+		if (!m_bVPScaleFailed
+				&& FAILED(m_TexVPScaleOut.CheckCreate(m_pDevice, m_TexVPScaleOut.desc.Format, outW, outH, Tex2D_DefaultShaderRTarget))) {
+			DLog(L"CDX11VideoProcessor::UpdateVPScale() : no {}x{} texture to enlarge into", outW, outH);
+			m_bVPScaleFailed = true;
+		}
+		return;   // made for this already, or refused for it: not tried again on every resize
+	}
+
+	ReleaseVPScale();
+	m_VPScaleKey = key;
+	m_bVPScaleFailed = true;   // until everything below has been made
+
+	// What the first turn leaves, said as the Y'CbCr it is written back in.
+	DXVA2_ExtendedFormat exFmt = {};
+	exFmt.SampleFormat           = DXVA2_SampleProgressiveFrame;
+	exFmt.VideoChromaSubsampling = DXVA2_VideoChromaSubsampling_MPEG2;
+	exFmt.NominalRange           = DXVA2_NominalRange_16_235;
+	exFmt.VideoLighting          = DXVA2_VideoLighting_dim;
+	if (key.bPq) {
+		exFmt.VideoTransferMatrix   = (DXVA2_VideoTransferMatrix)MFVideoTransferMatrix_BT2020_10;
+		exFmt.VideoPrimaries        = (DXVA2_VideoPrimaries)MFVideoPrimaries_BT2020;
+		exFmt.VideoTransferFunction = (DXVA2_VideoTransferFunction)MFVideoTransFunc_2084;
+	} else {
+		exFmt.VideoTransferMatrix   = DXVA2_VideoTransferMatrix_BT709;
+		exFmt.VideoPrimaries        = DXVA2_VideoPrimaries_BT709;
+		exFmt.VideoTransferFunction = DXVA2_VideoTransFunc_709;
+	}
+	// Where this driver reads the studio range: from the full scale for an SDR picture
+	// whatever its depth, from 64..940 for a PQ one (vp444_probe --after: 0.65 of a
+	// level either way, 1.1 with the other).
+	const double scale10 = key.bPq ? 4.0 : 1023.0 / 255.0;
+
+	// P010 first when Super Resolution is wanted; if the driver will not have it on
+	// this picture after all, Y410, which keeps the chroma whole.
+	const bool bWantSuperRes = key.superRes != SUPERRES_Disable && !key.bKeepChroma;
+	for (const DXGI_FORMAT fmt : { DXGI_FORMAT_P010, DXGI_FORMAT_Y410 }) {
+		const bool bPlanar = (fmt == DXGI_FORMAT_P010);
+		if (bPlanar && !bWantSuperRes) {
+			continue;
+		}
+		// A 4:2:0 texture has even sides; a picture a pixel short of it is written with
+		// its last column or row repeated, and only the picture is taken from it.
+		const UINT texW = bPlanar ? (w + 1) & ~1u : w;
+		const UINT texH = bPlanar ? (h + 1) & ~1u : h;
+		// Ten bits out whatever the first turn gave, since the picture comes in ten:
+		// the processor chooses, and outFmt says what it chose.
+		DXGI_FORMAT outFmt = m_D3D11OutputFmt;
+		HRESULT hr = m_D3D11VPScale.InitVideoProcessor(fmt, texW, texH, exFmt, DEINT_Disable, key.bPq, outFmt);
+		if (SUCCEEDED(hr) && key.bPq && !m_D3D11VPScale.IsPqSupported()) {
+			hr = E_FAIL;   // it would not give back the PQ the first turn gave
+		}
+		if (SUCCEEDED(hr)) {
+			hr = m_D3D11VPScale.InitInputTextures(m_pDevice, true);
+		}
+		if (FAILED(hr)) {
+			DLog(L"CDX11VideoProcessor::UpdateVPScale() : no second turn in {} ({})", DXGIFormatToString(fmt), HR2Str(hr));
+			continue;
+		}
+		m_D3D11VPScale.SetRTXVideoHDR(false);   // the first turn's, if anyone's
+		m_bVPScaleSuperRes = bPlanar && (m_D3D11VPScale.SetSuperRes(key.superRes) == S_OK);
+		if (bPlanar && !m_bVPScaleSuperRes) {
+			continue;   // 4:2:0 for nothing
+		}
+
+		CComPtr<ID3DBlob> pLuma, pChroma, pPacked;
+		if (bPlanar) {
+			hr = GetShaderRgbToVideo(RGBTOVIDEO_Luma, key.bPq, w, h, scale10, &pLuma);
+			if (SUCCEEDED(hr)) {
+				hr = GetShaderRgbToVideo(RGBTOVIDEO_Chroma, key.bPq, w, h, scale10, &pChroma);
+			}
+			if (SUCCEEDED(hr)) {
+				hr = m_pDevice->CreatePixelShader(pLuma->GetBufferPointer(), pLuma->GetBufferSize(), nullptr, &m_pPSRgbToLuma);
+			}
+			if (SUCCEEDED(hr)) {
+				hr = m_pDevice->CreatePixelShader(pChroma->GetBufferPointer(), pChroma->GetBufferSize(), nullptr, &m_pPSRgbToChroma);
+			}
+		} else {
+			hr = GetShaderRgbToVideo(RGBTOVIDEO_Packed, key.bPq, w, h, scale10, &pPacked);
+			if (SUCCEEDED(hr)) {
+				hr = m_pDevice->CreateComputeShader(pPacked->GetBufferPointer(), pPacked->GetBufferSize(), nullptr, &m_pCSRgbToPacked);
+			}
+		}
+		if (SUCCEEDED(hr)) {
+			hr = m_TexVPScaleOut.CheckCreate(m_pDevice, outFmt, outW, outH, Tex2D_DefaultShaderRTarget);
+		}
+		if (FAILED(hr)) {
+			DLog(L"CDX11VideoProcessor::UpdateVPScale() : {} could not be set up ({})", DXGIFormatToString(fmt), HR2Str(hr));
+			continue;
+		}
+		m_VPScaleInputFmt = fmt;
+		m_bVPScaleFailed = false;
+		DLog(L"CDX11VideoProcessor::UpdateVPScale() : {}x{} in {} to {}x{}{}", w, h, DXGIFormatToString(fmt), outW, outH,
+			m_bVPScaleSuperRes ? L", Super Resolution" : L"");
+		return;
+	}
+
+	// The shaders enlarge, as they did, and the statistics say so.
+	m_D3D11VPScale.ReleaseVideoProcessor();
+	m_pPSRgbToLuma.Release();
+	m_pPSRgbToChroma.Release();
+	m_pCSRgbToPacked.Release();
+	m_bVPScaleSuperRes = false;
+}
+
+// The second turn itself: DLSS 5 NR's picture in, the picture at the size it is shown
+// at out. Anything that goes wrong leaves the caller's texture as it was, for the
+// shaders to enlarge.
+HRESULT CDX11VideoProcessor::VPScalePass(Tex2D_t* pInputTexture, const CRect& rSrc, Tex2D_t** ppResult)
+{
+	if (!pInputTexture || !ppResult || m_bVPScaleFailed || !m_D3D11VPScale.IsReady() || !m_TexVPScaleOut.pTexture
+			|| (UINT)rSrc.Width() != m_VPScaleKey.w || (UINT)rSrc.Height() != m_VPScaleKey.h || rSrc.left || rSrc.top) {
+		return E_FAIL;
+	}
+	const UINT w = m_VPScaleKey.w, h = m_VPScaleKey.h;
+	ID3D11Texture2D* pInput = m_D3D11VPScale.GetNextInputTexture(D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
+	if (!pInput) {
+		return E_FAIL;
+	}
+	HRESULT hr = S_OK;
+
+	if (m_VPScaleInputFmt == DXGI_FORMAT_P010) {
+		// A plane at a time, each through the view that makes it a render target.
+		auto planes = std::find_if(m_VPScalePlanes.begin(), m_VPScalePlanes.end(),
+			[&](const VPScalePlanes& p) { return p.pTexture == pInput; });
+		if (planes == m_VPScalePlanes.end()) {
+			VPScalePlanes made;
+			made.pTexture = pInput;
+			D3D11_RENDER_TARGET_VIEW_DESC desc = {};
+			desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+			desc.Format = DXGI_FORMAT_R16_UNORM;
+			hr = m_pDevice->CreateRenderTargetView(pInput, &desc, &made.pLuma);
+			if (SUCCEEDED(hr)) {
+				desc.Format = DXGI_FORMAT_R16G16_UNORM;
+				hr = m_pDevice->CreateRenderTargetView(pInput, &desc, &made.pChroma);
+			}
+			if (FAILED(hr)) {
+				DLog(L"CDX11VideoProcessor::VPScalePass() : no render target on a plane ({})", HR2Str(hr));
+				m_bVPScaleFailed = true;
+				UpdateStatsStatic();
+				return hr;
+			}
+			m_VPScalePlanes.push_back(made);
+			planes = m_VPScalePlanes.end() - 1;
+		}
+		D3D11_TEXTURE2D_DESC texdesc = {};
+		pInput->GetDesc(&texdesc);
+		hr = FillVertexBuffer(m_pDeviceContext, m_pVertexBuffer, pInputTexture->desc.Width, pInputTexture->desc.Height, rSrc, 0, false);
+		if (FAILED(hr)) {
+			return hr;
+		}
+		D3D11_VIEWPORT viewport = { 0, 0, (FLOAT)texdesc.Width, (FLOAT)texdesc.Height, 0, 1 };
+		TextureBlt11(m_pDeviceContext, planes->pLuma, viewport, m_pVSimpleInputLayout, m_pVS_Simple, m_pPSRgbToLuma,
+			pInputTexture->pShaderResource, m_pSamplerPoint, nullptr, m_pVertexBuffer);
+		viewport.Width /= 2;
+		viewport.Height /= 2;
+		TextureBlt11(m_pDeviceContext, planes->pChroma, viewport, m_pVSimpleInputLayout, m_pVS_Simple, m_pPSRgbToChroma,
+			pInputTexture->pShaderResource, m_pSamplerPoint, nullptr, m_pVertexBuffer);
+		// The processor reads what was just drawn into.
+		m_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+	} else {
+		ID3D11UnorderedAccessView* pUav = m_D3D11VPScale.GetInputUav();
+		if (!pUav) {
+			m_bVPScaleFailed = true;
+			UpdateStatsStatic();
+			return E_FAIL;
+		}
+		// A dispatch sets no render target of its own, and the network's picture may
+		// still be one: Direct3D would answer the read with zeros.
+		m_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+		ID3D11ShaderResourceView* srvs[1] = { pInputTexture->pShaderResource };
+		ID3D11UnorderedAccessView* uavs[1] = { pUav };
+		m_pDeviceContext->CSSetShader(m_pCSRgbToPacked, nullptr, 0);
+		m_pDeviceContext->CSSetShaderResources(0, 1, srvs);
+		m_pDeviceContext->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
+		m_pDeviceContext->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+		ID3D11ShaderResourceView* none[1] = {};
+		ID3D11UnorderedAccessView* noUav[1] = {};
+		m_pDeviceContext->CSSetShaderResources(0, 1, none);
+		m_pDeviceContext->CSSetUnorderedAccessViews(0, 1, noUav, nullptr);
+		m_pDeviceContext->CSSetShader(nullptr, nullptr, 0);
+	}
+
+	const RECT src = { 0, 0, (LONG)w, (LONG)h };
+	const RECT dst = { 0, 0, (LONG)m_TexVPScaleOut.desc.Width, (LONG)m_TexVPScaleOut.desc.Height };
+	m_D3D11VPScale.SetRectangles(&src, &dst);
+	hr = m_D3D11VPScale.Process(m_TexVPScaleOut.pTexture, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, false);
+	if (FAILED(hr)) {
+		DLog(L"CDX11VideoProcessor::VPScalePass() : the processor refused the picture ({})", HR2Str(hr));
+		m_bVPScaleFailed = true;
+		UpdateStatsStatic();
+		return hr;
+	}
+
+	*ppResult = &m_TexVPScaleOut;
+	return S_OK;
 }
 
 void CDX11VideoProcessor::UpdatePostScaleTexures()
@@ -4593,15 +4854,17 @@ void CDX11VideoProcessor::DrawSubtitles(ID3D11Texture2D* pRenderTarget)
 	}
 }
 
-// The driver's Super Resolution, asked for in one place. It is the user's choice of
-// upscaler and no DLSS pass takes it away: while one of them holds the processor at
-// the source's size (UpdateTexures) the extension still runs there, enlarging nothing,
-// and costs what it costs -- with DLSS 5 NR on a 1080p film in MPC-HC an RTX 4060 drew
-// a picture in 39.0 ms with it and in 22.7 ms without. The statistics say which filter
-// really enlarged, so that the choice can be made knowingly.
+// The driver's Super Resolution on the processor's first turn, asked for in one place.
+// It belongs to the resizing and to nothing else, so it is asked for on the turn that
+// resizes. While a DLSS pass held the first turn at the source's size it stayed asked
+// for there, and the driver ran it on every picture with nothing to enlarge: 2.29
+// levels of change on a 960x540 picture (vp444_probe) and 16 ms a picture at 1080p on
+// an RTX 4060, before the network, which never asked for it. With DLSS 5 NR it is now
+// the second turn that has it (UpdateVPScale). Without DLSS nothing is changed here:
+// the question is upstream's.
 void CDX11VideoProcessor::UpdateVPSuperRes(const int depth)
 {
-	const int superRes = (m_bVPScaling && (depth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
+	const int superRes = (VPResizesFirst() && (depth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
 	m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
 }
 
@@ -4666,7 +4929,8 @@ void CDX11VideoProcessor::UpdateDlssNR()
 // A session that failed while the film played, started again from nothing once its
 // time has come: the libraries, the device, the feature. Called between two pictures.
 // What the session works on has not changed -- the video processor was never told
-// DLSS had stopped -- so there is nothing else to rebuild.
+// DLSS had stopped, and its second turn went on resizing -- so there is nothing else
+// to rebuild.
 void CDX11VideoProcessor::RecoverDlssNR()
 {
 	if (!m_tickDlssNRRecover || GetPreciseTick() < m_tickDlssNRRecover) {
@@ -4680,8 +4944,10 @@ void CDX11VideoProcessor::RecoverDlssNR()
 	ReleaseDlssNRTextures(true);
 	m_DlssNR.Shutdown();
 	UpdateDlssNR();
+	// Back or not, the textures follow: with the network back they are its own again,
+	// and with it gone the processor's first turn takes the resizing its second had.
+	UpdateTexures();
 	if (m_bDlssNRActive) {
-		UpdateTexures();
 		m_bDlssNewPicture = true;
 	}
 	UpdateStatsStatic();
@@ -4995,10 +5261,33 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 		}
 	}
 
+	// "Use the video processor for resizing" with DLSS 5 NR before the resizing: the
+	// processor's second turn, on what the network left. It is made while the network is
+	// counted on (UpdateVPScale) and resizes for as long as it is there: a picture the
+	// network gave up, and the two seconds a session takes to come back, go through it
+	// all the same, so that who resizes does not change from one picture to the next.
+	bool bEnlarged = false;
+	bool bVPScaled = false;
+	if (bAllowDlss && pInputTexture && m_D3D11VPScale.IsReady() && !m_bVPScaleFailed) {
+		Tex2D_t* pScaled = nullptr;
+		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::VPScale);
+		const HRESULT hrScale = VPScalePass(pInputTexture, rSrc, &pScaled);
+		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::VPScale);
+		if (S_OK == hrScale && pScaled) {
+			pInputTexture = pScaled;
+			rSrc.SetRect(0, 0, pScaled->desc.Width, pScaled->desc.Height);
+			bEnlarged = true;
+			bVPScaled = true;
+			m_tracePasses |= CPacingTrace::VPAfterNR;
+		}
+	}
+	if (bAllowDlss) {
+		m_bVPScaled = bVPScaled;   // a snapshot for the player is not the film
+	}
+
 	// DLSS Super Resolution in place of the resize shaders. ResizeShaderPass below
 	// is then left with rotating, flipping and placing the picture, and with any
 	// scale DLSS does not cover.
-	bool bEnlarged = false;
 	if (m_bDlssSRActive && bAllowDlss && pInputTexture) {
 		Tex2D_t* pSRResult = nullptr;
 		if (S_OK == DlssSRPass(pInputTexture, rSrc, dstRect, rotation, &pSRResult) && pSRResult) {
@@ -5965,6 +6254,9 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	if (changeSuperRes) {
 		UpdateVPSuperRes(m_srcParams.CDepth);
 	}
+	// The second turn is made for Super Resolution as asked and for the chroma as
+	// kept, and neither of the two always rebuilds anything above.
+	UpdateVPScale();
 
 	UpdateStatsStatic();
 }
@@ -6392,16 +6684,19 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	if (m_srcRectWidth != dstW || m_srcRectHeight != dstH) {
 		// With DLSS Super Resolution on, the video processor never scales, and the
 		// resize after DLSS reads as no scaling at all.
-		if (m_D3D11VP.IsReady() && VPMayResize() && !m_bVPScalingUseShaders) {
+		// The processor resizes on its first turn, or on its second after DLSS 5 NR.
+		const bool bSecondTurn = m_bVPScaled;
+		if (m_D3D11VP.IsReady() && ((VPResizesFirst() && !m_bVPScalingUseShaders) || bSecondTurn)) {
 			str.append(L" D3D11");
 			if (m_srcRectWidth < dstW && m_srcRectHeight < dstH) {
 				// The driver is asked for it exactly as upstream asks, and answers
 				// that it will; on a 4:4:4 picture it then leaves the picture alone,
 				// so the line says which of the two happened rather than starring
 				// work nobody did.
-				if (m_bChromaReplacedVP && m_iVPSuperRes != SUPERRES_Disable) {
+				const bool bChromaKept = bSecondTurn ? m_VPScaleKey.bKeepChroma : m_bChromaReplacedVP;
+				if (bChromaKept && m_iVPSuperRes != SUPERRES_Disable) {
 					str.append(L" (No Super Resolution when chroma by shaders)");
-				} else if (m_bVPUseSuperRes) {
+				} else if (bSecondTurn ? m_bVPScaleSuperRes : m_bVPUseSuperRes) {
 					str.append(L" SuperResolution*");
 				}
 			}
@@ -6417,12 +6712,6 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 				str.append(m_strShaderY);
 			}
 		}
-	}
-	// Asked for, and the processor held at the source's size by a DLSS pass: the
-	// driver runs it all the same, and this is the one place that says where the
-	// time goes (UpdateVPSuperRes).
-	if (m_D3D11VP.IsReady() && m_bVPUseSuperRes && m_bVPScaling && !VPMayResize() && !m_bChromaReplacedVP) {
-		str.append(L", SuperResolution* at 1:1");
 	}
 
 	if (m_strCorrection || m_pPostScaleShaders.size() || m_bDitherUsed) {
@@ -6541,6 +6830,10 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 			const double motion = m_DlssStageTimes.MeanMs(CGpuStageTimes::NRMotion);
 			const double stabilize = m_DlssStageTimes.MeanMs(CGpuStageTimes::NRStabilize);
 			AddTime(L"stabilizer", (motion >= 0 || stabilize >= 0) ? std::max(motion, 0.0) + std::max(stabilize, 0.0) : -1.0);
+			if (m_bVPScaled) {
+				// The processor's second turn, Super Resolution with it when it is on.
+				AddTime(L"resize", m_DlssStageTimes.MeanMs(CGpuStageTimes::VPScale));
+			}
 		}
 		if (m_bDlssSRActive) {
 			AddTime(L"OF", m_DlssStageTimes.MeanMs(CGpuStageTimes::SRMotion));

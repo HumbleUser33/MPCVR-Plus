@@ -19,6 +19,7 @@ PUSHD "%~dp0"
 SET "REPORT=%~1"
 IF "%REPORT%"=="" SET "REPORT=%~dp0run_all_report.txt"
 SET "REF=upscale_refs\4K1.png"
+SET "FILM=upscale_refs\Fight Club (1999).mkv"
 
 IF NOT EXIST "dlssnr_harness.exe" (
   ECHO dlssnr_harness.exe is missing. Run build.cmd first.
@@ -55,6 +56,14 @@ REM from one film to the next. It was called "the DLSS page" and ran a switch th
 REM longer existed, so it played these without saying so -- and it is where the fault of
 REM a second film with DLSS Super Resolution was caught, one run in four.
 CALL :Run "DLSS through the filter, five graphs" "playback_test.exe --seconds 20"
+REM The rules of the page alone, with no film: what greys with each DLSS box ticked.
+CALL :Run "what the Settings page greys"       "playback_test.exe --greying"
+REM "Use the video processor for resizing" with DLSS 5 NR: the processor's second turn,
+REM against the shaders on the same still of a real film, as an SDR picture and as a PQ
+REM one. Nothing above reaches it -- the bench's own film is RGB, which never brings the
+REM hardware processor in. It needs the film, and the LAV Filters of an installed player.
+CALL :Run "the processor enlarging after DLSS 5 NR" "playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --file" "%FILM%"
+CALL :Run "the processor after DLSS 5 NR, PQ picture" "playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --hdrout 1 --rtxhdr 1 --file" "%FILM%"
 
 ECHO.>> "%REPORT%"
 ECHO Finished %DATE% %TIME%>> "%REPORT%"
@@ -70,6 +79,8 @@ EXIT /B 0
 :Run
 SET "WHAT=%~1"
 SET "LINE=%~2"
+REM A third argument is a file name, which may hold spaces: it goes last, in quotes of its own.
+IF NOT "%~3"=="" SET LINE=%LINE% "%~3"
 ECHO   %WHAT%
 ECHO ========================================================================>> "%REPORT%"
 ECHO [STEP] %WHAT%>> "%REPORT%"

@@ -316,6 +316,7 @@ public:
 		NRVectors   = 16384, // the network was given the vectors as well
 		DlssSR      = 32768, // DLSS Super Resolution enlarged it
 		Skipped     = 65536, // left out before it was drawn, as the scheduler asked
+		VPAfterNR   = 131072, // the video processor enlarged what DLSS 5 NR left
 	};
 
 	// DXGI's account of the swap chain at one moment.
@@ -372,7 +373,7 @@ private:
 class CGpuStageTimes
 {
 public:
-	enum Stage { NRMotion, NRStabilize, SRMotion, SR, MpvLuma, MpvChroma, StageCount };
+	enum Stage { NRMotion, NRStabilize, SRMotion, SR, MpvLuma, MpvChroma, VPScale, StageCount };
 
 	void Release();
 

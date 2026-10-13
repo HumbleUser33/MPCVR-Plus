@@ -61,40 +61,40 @@ inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDo
 {
 	// What the video processor takes, the shaders never see. It converts the formats
 	// ticked in Source, chroma upsampling included, and resizes as well when "Use the
-	// video processor for resizing" is on -- except while DLSS 5 NR or DLSS Super
-	// Resolution runs, which keeps it at the source size and hands the resizing back
-	// to the shaders. DLSS Super Resolution enlarges in its place, so the Upscaling
-	// method then only stands in where it cannot run.
+	// video processor for resizing" is on. DLSS 5 NR does not change who resizes: the
+	// network works at the source's size and the processor is given a second turn to
+	// enlarge what it leaves (CDX11VideoProcessor::VPScalePass). For a long time it
+	// did change it -- the processor was held at the source's size and the shaders
+	// enlarged whatever the box said, so the page brought the lists back to tell the
+	// truth about a renderer that was not doing what it was asked.
+	// DLSS Super Resolution is the one that takes the resizing: it enlarges in the
+	// processor's place, and in the Upscaling method's, which then only stands in
+	// where it cannot run.
 	// "Replace the video processor's chroma upsampling" gives the chroma of a
 	// progressive 4:2:0/4:2:2 picture back to the shaders, and only the chroma: the
 	// processor is handed a 4:4:4 picture and goes on converting and resizing it.
 	const bool bAllVPFormats = s.VPFmts.bNV12 && s.VPFmts.bP01x
 		&& s.VPFmts.bYUY2 && s.VPFmts.bOther;
 	const bool bVPAvailable = !(s.bUseD3D11 && !bWin8);   // no D3D11 VP on Windows 7
-	const bool bDlssPass = s.bUseD3D11 && (s.bDlssNR || s.bDlssSR);
+	const bool bDlssSR = s.bUseD3D11 && s.bDlssSR;
 	const bool bChromaToShaders = s.bUseD3D11 && s.bVPReplaceChroma;
 	const bool bVPTakesPicture = bAllVPFormats && bVPAvailable && !bDoViNow;
 	const bool bVPConverts = bVPTakesPicture && !bChromaToShaders;
-	const bool bVPResizes = bVPTakesPicture && s.bVPScaling && !bDlssPass;
+	const bool bVPResizes = bVPTakesPicture && s.bVPScaling && !bDlssSR;
 
 	Greying g = {};
 	g.bVPResizingBox = !bDoViNow;
 	g.bChromaList = !bVPConverts;
 	g.bDownscalingList = !bVPResizes;
-	g.bUpscalingList = !bVPResizes && !(s.bUseD3D11 && s.bDlssSR);
+	g.bUpscalingList = !bVPResizes && !bDlssSR;
 
-	// RTX Video Super Resolution lives inside the processor and is asked for with "Use
-	// the video processor for resizing". A DLSS pass takes the enlarging from the
-	// processor and not the extension: held at the source's size, the driver still
-	// runs it on every picture -- it changes a 960x540 picture by 2.29 levels of 255
-	// with nothing to enlarge, against 4.02 when it doubles it (vp444_probe), and
-	// costs 16 ms a picture at 1080p on an RTX 4060. So the control stays live there:
-	// greyed, it was a setting still at work that could not be turned off without
-	// turning DLSS off first. It does need a subsampled picture: the driver leaves a
-	// 4:4:4 one untouched, so it can do nothing while the chroma replacement is
-	// really handing one over.
+	// RTX Video Super Resolution lives inside the processor and is part of its
+	// resizing: it is live while the processor resizes and at no other time, and the
+	// renderer asks the driver for it on the turn that resizes and on no other. It
+	// needs a subsampled picture as well: the driver leaves a 4:4:4 one untouched, so
+	// it can do nothing while the chroma replacement is handing one over.
 #ifdef _WIN64
-	g.bSuperRes = s.bUseD3D11 && bWin10 && bVPTakesPicture && s.bVPScaling && !bChromaToShaders;
+	g.bSuperRes = s.bUseD3D11 && bWin10 && bVPResizes && !bChromaToShaders;
 #else
 	g.bSuperRes = false;   // the extension is x64 only
 #endif

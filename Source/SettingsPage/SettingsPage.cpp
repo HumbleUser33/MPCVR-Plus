@@ -180,8 +180,10 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	// Scaling
 	{ IDC_CHECK5,
 		L"The hardware video processor resizes instead of the shaders.\n"
-		"Fast, and lower quality than the lists below. Request Super\n"
-		"Resolution needs it, and DLSS takes the resizing back while it runs.\n"
+		"Fast, and lower quality than the lists below, which then grey.\n"
+		"Request Super Resolution needs it. With DLSS 5 NR on, the\n"
+		"processor enlarges what the network leaves; DLSS Super Resolution\n"
+		"takes the resizing for itself.\n"
 		"Greyed while Dolby Vision plays: the processor cannot convert that\n"
 		"picture, so the shaders take all of it. Leaving Prefer Dolby Vision\n"
 		"over PQ and HLG off keeps the processor on a file that also carries\n"
@@ -189,12 +191,11 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_COMBO8,
 		L"The driver sharpens as the processor enlarges.\n"
 		"Needs \"Use the video processor for resizing\" ticked.\n"
-		"With DLSS 5 NR or DLSS SR on, the processor no longer enlarges\n"
-		"but the driver still runs this on every picture, at its own\n"
-		"size: 16 ms at 1080p on an RTX 4060. Disable it here if the\n"
-		"film then stutters.\n"
-		"Greys while the chroma replacement above is on: the\n"
-		"driver will not touch the 4:4:4 picture it then receives.\n"
+		"With DLSS 5 NR on it comes after the network, as the processor\n"
+		"enlarges what the network leaves.\n"
+		"Greys while DLSS Super Resolution enlarges instead, and while\n"
+		"the chroma replacement above is on: the driver will not touch\n"
+		"the 4:4:4 picture it then receives.\n"
 		"Nvidia RTX (x64) or Intel UHD 610 and later." },
 	{ IDC_COMBO2,
 		L"Enlarges when the shaders do the resizing.\n"
@@ -263,7 +264,8 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 
 	// DLSS 5 NR
 	{ IDC_CHECK20,
-		L"Neural reconstruction of each picture.\n"
+		L"Neural reconstruction of each picture, at the source's size.\n"
+		"Whatever resizes goes on resizing, after it.\n"
 		"Needs nvngx_dlssnr.dll, Direct3D 11, x64 and an NVIDIA card.\n"
 		"Forces 16-bit float textures and about 500 MB of video memory\n"
 		"at 1080p." },

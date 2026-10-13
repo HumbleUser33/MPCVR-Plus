@@ -191,6 +191,31 @@ No fault in any of them. The network takes 14 to 15 ms of GPU at 1920x1080 on an
 second row and the last, where about half the pictures are left out before they are drawn
 and the film stays with its sound (see *A refresh chosen for every picture*).
 
+And with *Use the video processor for resizing* ticked, the processor enlarging what the
+network leaves (see *Who resizes while DLSS runs*). The same handling with the toggle key
+out of fullscreen as well, where the processor reduces instead:
+
+| | pictures | DLSS 5 NR ran on | of which the processor resized |
+|---|---|---|---|
+| RTX Video HDR, no Super Resolution (Y410) | 1 504 | 1 345 | 1 345 |
+| RTX Video HDR, Super Resolution (P010) | 1 499 | 1 314 | 1 314 |
+| the same with *Replace VP chroma upsampling* (Y410) | 1 504 | 1 342 | 1 342 |
+| SDR, no Super Resolution | 1 485 | 1 320 | 1 320 |
+| SDR, Super Resolution | 1 493 | 1 226 | 1 226 |
+| an interlaced clip, 1080i, no Super Resolution | 2 137 | 1 883 | 1 883 |
+| the same, Super Resolution | 1 506 | 1 251 | 1 251 |
+| an HDR10 film, 1920x800, Super Resolution | 1 430 | 1 284 | 1 284 |
+| an HDR10 film, 3840x1600: resized in a window only | 1 372 | 816 | 96 |
+| DLSS SR ticked as well: it enlarges, not the processor | 1 487 | 1 323 | 0 |
+| a Dolby Vision film: the processor is not in the chain | 1 317 | 612 | 0 |
+
+One fault came out of it, and it was an old one: with *Apply after upscaling*, coming back to
+fullscreen left the network's textures at a size the picture and the window had in common on
+the way (2122x1022 on the way to 3840x2160), every picture was then refused for not fitting
+them, and DLSS 5 NR stayed off for the rest of the film with its lines still in the
+statistics -- 0 pictures of 178 in the build before, 84 of 164 now, which is every picture
+the network has the time for at that size.
+
 ---
 
 ## Temporal stabilizer
@@ -700,8 +725,8 @@ do and no chroma line appears; the processor line says so:
 
 The settings page greys a list that is out of service for that reason: **Chroma upsampling**
 while the video processor converts, **Upscaling** and **Downscaling** while it also resizes
-(*Use for resizing*, which DLSS 5 NR and DLSS SR suspend on their own), and **Upscaling**
-while DLSS SR enlarges.
+(*Use for resizing*, with or without DLSS 5 NR, which leaves the resizing to whoever had it),
+and **Upscaling** while DLSS SR enlarges, which takes the resizing for itself.
 
 Every option carries a tooltip, and a greyed one carries it too -- that is the one worth
 reading, since it says why the option is greyed.
@@ -738,27 +763,94 @@ choice does not arise.
 *Use for resizing* decides the resizing and nothing else -- the chroma is the business of the
 format boxes and of *Replace VP chroma upsampling*. What it also decides is whether
 **Request Super Resolution** can do anything at all: that extension lives inside the video
-processor, so it greys without it, and greys while the chroma
-pre-pass is on, because the processor is then handed a 4:4:4 picture the driver will not
-touch. The driver is
-still asked for it exactly as upstream asks -- nothing is taken away from it here -- but a
-control that cannot change the picture should say so rather than look available, and the
-statistics read `D3D11 (No Super Resolution when chroma by shaders)`.
+processor and is part of its resizing, so it greys without the box, greys while DLSS SR
+enlarges in the processor's place, and greys while the chroma pre-pass is on, because the
+processor is then handed a 4:4:4 picture the driver will not touch. The driver is still asked
+for it exactly as upstream asks -- nothing is taken away from it here -- but a control that
+cannot change the picture should say so rather than look available, and the statistics read
+`D3D11 (No Super Resolution when chroma by shaders)`.
 
-It does not grey while DLSS 5 NR or DLSS SR has taken the enlarging back, though it used to.
-Held at the source's size the processor enlarges nothing, and the driver runs the extension
-on every picture all the same: with nothing to enlarge it changes a 960x540 picture by
-**2.29** levels of 255, against 4.02 when it doubles it (`vp444_probe`), and it costs
-**16 ms** a picture at 1080p on an RTX 4060. That is enough, before DLSS 5 NR and with
-FSRCNNX 16 after it, to take a 25 fps film from its 25 pictures a second to 18 (47.5 ms a
-picture, 24.1 without it, on a screen at 25 Hz). Greyed, it was a setting still at work that
-could not be turned off without turning DLSS off first. The statistics say so --
+### Who resizes while DLSS runs
 
-    Scaling       : 1920x1080 -> 3840x2160 FSRCNNX 16 AR, SuperResolution* at 1:1
+One thing resizes the picture, and the boxes say which:
 
--- where they used to read `D3D11 SuperResolution*` for a picture FSRCNNX had enlarged.
-Whether the extension is worth its time there is the user's to say, with the control to say
-it.
+| Ticked | The picture is resized by |
+|---|---|
+| *Use DLSS SR 4.5 for upscaling* | DLSS Super Resolution, whatever else is ticked. The shaders finish what it does not cover, and reduce |
+| *Use the video processor for resizing* | the video processor, with the driver's Super Resolution when it is requested. **Upscaling**, **Downscaling** and *Use a lighter filter for small enlargements* grey |
+| neither | the shaders: the **Upscaling** and **Downscaling** lists. *Request Super Resolution* greys |
+
+DLSS 5 NR is not in that table. It is a step of its own, at the source's size, and it leaves
+the resizing to whoever had it:
+
+    video processor    converts to R'G'B', RTX Video HDR     at the source's size
+    DLSS 5 NR          the network, then its stabilizer      at the source's size
+    resizing           one of the three above                to the size shown
+
+It did not use to. The processor comes before the network and was held at the source's size
+for it, and nothing handed it the picture afterwards: the shaders enlarged whatever the box
+said, the page brought the lists back to say so, and the driver's Super Resolution, still
+asked for, ran before the network on a picture it had nothing to enlarge -- **2.29** levels of
+change on a 960x540 picture, against 4.02 when it doubles it (`vp444_probe`), and **16 ms** a
+picture at 1080p on an RTX 4060. With FSRCNNX 16 after the network that was enough to take a
+25 fps film from 25 pictures a second to 18.
+
+So the processor is given a second turn (`CDX11VideoProcessor::VPScalePass`). A shader writes
+the network's R'G'B' back as the Y'CbCr a video processor takes, in the space the first turn
+left it in -- PQ BT.2020 when RTX Video HDR or an HDR10 film made it so, BT.709 otherwise --
+and a second processor enlarges it. Nothing is converted on the way but the matrix, there and
+back. In which format is decided by what Super Resolution needs, since the driver acts on
+4:2:0 and on nothing else (it changes a picture written this way by 3.835 in P010 and by
+0.000 in Y410):
+
+| The second turn takes | When | What the trip costs a film frame | GPU, 1080p to 4K, RTX 4060 |
+|---|---|---|---|
+| Y410, 4:4:4 | no Super Resolution, or *Replace VP chroma upsampling* ticked | under 0.5 dB, and levels within 0.16 of 255 in SDR, 0.29 in PQ | 0.9 ms |
+| P010, 4:2:0 | Super Resolution requested, and the driver takes it on a picture that size | 2.2 to 3.1 dB, and 2.3 to 4.0 dB of chroma where the luma has an edge | 13.7 ms, Super Resolution included |
+
+The P010 row is 4:2:0 met twice: the film's own, and the one Super Resolution asks for. It is
+measured on film frames halved from 4K, against the same frame through the processor once
+(`vp444_probe --after`). That is the price of the driver's sharpening after the network, and
+it is on the control's side of the choice: with it set to *Disable* the picture goes round in
+4:4:4 and keeps what it had.
+
+In MPC-HC, a 1080p film at 25 fps on a television at 25 Hz, RTX Video HDR on: with DLSS 5 NR
+and the processor enlarging, a picture is ready 26 ms after it arrives, and 36 to 39 ms with
+Super Resolution as well (the *Render ahead* line) -- of the 40 ms a frame lasts. That is the
+edge, on an RTX 4060: over stretches of a hundred pictures one run left none out and another
+up to 7. The statistics give the second turn its own figure:
+
+    Scaling       : 1920x1080 -> 3840x2160 D3D11 SuperResolution*
+    DLSS (ms)     : NR 17.5, stabilizer 2.8, resize 13.7
+
+Four cases stand apart:
+
+- **Apply after upscaling.** The order is the other way round and the processor has one turn
+  only: it converts and enlarges, Super Resolution with it, and the network works on the
+  picture at the size shown.
+- **Nothing to resize.** A picture already the size it is shown at is not sent round, and
+  with DLSS on Super Resolution is then not asked for at all. Without DLSS the question is
+  upstream's, and upstream asks at that size too.
+- **The network fails** (see *An evaluation that fails*). The second turn goes on resizing
+  the pictures the network is not there for, so the picture does not change hands twice in
+  two seconds: made to fail every hundredth evaluation, 50 pictures went without the network
+  between two stretches of 99, and the processor enlarged every one of them.
+- **The second turn cannot be made**, or the processor refuses a picture. It is given up
+  until a setting changes, the shaders enlarge with the method the **Upscaling** list holds,
+  and the *Scaling* line names that method.
+
+The battery holds it to that. `playback_test --afternr` plays a real film through DLSS 5 NR,
+pauses it at the same place under each way of enlarging, and reads the still off the desktop:
+against the shaders, the processor's picture has to be the same colours, block by block.
+On a 10-bit film, 1920x800 into 2880x1200, as an SDR picture and as a PQ one:
+
+| Enlarged by | Each channel's shift, 8-bit levels | 16x16 blocks, mean difference |
+|---|---|---|
+| the processor, Y410 | 0.14 at most, 0.17 in PQ | 0.12, and 0.11 in PQ |
+| the processor, P010 and Super Resolution | 0.38 at most, 0.67 in PQ | 0.61, and 0.68 in PQ |
+
+The second row is the driver's sharpening, which is the point of it. A matrix or a range
+read wrongly would be several levels in both columns.
 
 **Replace VP chroma upsampling**, under the list, moves that one job to the shaders without
 taking the picture away from the processor. A compute shader reads the planes of a progressive
@@ -1414,8 +1506,11 @@ video processor really does with each input format: which it takes, how its conv
 compares, and how much enabling Super Resolution, RTX Video HDR or deinterlacing changes the
 picture, for 4:2:0 and 4:4:4 alike. `--film` runs it on film frames, `--pack` checks the
 packing into AYUV and Y410 is exact, `--views` which bind flags still make an input view, and
-`--hdrconv` which conversions the processor declares. The numbers quoted in the chroma section
-above come from it.
+`--hdrconv` which conversions the processor declares. `--after` is the processor's second
+turn, after DLSS 5 NR: a picture written back from R'G'B' by the filter's own shaders, in P010
+and in Y410, SDR and PQ -- whether the processor takes it, how exact the trip is, whether
+Super Resolution acts on it, and what a second trip costs a film frame. The numbers quoted in
+the chroma section above come from it.
 
 **The pacing trace, and `pacing_report.py`** — what became of every picture on its way to the
 screen, in any player. Set the environment variable `MPCVR_PACING_TRACE` to a file name before
@@ -1443,7 +1538,7 @@ sessions say of themselves changes. `pacing_report.py trace.csv --dlss` reads on
 
 ```
   # dlss: NR on (ready 1920x1080 preset 0; stabilizer: Optical Flow 960x540)
-      0.0 s to     9.6 s, film at      0.0 s:   244 picture(s), NR on   239 (flow 239, detector 0, vectors 239), SR on     0, not shown 5, longest wait 80 ms
+      0.0 s to     9.6 s, film at      0.0 s:   244 picture(s), NR on   239 (flow 239, detector 0, vectors 239), SR on     0, enlarged by the processor     0, not shown 5, longest wait 80 ms
             drawing 24.9 ms (median), 90.3 at most; of which DLSS 5 NR waited 3.4 ms for its input, recorded for 1.0 and waited 14.6 for the GPU
 ```
 
@@ -1505,7 +1600,8 @@ filter may then switch the display's own HDR state, which is not what is being m
 ```
 playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.976] [--only N]
 playback_test.exe --scalers       each Upscaling and Chroma upsampling method (--vp: hardware)
-playback_test.exe --greying       what the page greys, for every state the renderer can be in
+playback_test.exe --greying       what the page greys, for every state the renderer can be in and each DLSS box
+playback_test.exe --afternr --file <mkv> --seek 1740   who enlarges after DLSS 5 NR, on one still of a real film
 playback_test.exe --hz 30 --fps 30 --jolt   a film at the screen's own rate, and the queue it builds
 playback_test.exe --presets     two presets saved, each recalled by its key while it plays
 playback_test.exe --rewindow    the video window made again from another thread, and whose it is
@@ -1543,7 +1639,7 @@ manual carried them for two versions and someone may remember them.
 | "tick *Replace VP chroma upsampling* as well and RTX Video HDR starts working on a 10-bit source" | It never needed the pre-pass. What it needed was for the renderer to keep the processor out of PQ passthrough on a 10-bit source, which is what upstream does and what 1.45 had undone |
 | 8-bit 52.25 → 30.19, 10-bit 49.60 → 51.61, pre-pass → 30.22, given as the picture moving end to end | Void. They came from a bench whose `--file` never built the film's graph: every "film" run played its own 800x450 RGB32 pattern, which the renderer converts with shaders and which never brings the hardware processor in at all. Measured again on a real 10-bit film, the same configuration now moves 51.61 → **30.38**, the 8-bit signature |
 | Super Resolution "is not requested" while the pre-pass is on | It is requested exactly as upstream requests it. The driver answers that it will and then leaves the 4:4:4 picture alone; the page greys the control and the scaling line says so, but nothing is taken away from the driver |
-| *Request Super Resolution* "only acts while the processor is the one enlarging the picture", and the control greyed while DLSS 5 NR or DLSS SR was on | It acts at the picture's own size as well: **2.29** levels of change with nothing to enlarge, and 16 ms a picture at 1080p. The control is live there now, and the *Scaling* line names the filter that enlarged, with `SuperResolution* at 1:1` after it, instead of `D3D11 SuperResolution*` |
+| *Use the video processor for resizing*, "which DLSS 5 NR and DLSS SR suspend on their own": the scaling lists came back live with DLSS 5 NR ticked, *Request Super Resolution* greyed, and the statistics read `D3D11 SuperResolution*` over a picture the shaders had enlarged | DLSS 5 NR takes the resizing from nobody. The processor was held at the source's size for it and never handed the picture afterwards, so the shaders enlarged whatever the box said -- and the driver's Super Resolution, still asked for, ran before the network at the picture's own size: **2.29** levels of change with nothing to enlarge, and 16 ms a picture at 1080p. The processor now enlarges what the network leaves, Super Resolution with it, and the lists grey as the box says. Only DLSS SR takes the resizing (*Who resizes while DLSS runs*) |
 
 Two structural faults found with them, both this fork's own and both now fixed: a method of
 ours sat in the middle of `IVideoRenderer` and a field of ours in the middle of `Settings_t`,
