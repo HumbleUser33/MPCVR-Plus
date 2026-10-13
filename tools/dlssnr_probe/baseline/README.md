@@ -1,8 +1,8 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 12 October 2026, on an
-RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all eighteen steps green. The
-filter is `658071e`, build 2670, and filter and tools are built by MSVC 14.44. It is the thing
+`run_all_report.txt` here is what the whole battery measured on 13 October 2026, on an
+RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all nineteen steps green. The
+filter is `565855d`, build 2681, and filter and tools are built by MSVC 14.44. It is the thing
 a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
@@ -61,6 +61,19 @@ Seven rows are new: the Settings page prints a third list.
 The tools are not what moved anything either. The battery run on this card with the tools as
 the other machine had built them gives the same 2474 rows to 0.001, six apart, all six of
 them times.
+
+## From 12 to 13 October 2026
+
+The report of the day before, at `658071e`, is in the history. Between the two the schedule
+learnt to leave a sample out before it is drawn, DLSS 5 NR was reworked, and the step called
+"the DLSS page" took the name of what it does, "DLSS through the filter, five graphs", with
+the page's DLSS 5 NR section as a step of its own: so the comparison of the two reports says
+`the DLSS page MISSING from the new report`, once, and that is why. Of the 2553 rows they
+share, 2 moved, both the pipeline's bare times; none is gone; 46 are new, the two steps'.
+
+The filter's settings are read from the registry of whoever runs the battery, and the
+presentation steps follow them: this report was taken with *Swap effect* on Flip, the one
+before with Discard, and the steps that present gave the same rows both ways.
 
 ## What the first run here found
 
