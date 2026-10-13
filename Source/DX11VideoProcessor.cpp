@@ -5179,6 +5179,16 @@ HRESULT CDX11VideoProcessor::SetWindowRect(const CRect& windowRect)
 {
 	m_windowRect = windowRect;
 	UpdateRenderRect();
+	// After upscaling, DLSS 5 NR works on the part of the picture the window shows, so
+	// its textures follow the window as well as the picture. Coming back to fullscreen
+	// gives the picture its new place first and the window its size afterwards: the
+	// textures were made for what the two had in common in between (2122x1022 on the
+	// way to 3840x2160), the pass then refused every picture for not fitting them, and
+	// the network stayed off for the rest of the film with its lines still in the
+	// statistics.
+	if (m_bDlssNRActive && m_bDlssNRAfterUpscale) {
+		UpdateTexures();
+	}
 
 	HRESULT hr = S_OK;
 	const UINT w = m_windowRect.Width();
