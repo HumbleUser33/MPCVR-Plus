@@ -73,6 +73,13 @@ It is published as **MPCVR-Plus**: `origin` is HumbleUser33/MPCVR-Plus, the bran
   to a file rather than through a shell heredoc, which turns the `\n` inside its strings
   into real line breaks.
 
+- **A batch file that calls a label wants Windows line endings.** With Unix ones cmd.exe
+  comes back from `CALL :label` a line too far at some lengths of file, and says nothing:
+  three lines added to `tools/dlssnr_probe/run_all.cmd` and a step of the battery was no
+  longer run. That file is CRLF since, and counts its steps. Every other batch file here is
+  still LF, `build_mpcvr.cmd` and its five labels among them: after editing one, check that
+  everything in it still runs.
+
 ## Building and measuring
 
 ```
@@ -138,7 +145,8 @@ again after changing a source the other tools share.
 - **A step that dies prints no verdict**, so its absence from the summary is not a pass.
   `run_all.cmd` writes the exit code of a step that ends on anything but zero, and
   `compare_report.py` calls the step MISSING and its rows gone: run the comparison every
-  time, it is what notices.
+  time, it is what notices. The report also ends on a step of its own, "every step ran",
+  which counts the steps it holds against those `run_all.cmd` names.
 
 - **The numbers are the machine's.** `baseline/` says which card measured it and what moves
   from one card to another with no change in the code. Compare on the machine the baseline

@@ -12,6 +12,10 @@ REM   run_all.cmd [report.txt]
 REM
 REM Build the filter (build_mpcvr.cmd Build Release x64 and Win32) and the tools
 REM (build.cmd) first: this only measures.
+REM
+REM This file keeps Windows line endings, and has to. With Unix ones cmd.exe comes back
+REM from a CALL to a label a line too far at some lengths of file: three lines added
+REM here and "chroma through the filter, 8-bit" was no longer run, without a word.
 
 SETLOCAL ENABLEDELAYEDEXPANSION
 PUSHD "%~dp0"
@@ -65,6 +69,20 @@ REM hardware processor in. It needs the film, and the LAV Filters of an installe
 CALL :Run "the processor enlarging after DLSS 5 NR" "playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --file" "%FILM%"
 CALL :Run "the processor after DLSS 5 NR, PQ picture" "playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --hdrout 1 --rtxhdr 1 --file" "%FILM%"
 
+REM Every step named above has to be in the report: one left out prints no verdict, so
+REM nothing below would say it. Counted, and given a verdict of its own. Counted here
+REM and not by FIND /C, which is another program altogether where Git's tools come first
+REM on the path.
+SET /A NAMED=0
+SET /A RAN=0
+FOR /F %%l IN ('FINDSTR /B /C:"CALL :Run " "%~f0"') DO SET /A NAMED+=1
+FOR /F %%l IN ('FINDSTR /B /C:"[CMD ] " "%REPORT%"') DO SET /A RAN+=1
+ECHO ========================================================================>> "%REPORT%"
+ECHO [STEP] every step ran>> "%REPORT%"
+ECHO ========================================================================>> "%REPORT%"
+>> "%REPORT%" ECHO %RAN% of the %NAMED% steps this file names are in the report.
+IF "%NAMED%"=="%RAN%" >> "%REPORT%" ECHO 0 failure(s)
+IF NOT "%NAMED%"=="%RAN%" >> "%REPORT%" ECHO 1 failure(s)
 ECHO.>> "%REPORT%"
 ECHO Finished %DATE% %TIME%>> "%REPORT%"
 ECHO.
