@@ -2,7 +2,7 @@
 
 `run_all_report.txt` here is what the whole battery measured on 13 October 2026, on an
 RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all twenty-three steps green.
-The filter is `569600f`, build 2686, and filter and tools are built by MSVC 14.44. It is the thing
+The filter is `c9da620`, build 2690, and filter and tools are built by MSVC 14.44. It is the thing
 a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
@@ -102,6 +102,20 @@ edge of a read cuts in two. One line on stderr, which the script that ran the ba
 day was filtering out, and no verdict. The comparison is what said so -- the step `MISSING
 from the new report`, sixteen rows gone -- and that report was not kept. The file has
 Windows line endings since (`569600f`), and the report in this folder is from after.
+
+The same evening the swap chain of an SDR picture went from two buffers to three (`c6b2a87`),
+which every step that plays through the filter goes through, and the reference was taken
+again at `c9da620`. Of the 2615 rows it shares with the one at `569600f`, 10 moved: five
+counts of late pictures in the *On screen* lines (all of 4 or less, both ways), the three rows
+of GPU times in "the DLSS passes against the harness", two of the pipeline's bare times. None
+is gone, none new.
+
+That report is the second of two. The first had six *On screen* lines of "the upscalers
+through the filter" counting 11 to 14 late pictures, one configuration after another, where
+this one counts none and one of 2. It was not the third buffer: the same step run alone three
+times counted between none and 6 with two buffers and with three alike. Another session was
+running its own tests on the machine during that minute. A battery wants the machine to
+itself, and a run that did not have it is not a reference.
 
 ## What the first run here found
 
