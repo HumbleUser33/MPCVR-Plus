@@ -6,6 +6,10 @@ the statistics on the picture cannot: which refresh each picture reached the scr
 on, how long after its own time, and whether the one before it had left.
 
     python pacing_report.py trace.csv [--skip 3] [--rows N] [--plot]
+    python pacing_report.py trace.csv --dlss
+
+--dlss says instead what the DLSS passes did: for every stretch between two notes,
+how many of its pictures DLSS 5 NR and DLSS Super Resolution really ran on.
 
 DXGI numbers every Present call and says, of the last picture shown, which call it
 was and on which refresh. Read before and after every Present, that gives the
@@ -23,9 +27,12 @@ import sys
 COLUMNS = ("n rtStart rtClockAtCall rtClockAtReturn tickSample tickDrawn tickAfterVBlank tickPresentCall "
            "tickPresentReturn tickTarget renderAhead flags "
            "last0 count0 refresh0 sync0 qpc0 last1 count1 refresh1 sync1 qpc1").split()
+# What the trace gained later; a file written before has none of them, and reads as zeros.
+MORE = "nrWaitUs nrRecordUs nrGpuUs".split()
 
 HELD, VBLANK, FIELD2, NOT_PRESENTED, VP, RTX_HDR, HDR, EXCLUSIVE, SCHEDULED, REPEATED, DROPPED = (
     1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
+DLSS_NR, NR_FLOW, NR_DETECTOR, NR_VECTORS, DLSS_SR, SKIPPED = 2048, 4096, 8192, 16384, 32768, 65536
 
 
 def read(path):
@@ -48,9 +55,11 @@ def read(path):
                 notes.append(text)
             continue
         values = line.split(",")
-        if len(values) != len(COLUMNS):
+        if not len(COLUMNS) <= len(values) <= len(COLUMNS) + len(MORE):
             continue
-        rows.append(dict(zip(COLUMNS, (int(v) for v in values))))
+        row = dict.fromkeys(MORE, 0)
+        row.update(zip(COLUMNS + MORE, (int(v) for v in values)))
+        rows.append(row)
     if rows:
         stretches.append((notes, rows))
     return qpf, stretches
@@ -134,7 +143,9 @@ def report(qpf, notes, rows, skip_s, max_rows, plot):
     def refresh_at(tick):
         return (tick - a) / period
 
-    frame = [(presented[i + 1]["rtStart"] - presented[i]["rtStart"]) / 10000.0 for i in range(len(presented) - 1)]
+    # From every picture that came, shown or not: a film that loses one picture in two
+    # is not a film at half the rate.
+    frame = [(rows[i + 1]["rtStart"] - rows[i]["rtStart"]) / 10000.0 for i in range(len(rows) - 1)]
     frame_ms = sorted(frame)[len(frame) // 2]
     seconds = (presented[-1]["tickPresentCall"] - presented[0]["tickPresentCall"]) / qpf
 
@@ -148,11 +159,13 @@ def report(qpf, notes, rows, skip_s, max_rows, plot):
     film_period_ticks = frame_ms / 1000.0 * qpf / clock_rate if clock_rate else 0.0
 
     dropped = [r for r in rows if r["flags"] & DROPPED]
+    skipped = [r for r in rows if r["flags"] & SKIPPED]
     repeated = [r for r in rows if r["flags"] & REPEATED]
-    print("  %d pictures presented in %.1f s, %d left out to catch up; the schedule dropped %d and repeated %d"
-          % (len(presented), seconds, left_out, len(dropped), len(repeated)))
+    print("  %d pictures presented in %.1f s, %d left out to catch up; the schedule dropped %d, left %d out undrawn and repeated %d"
+          % (len(presented), seconds, left_out, len(dropped), len(skipped), len(repeated)))
     first = rows[0]["tickSample"]
-    for what, which in (("left out", [r for r in rows if r["flags"] & NOT_PRESENTED]), ("dropped", dropped), ("repeated", repeated)):
+    for what, which in (("left out", [r for r in rows if r["flags"] & NOT_PRESENTED]), ("dropped", dropped),
+                        ("left out undrawn", skipped), ("repeated", repeated)):
         if which:
             when = [(r["tickSample"] - first) / qpf for r in which]
             print("     %s at (s from the stretch's first picture): %s%s"
@@ -302,9 +315,58 @@ def text_plot(timeline, presented, qpf):
         print("  %4d s  %+7.1f .. %+7.1f" % (s, min(v), max(v)))
 
 
+def dlss_timeline(qpf, stretches):
+    """What the DLSS passes did, stretch by stretch: a line for what was said, a line
+    for the pictures under it. A session that stops by itself shows as pictures that
+    DLSS no longer ran on under a note that still asks for it."""
+    first = None
+    total = on_nr = on_sr = 0
+    for notes, rows in stretches:
+        for note in notes:
+            print("  # " + note)
+        ticks = [r["tickPresentCall"] or r["tickDrawn"] for r in rows]
+        if first is None:
+            first = ticks[0]
+        nr = sum(1 for r in rows if r["flags"] & DLSS_NR)
+        flow = sum(1 for r in rows if r["flags"] & NR_FLOW)
+        detector = sum(1 for r in rows if r["flags"] & NR_DETECTOR)
+        vectors = sum(1 for r in rows if r["flags"] & NR_VECTORS)
+        sr = sum(1 for r in rows if r["flags"] & DLSS_SR)
+        lost = sum(1 for r in rows if r["flags"] & (NOT_PRESENTED | DROPPED | SKIPPED))
+        gaps = [(b - a) * 1000.0 / qpf for a, b in zip(ticks, ticks[1:])]
+        total += len(rows)
+        on_nr += nr
+        on_sr += sr
+        print("  %7.1f s to %7.1f s, film at %8.1f s: %5d picture(s), NR on %5d (flow %d, detector %d, vectors %d), "
+              "SR on %5d, not shown %d, longest wait %.0f ms" % (
+                  (ticks[0] - first) / qpf, (ticks[-1] - first) / qpf, rows[0]["rtStart"] / 1e7,
+                  len(rows), nr, flow, detector, vectors, sr, lost, max(gaps) if gaps else 0.0))
+        draws = sorted((r["tickDrawn"] - r["tickSample"]) * 1000.0 / qpf for r in rows if not r["flags"] & SKIPPED) or [0.0]
+        line = "            drawing %.1f ms (median), %.1f at most" % (draws[len(draws) // 2], draws[-1])
+        timed = [r for r in rows if r["flags"] & DLSS_NR and r["nrGpuUs"]]
+        if timed:
+            def median(key):
+                return sorted(r[key] for r in timed)[len(timed) // 2] / 1000.0
+            line += "; of which DLSS 5 NR waited %.1f ms for its input, recorded for %.1f and waited %.1f for the GPU" % (
+                median("nrWaitUs"), median("nrRecordUs"), median("nrGpuUs"))
+        print(line)
+    print("%d picture(s) in %d stretch(es): DLSS 5 NR ran on %d, DLSS SR on %d" % (total, len(stretches), on_nr, on_sr))
+
+
 def main():
     args = sys.argv[1:]
     skip, max_rows, plot = 3.0, 0, False
+    if "--dlss" in args:
+        args.remove("--dlss")
+        if len(args) != 1:
+            print(__doc__)
+            return 2
+        qpf, stretches = read(args[0])
+        if not stretches:
+            print("no picture in " + args[0])
+            return 1
+        dlss_timeline(qpf, stretches)
+        return 0
     if "--skip" in args:
         at = args.index("--skip")
         skip = float(args[at + 1])

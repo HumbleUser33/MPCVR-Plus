@@ -145,6 +145,7 @@ void CPresentSchedule::Flush()
 {
 	m_bLast = false;
 	m_sinceFlush = 0;
+	m_dropRun = 0;
 }
 
 long long CPresentSchedule::RefreshTime(long long index) const
@@ -254,7 +255,7 @@ void CPresentSchedule::Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& s
 	(void)lastPresent;
 }
 
-CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tickDue, double frameMs)
+CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tickDue, double frameMs, double drawMs)
 {
 	Plan plan;
 	if (!Ready(tickNow) || frameMs <= 0) {
@@ -272,6 +273,7 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 
 	long long refresh = nearest;
 	bool bDrop = false;
+	long long slotAfter = 0;   // were this one left out: the refresh the next would be given
 	if (m_bLast && bWholeStep) {
 		// The step is kept while the picture stays within reach of its own time.
 		refresh = m_lastRefresh + whole;
@@ -286,6 +288,7 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 				refresh = earlier;
 			} else {
 				bDrop = true;
+				slotAfter = refresh;
 			}
 		} else if (off < -reach) {
 			refresh = nearest; // too soon: the picture before it keeps the screen longer
@@ -299,30 +302,46 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 		refresh = m_lastRefresh + 1;
 		if ((double)refresh - x > 1.0) {
 			bDrop = true;
+			slotAfter = refresh;
 		}
 	}
 
 	plan.tickWanted = RefreshTime(refresh - m_depth - 1) + (long long)callPhase;
+	// The first refresh it can still have, drawn as it is now. A film has to start
+	// with something, however late. After that, a picture more than half a frame
+	// behind its time has the next one closer to that refresh than itself.
+	const long long first = (long long)std::ceil(RefreshIndex(tickNow + (long long)guard)) + m_depth;
+	bool bBehindDrop = false;
 	if (!bDrop && tickNow > RefreshTime(refresh - m_depth) - (long long)guard) {
-		// It did not come in time for that refresh. The first it can still have:
-		const long long first = (long long)std::ceil(RefreshIndex(tickNow + (long long)guard)) + m_depth;
-		// A film has to start with something, however late. After that, a picture more
-		// than half a frame behind its time has the next one closer to that refresh
-		// than itself: its turn simply passes, and the step is kept.
+		// It did not come in time for the refresh chosen: its turn simply passes and the
+		// step is kept, or it takes the first it can.
 		if (m_bLast && (double)first - x > std::max(0.5, perFrame / 2)) {
-			bDrop = true;
-			if (bWholeStep) {
-				m_lastRefresh += whole;
-			}
+			bDrop = bBehindDrop = true;
+			slotAfter = bWholeStep ? refresh + whole
+				: std::max(m_lastRefresh + 1, (long long)std::floor(x + perFrame + 0.5));
 		} else {
 			refresh = first;
 		}
+	}
+	if (bDrop) {
+		// Is the next one in time for its refresh, with this one left out? (kMaxDropRun)
+		const long long tickNextReady = tickNow + (long long)(drawMs * TicksPerMs());
+		const bool bWorks = tickNextReady <= RefreshTime(slotAfter - m_depth) - (long long)guard;
+		if (!bWorks || m_dropRun >= kMaxDropRun) {
+			bDrop = bBehindDrop = false;
+			refresh = std::max({ refresh, first, m_lastRefresh + 1 });
+			plan.bSkipNext = !bWorks;
+		}
+	}
+	if (bBehindDrop && bWholeStep) {
+		m_lastRefresh += whole;
 	}
 
 	plan.bValid = true;
 	plan.bDrop = bDrop;
 	plan.tickDue = tickDue;
 	if (bDrop) {
+		m_dropRun++;
 		// The pictures a film loses as it starts are the price of starting on time and
 		// are not what the count is for: it says what happened while it played.
 		if (m_sinceFlush >= kSettling) {
@@ -337,6 +356,13 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 	return plan;
 }
 
+void CPresentSchedule::LeftOut()
+{
+	if (m_sinceFlush >= kSettling) {
+		m_dropped++;
+	}
+}
+
 void CPresentSchedule::Presented(unsigned presentId, const Plan& plan, long long tickCalled, double msInside)
 {
 	const bool bSettled = m_sinceFlush >= kSettling;
@@ -345,6 +371,7 @@ void CPresentSchedule::Presented(unsigned presentId, const Plan& plan, long long
 	}
 	m_bLast = true;
 	m_lastRefresh = plan.refresh;
+	m_dropRun = 0;
 	if (m_sinceFlush < kSettling) {
 		m_sinceFlush++;
 	}
@@ -444,17 +471,19 @@ void CPacingTrace::Write()
 		fprintf(file, "# n,rtStart,rtClockAtCall,rtClockAtReturn,tickSample,tickDrawn,tickAfterVBlank,tickPresentCall,"
 			"tickPresentReturn,tickTarget,renderAhead,flags,"
 			"lastPresent0,presentCount0,presentRefresh0,syncRefresh0,syncQpc0,"
-			"lastPresent1,presentCount1,presentRefresh1,syncRefresh1,syncQpc1\n");
+			"lastPresent1,presentCount1,presentRefresh1,syncRefresh1,syncQpc1,"
+			"nrWaitUs,nrRecordUs,nrGpuUs\n");
 	}
 	for (const std::wstring& note : m_notes) {
 		fprintf(file, "# %ls\n", note.c_str());
 	}
 	for (const Picture& p : m_pictures) {
-		fprintf(file, "%llu,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%u,%u,%u,%u,%u,%lld,%u,%u,%u,%u,%lld\n",
+		fprintf(file, "%llu,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%u,%u,%u,%u,%u,%lld,%u,%u,%u,%u,%lld,%d,%d,%d\n",
 			m_written++, p.rtStart, p.rtClockAtCall, p.rtClockAtReturn, p.tickSample, p.tickDrawn, p.tickAfterVBlank,
 			p.tickPresentCall, p.tickPresentReturn, p.tickTarget, p.renderAhead, p.flags,
 			p.before.lastPresent, p.before.presentCount, p.before.presentRefresh, p.before.syncRefresh, p.before.syncQpc,
-			p.after.lastPresent, p.after.presentCount, p.after.presentRefresh, p.after.syncRefresh, p.after.syncQpc);
+			p.after.lastPresent, p.after.presentCount, p.after.presentRefresh, p.after.syncRefresh, p.after.syncQpc,
+			p.nrWaitUs, p.nrRecordUs, p.nrGpuUs);
 	}
 	fclose(file);
 	m_pictures.clear();

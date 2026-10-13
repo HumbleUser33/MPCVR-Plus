@@ -1059,6 +1059,20 @@ What it cannot do:
   20 ms of GPU a picture out of 40. The schedule then calls the following pictures a refresh
   later, or leaves one out when that would put them too far from their time, and is back in
   step within two pictures. It used to stay a refresh late for good.
+- **A picture that costs most of a frame to draw** cannot be left out to any purpose: it has
+  been drawn by then, and the next one is no sooner for it. With DLSS 5 NR on a 25 fps film
+  that turned the rule against itself, twice. At 52 ms a picture, every one came behind its
+  time and every one was left out: 744 of 767, a screen that moved once in two seconds. At
+  33 ms, on a 25 Hz screen, one picture a refresh late was followed by one left out, whose
+  own drawing made the next a refresh late again, and the film ran at 12.5 pictures a second
+  for as long as it played, 463 left out of 944. So the schedule asks first whether the next
+  picture, drawn after this one, would still be in time for its refresh. When it would not,
+  this one is shown where it still can be and it is the next *sample* that goes, before
+  anything is spent on it. Same film, same settings: 761 pictures in a row each on its own
+  refresh, 3 left out as the film started. And a chain that cannot keep up at all -- 47.5 ms
+  a picture -- shows what it can, 18.3 pictures a second with 228 of 843 left out undrawn,
+  and stays with the sound: on the screen 12 ms after its time, where it had been 288 ms.
+  *dropped* in the statistics counts both kinds.
 - **It needs the flip model.** The *Discard* swap effect keeps no account of the refreshes,
   and the statistics then say `not scheduled (Swap effect: Discard)`; pictures are presented
   as before. An HDR picture is presented with the flip model whatever the setting says.

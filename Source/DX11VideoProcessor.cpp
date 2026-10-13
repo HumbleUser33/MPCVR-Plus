@@ -2564,6 +2564,24 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 	m_rtStart = rtStart;
 	CRefTime rtClock(rtStart);
 
+	// The schedule's way back into step when a picture costs most of a frame to draw
+	// (CPresentSchedule::kMaxDropRun): this sample goes before anything is spent on it.
+	// Only a film that is playing has a step to get back into.
+	if (m_bSkipNextSample) {
+		m_bSkipNextSample = false;
+		if (m_bScheduled && m_pFilter->m_filterState == State_Running && !m_pFilter->m_bClockStalled && !m_pFilter->m_Stepping) {
+			m_PresentSchedule.LeftOut();
+			if (m_PacingTrace.Enabled()) {
+				CPacingTrace::Picture traced;
+				traced.rtStart = rtStart;
+				traced.tickSample = traced.tickDrawn = (long long)m_tickSampleStart;
+				traced.flags = CPacingTrace::Skipped | CPacingTrace::Scheduled;
+				m_PacingTrace.Add(traced);
+			}
+			return S_FALSE;
+		}
+	}
+
 	HRESULT hr = CopySample(pSample);
 	if (FAILED(hr)) {
 		m_RenderStats.failed++;
@@ -3270,6 +3288,8 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		m_DlssStageTimes.BeginFrame(m_pDevice, m_pDeviceContext);
 	}
 
+	m_tracePasses = 0;
+	m_traceNRTiming = {};
 	if (!m_renderRect.IsRectEmpty()) {
 		hr = Process(pBackBuffer, m_srcRect, m_videoRect, m_FieldDrawn == 2);
 	}
@@ -3343,6 +3363,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	CPacingTrace::Picture traced;
 	if (bTrace) {
 		NoteSwapChainForTrace();
+		NoteDlssForTrace();
 		traced.rtStart = frameStartTime;
 		traced.tickSample = (long long)m_tickSampleStart;
 		traced.tickDrawn = (long long)tick3;
@@ -3351,7 +3372,11 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 			| (m_D3D11VP.IsReady() ? CPacingTrace::HardwareVP : 0)
 			| (m_bVPUseRTXVideoHDR ? CPacingTrace::RtxVideoHDR : 0)
 			| (m_currentSwapChainColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 ? CPacingTrace::HdrOutput : 0)
-			| (m_pFilter->m_bIsD3DFullscreen ? CPacingTrace::Exclusive : 0);
+			| (m_pFilter->m_bIsD3DFullscreen ? CPacingTrace::Exclusive : 0)
+			| m_tracePasses;
+		traced.nrWaitUs   = (int)(m_traceNRTiming.inputWaitMs * 1000.0);
+		traced.nrRecordUs = (int)(m_traceNRTiming.recordMs * 1000.0);
+		traced.nrGpuUs    = (int)(m_traceNRTiming.gpuWaitMs * 1000.0);
 	}
 
 	// A picture that has a time, and a clock running to be on time by. A redraw, a
@@ -3372,7 +3397,16 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 			const long long tickDue = tickNow
 				+ (long long)((double)(frameStartTime - rtNow) * GetPreciseTicksPerSecond() / 10000000.0);
 			const double frameMs = m_pFilter->m_FrameStats.GetAverageFrameDuration() / 10000.0 / (m_bDoubleFrames ? 2 : 1);
-			plan = m_PresentSchedule.Choose(tickNow, tickDue, frameMs);
+			// What a picture costs before it can be presented: this one's drawing, or the
+			// longest the GPU has lately taken to be done with one, which the render
+			// thread does not wait for.
+			const double drawMs = std::max((double)(tickNow - (long long)tick1) * 1000.0 / GetPreciseTicksPerSecond(),
+				m_RenderAhead.MaxLatencyMs());
+			plan = m_PresentSchedule.Choose(tickNow, tickDue, frameMs, drawMs);
+			// A second field belongs to its sample, and the sample is all that can be left out.
+			if (plan.bSkipNext && !m_bDoubleFrames) {
+				m_bSkipNextSample = true;
+			}
 		}
 	}
 	if (field) {
@@ -3623,6 +3657,27 @@ void CDX11VideoProcessor::NoteSwapChainForTrace()
 		m_dRefreshPeriodMs, m_bVBlankBeforePresent ? 1 : 0, m_bAdjustPresentTime ? 1 : 0, RenderAheadActive() ? 1 : 0);
 	if (note != m_strTraceNote) {
 		m_strTraceNote = note;
+		m_PacingTrace.Note(note);
+	}
+}
+
+// For the trace: what the two DLSS sessions say of themselves, said once and again
+// whenever it changes. A session that has latched itself off is a line here, where
+// otherwise it is a picture that quietly stopped being processed.
+void CDX11VideoProcessor::NoteDlssForTrace()
+{
+	std::wstring note = L"dlss:";
+	if (m_bDlssNR) {
+		note += std::format(L" NR {} ({})", m_bDlssNRActive ? L"on" : L"off", GetDlssStatus());
+	}
+	if (m_bDlssSR) {
+		note += std::format(L" SR {} ({})", m_bDlssSRActive ? L"on" : L"off", GetDlssSRStatus());
+	}
+	if (!m_bDlssNR && !m_bDlssSR) {
+		note += L" none asked for";
+	}
+	if (note != m_strTraceDlss) {
+		m_strTraceDlss = note;
 		m_PacingTrace.Note(note);
 	}
 }
@@ -4689,6 +4744,10 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	// The network's own time. Its wait for the input is the Direct3D 11 work queued
 	// before it -- the copy, and Optical Flow, which has its own timestamps.
 	m_DlssNRTimes.Add(m_DlssNR.LastTiming().recordMs + m_DlssNR.LastTiming().gpuWaitMs);
+	m_traceNRTiming = m_DlssNR.LastTiming();
+	m_tracePasses |= CPacingTrace::DlssNR | (m_DlssNR.HasMotionVectors() ? CPacingTrace::NRVectors : 0)
+		| (!bStabilize ? 0 : m_DlssStabilizer.ActiveMotion() == CDlssStabilizer::Motion::OpticalFlow
+			? CPacingTrace::NRFlow : CPacingTrace::NRDetector);
 
 	if (bStabilize) {
 		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::NRStabilize);
@@ -4842,6 +4901,7 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 		return E_FAIL;
 	}
 
+	m_tracePasses |= CPacingTrace::DlssSR;
 	*ppResult = m_DlssSR.GetOutput();
 	return S_OK;
 }
@@ -5890,6 +5950,7 @@ void CDX11VideoProcessor::Flush()
 	m_rtStart = 0;
 	m_nLateOnScreen = 0;
 	m_bSkipPresent = false;
+	m_bSkipNextSample = false;
 	m_bCatchUpJudged = false;
 	m_bCatchUpFutile = false;
 	m_PresentSchedule.Flush();

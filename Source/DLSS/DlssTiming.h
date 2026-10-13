@@ -181,10 +181,26 @@ public:
 	// by force. Until this many have been shown the nearest refresh is simply taken,
 	// so that the step is the right one when it starts being kept.
 	static constexpr int kSettling = 6;
+	// A picture is left out so that the one after it is on time. It has been drawn by
+	// then, so that only works when the next one can be drawn and still be in time
+	// for its refresh, which a film whose pictures take most of a frame to draw
+	// cannot do. Measured with DLSS 5 NR on a 25 fps film: at 52 ms a picture every
+	// one came behind and every one was left out, 744 of 767, a screen that moved once
+	// in two seconds; at 33 ms, on a 25 Hz screen, one picture a refresh late was
+	// followed by one left out, whose own drawing made the next a refresh late again,
+	// and the film played at 12.5 pictures a second for as long as it lasted (463 left
+	// out of 944). So when leaving this one out would not put the next on time, this one
+	// is shown where it still can be and it is the next that goes, before anything is
+	// spent on it (Plan::bSkipNext).
+	//
+	// And whatever the reason, never more than this many drawn and left out in a row:
+	// the screen moves.
+	static constexpr int kMaxDropRun = 8;
 
 	struct Plan {
 		bool bValid = false;       // a refresh was chosen; otherwise present as before
 		bool bDrop = false;        // no refresh left worth having: do not present it
+		bool bSkipNext = false;    // the sample after this one is to be left out undrawn
 		bool bRepeat = false;      // the picture before it is given a refresh more
 		long long refresh = 0;     // the refresh it is for
 		long long tickCall = 0;    // when to call Present
@@ -202,8 +218,11 @@ public:
 	bool Ready(long long tickNow) const;
 
 	// tickDue: when the reference clock reaches the picture's time, on the performance
-	// counter. frameMs: how long a picture of this film lasts.
-	Plan Choose(long long tickNow, long long tickDue, double frameMs);
+	// counter. frameMs: how long a picture of this film lasts. drawMs: how long one
+	// takes from its sample to being ready to present.
+	Plan Choose(long long tickNow, long long tickDue, double frameMs, double drawMs);
+	// A sample was left out before it was drawn, as a Plan asked.
+	void LeftOut();
 	// msInside: how long Present took to return.
 	void Presented(unsigned presentId, const Plan& plan, long long tickCalled, double msInside);
 
@@ -253,6 +272,7 @@ private:
 	bool m_bLast = false;          // a picture has been given a refresh since the last flush
 	long long m_lastRefresh = 0;
 	int m_sinceFlush = 0;          // how many, up to kSettling
+	int m_dropRun = 0;             // pictures left out since the last one presented
 
 	unsigned m_repeated = 0;
 	unsigned m_dropped = 0;
@@ -290,6 +310,12 @@ public:
 		Scheduled   = 256,  // presented for a refresh chosen in advance
 		Repeated    = 512,  // the scheduler gave it a second refresh's worth of wait
 		Dropped     = 1024, // the scheduler left it out
+		DlssNR      = 2048, // DLSS 5 NR ran on it
+		NRFlow      = 4096, // and was steadied with Optical Flow
+		NRDetector  = 8192, // or with the shader detector
+		NRVectors   = 16384, // the network was given the vectors as well
+		DlssSR      = 32768, // DLSS Super Resolution enlarged it
+		Skipped     = 65536, // left out before it was drawn, as the scheduler asked
 	};
 
 	// DXGI's account of the swap chain at one moment.
@@ -314,6 +340,9 @@ public:
 		Shown before, after;              // around the Present call
 		int renderAhead = 0;              // how early the sample was asked for, 100 ns
 		unsigned flags = 0;
+		// DLSS 5 NR's own account of the picture, microseconds: waiting for Direct3D 11
+		// to finish its input, recording the network's work, waiting for the GPU to run it.
+		int nrWaitUs = 0, nrRecordUs = 0, nrGpuUs = 0;
 	};
 
 	CPacingTrace();

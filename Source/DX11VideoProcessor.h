@@ -337,9 +337,14 @@ private:
 
 	// Every picture's way to the screen, written to a file when one is asked for.
 	CPacingTrace m_PacingTrace;
+	bool m_bSkipNextSample = false;     // the schedule asked for the next sample to be left out undrawn
 	std::wstring m_strTraceNote;
+	std::wstring m_strTraceDlss;
+	unsigned m_tracePasses = 0;         // CPacingTrace flags of the DLSS passes that ran on this picture
+	CDlssNR::Timing m_traceNRTiming;    // and where DLSS 5 NR's time went on it
 	void ReadShownForTrace(CPacingTrace::Shown& shown);
 	void NoteSwapChainForTrace();
+	void NoteDlssForTrace();
 
 	CDlssStabilizer::Motion DlssMotionSource() const
 	{
