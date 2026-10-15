@@ -1652,6 +1652,10 @@ dlssnr_harness.exe --tsr          DLSS Super Resolution: bring-up, presets, scal
 dlssnr_harness.exe --tsrq         DLSS SR against the resize shaders on moving film frames
 dlssnr_harness.exe --tsrstill     DLSS SR on still, grained pictures: shimmer, grain along the edges, moving subjects
 dlssnr_harness.exe --tsrport      DLSS SR's vectors from the filter against the same made on the CPU, and their GPU time
+dlssnr_harness.exe --tsrclip <dir> DLSS SR on a real film's frames: the shimmer of what holds still once the film's
+                                  own motion is taken out, for each way of making the vectors and each preset
+                                  (--tsrclipnr: through DLSS 5 NR first; --tsrclipwhich now,rob,...: those rows;
+                                  --tsrcrops: a crop of every frame, to look at)
 dlssnr_harness.exe --tupscale     the resize shaders and the mpv prescalers on film frames
 dlssnr_harness.exe --tupscalecost what EfRLFN costs at film sizes
 dlssnr_harness.exe --tchroma      the chroma upsamplers on 4:2:0 made from film frames
@@ -1671,6 +1675,12 @@ points at `nvngx_dlss.dll`, and `--srrefs N` limits `--tsrq`,
 `tools/dlssnr_probe/upscale_refs/`. `--tupscale` also runs the mpv shaders it finds
 translated under `tools/dlssnr_probe/upscalers/hlsl/` (`Shaders/mpv/mpv_shaders.py` puts them
 there); the three the filter embeds need nothing but the build.
+
+`--tsrclip` takes a folder of a film's frames as ffmpeg extracts them (`fNNNN.png`), and the
+film's own motion from frame to frame, `motion.txt`, which `python clip_motion.py <folder>`
+writes beside them: neither is in the repository. A film weaves, the whole picture moving by a
+fraction of a pixel from one frame to the next, and a still wall can only be judged once that
+motion is taken out.
 
 A neural upscaler, EfRLFN, was measured too and not integrated: 922 ms per 1080p frame on the
 RTX 3050 with DirectML (`--tupscalecost`), and no better than Catmull-Rom or Lanczos on clean

@@ -110,6 +110,8 @@ IDF_PS_11_DLSS_STAB_FLOWMOTION  FILE                    "..\\_bin\\shaders\\ps_d
 IDF_PS_11_DLSS_STAB_STABILIZE   FILE                    "..\\_bin\\shaders\\ps_dlss_stab_stabilize.cso"
 IDF_PS_11_DLSS_STAB_SNAPMOTION  FILE                    "..\\_bin\\shaders\\ps_dlss_stab_snapmotion.cso"
 IDF_CS_11_DLSS_GLOBAL_MOTION    FILE                    "..\\_bin\\shaders\\cs_dlss_global_motion.cso"
+IDF_CS_11_DLSS_GLOBAL_STEP      FILE                    "..\\_bin\\shaders\\cs_dlss_global_step.cso"
+IDF_CS_11_DLSS_GLOBAL_SOLVE     FILE                    "..\\_bin\\shaders\\cs_dlss_global_solve.cso"
 IDF_PS_11_DLSS_STAB_BLOCKMOTION FILE                    "..\\_bin\\shaders\\ps_dlss_stab_blockmotion.cso"
 IDF_PS_11_DLSS_COMPOSE_0        FILE                    "..\\_bin\\shaders\\ps_dlss_compose_diff.cso"
 IDF_PS_11_DLSS_COMPOSE_7        FILE                    "..\\_bin\\shaders\\ps_dlss_compose_reducex.cso"

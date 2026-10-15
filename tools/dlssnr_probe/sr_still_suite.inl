@@ -361,17 +361,40 @@ static int RunSRStill(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t
 		}
 
 		// Exact motion, the raw vectors of 1.2, the snapping to the global motion alone
-		// (the first version of this work), and what the filter runs.
+		// (the first version of this work), and what the filter runs. Then what --tsrclip
+		// found on films that weave: the global motion refined on the flow frames with the
+		// dead zone lowered, and finer flow, to see what they cost a still picture.
+		auto refined = [](int steps, float deadZone, float robust = 0.0f) {
+			CDlssStabilizer::FlowSettings flow = CDlssStabilizer::ForDlssSR();
+			flow.globalRefine = steps;
+			flow.snapDeadZone = deadZone;
+			flow.globalRobust = robust;
+			return flow;
+		};
+		auto finer = []() {
+			CDlssStabilizer::FlowSettings flow = CDlssStabilizer::ForDlssSR();
+			flow.flowFactor = 1;
+			flow.flowBlur = 2;
+			return flow;
+		};
 		const std::vector<StillRow> rows = {
 			{ "exact motion",               0 },
 			{ "raw vectors (1.2)",          1, StillFlow() },
 			{ "snapped only",               1, StillFlow(true, 1.0f, 2.0f, 2, true, true, 0, 0.4f) },
 			{ "filter now",                 1, CDlssStabilizer::ForDlssSR() },
+			{ "dead zone 0",                1, refined(0, 0.0f) },
+			{ "refined x2, dead zone 0.1",  1, refined(2, 0.1f) },
+			{ "refined x3, dead zone 0",    1, refined(3, 0.0f) },
+			{ "robust x2, dead zone 0",     1, refined(2, 0.0f, 2.5f) },
+			{ "flow /1, blur 2",            1, finer() },
 		};
 
+		// Grained anew on every frame; the last also compressed after, so that its blocks
+		// change with the grain, as a low-rate film's do.
 		static const Degradation degradations[] = {
-			{ "grain 0.006",           0.006f, 0.0f },
-			{ "old film grain 0.02",   0.02f,  0.0f },
+			{ "grain 0.006",                0.006f, 0.0f },
+			{ "old film grain 0.02",        0.02f,  0.0f },
+			{ "grain 0.006, compressed",    0.006f, 0.6f },
 		};
 
 		const int kFrames = 100;
@@ -522,6 +545,10 @@ static int RunSRStill(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t
 						cropAt(t);
 						DownscaleBox(crop, cw, ch, 2, source);
 						AddGrain(source, sw, sh, deg.grain, 0x57111000u + (uint32_t)t);
+						if (deg.jpeg > 0 && !JpegRoundTrip(factory, source, sw, sh, deg.jpeg, error)) {
+							ok = false;
+							break;
+						}
 
 						// The guard band: the source mirrored into it on every side.
 						const std::vector<float>* pInput = &source;

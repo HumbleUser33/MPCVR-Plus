@@ -185,6 +185,18 @@ HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT
 			if (SUCCEEDED(hr)) {
 				hr = pDevice->CreateUnorderedAccessView(m_pGlobalMotion, nullptr, &m_pGlobalMotionTarget);
 			}
+			if (SUCCEEDED(hr) && flow.globalRefine > 0) {
+				hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_STEP);
+				if (SUCCEEDED(hr)) {
+					hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSRefineStep);
+				}
+				if (SUCCEEDED(hr)) {
+					hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_SOLVE);
+				}
+				if (SUCCEEDED(hr)) {
+					hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSRefineSolve);
+				}
+			}
 			DLogIf(FAILED(hr), L"CDlssStabilizer::Create() : the global motion failed with error {}", HR2Str(hr));
 		}
 		return hr;
@@ -255,6 +267,25 @@ HRESULT CDlssStabilizer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pCon
 		for (int i = 0; i < 2 && SUCCEEDED(hr); i++) {
 			hr = CreateTarget(pDevice, m_Flow.OutputWidth(), m_Flow.OutputHeight(), DXGI_FORMAT_R32G32B32A32_FLOAT, m_BlockField[i]);
 		}
+		// The refinement's sums, a pixel per 16 x 16 group of the flow frame.
+		for (int i = 0; i < 2 && SUCCEEDED(hr) && m_pCSRefineStep; i++) {
+			D3D11_TEXTURE2D_DESC desc = {};
+			desc.Width            = (m_Flow.Width() + 15) / 16;
+			desc.Height           = (m_Flow.Height() + 15) / 16;
+			desc.MipLevels        = 1;
+			desc.ArraySize        = 1;
+			desc.Format           = DXGI_FORMAT_R32G32B32A32_FLOAT;
+			desc.SampleDesc.Count = 1;
+			desc.Usage            = D3D11_USAGE_DEFAULT;
+			desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+			hr = pDevice->CreateTexture2D(&desc, nullptr, &m_pRefinePartial[i]);
+			if (SUCCEEDED(hr)) {
+				hr = pDevice->CreateShaderResourceView(m_pRefinePartial[i], nullptr, &m_pRefinePartialView[i]);
+			}
+			if (SUCCEEDED(hr)) {
+				hr = pDevice->CreateUnorderedAccessView(m_pRefinePartial[i], nullptr, &m_pRefinePartialTarget[i]);
+			}
+		}
 		if (FAILED(hr)) {
 			Release();
 			m_failedWidth  = width;
@@ -293,6 +324,13 @@ void CDlssStabilizer::Release()
 	m_iBlockField = 0;
 	m_bBlockHistory = false;
 	m_pCSGlobalMotion.Release();
+	m_pCSRefineStep.Release();
+	m_pCSRefineSolve.Release();
+	for (int i = 0; i < 2; i++) {
+		m_pRefinePartialTarget[i].Release();
+		m_pRefinePartialView[i].Release();
+		m_pRefinePartial[i].Release();
+	}
 	m_pGlobalMotionTarget.Release();
 	m_pGlobalMotionView.Release();
 	m_pGlobalMotion.Release();
@@ -409,11 +447,39 @@ void CDlssStabilizer::MeasureGlobalMotion(ID3D11DeviceContext* pContext)
 	pContext->Dispatch(1, 1, 1);
 
 	// Unbound, so the next pass can read what this one wrote.
-	ID3D11ShaderResourceView* noViews[3] = {};
-	ID3D11UnorderedAccessView* noTarget = nullptr;
+	ID3D11ShaderResourceView* noViews[4] = {};
+	ID3D11UnorderedAccessView* noTargets[2] = {};
 	ID3D11Buffer* noConstants = nullptr;
 	pContext->CSSetShaderResources(0, (UINT)std::size(noViews), noViews);
-	pContext->CSSetUnorderedAccessViews(0, 1, &noTarget, nullptr);
+	pContext->CSSetUnorderedAccessViews(0, (UINT)std::size(noTargets), noTargets, nullptr);
+
+	// Then refined on the flow frames themselves (cs_dlss_global_refine.hlsl).
+	if (m_pCSRefineStep && m_pCSRefineSolve && m_pRefinePartial[1]) {
+		if (SUCCEEDED(pContext->Map(m_pConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr))) {
+			const float constants[32] = { (float)m_Flow.GridSize(), m_FlowSettings.globalNear, 2000.0f, 0.5f, m_FlowSettings.globalRobust };
+			memcpy(mr.pData, constants, sizeof(constants));
+			pContext->Unmap(m_pConstants, 0);
+		}
+		const UINT groupsX = (m_Flow.Width() + 15) / 16, groupsY = (m_Flow.Height() + 15) / 16;
+		for (int step = 0; step < m_FlowSettings.globalRefine; step++) {
+			ID3D11ShaderResourceView* stepViews[4] = { m_Flow.CurrentFrame(), m_Flow.PreviousFrame(), m_pGlobalMotionView, m_Flow.ForwardFlow() };
+			ID3D11UnorderedAccessView* stepTargets[2] = { m_pRefinePartialTarget[0], m_pRefinePartialTarget[1] };
+			pContext->CSSetShader(m_pCSRefineStep, nullptr, 0);
+			pContext->CSSetShaderResources(0, (UINT)std::size(stepViews), stepViews);
+			pContext->CSSetUnorderedAccessViews(0, (UINT)std::size(stepTargets), stepTargets, nullptr);
+			pContext->Dispatch(groupsX, groupsY, 1);
+			pContext->CSSetShaderResources(0, (UINT)std::size(noViews), noViews);
+			pContext->CSSetUnorderedAccessViews(0, (UINT)std::size(noTargets), noTargets, nullptr);
+
+			ID3D11ShaderResourceView* solveViews[2] = { m_pRefinePartialView[0], m_pRefinePartialView[1] };
+			pContext->CSSetShader(m_pCSRefineSolve, nullptr, 0);
+			pContext->CSSetShaderResources(0, (UINT)std::size(solveViews), solveViews);
+			pContext->CSSetUnorderedAccessViews(0, 1, &pTarget, nullptr);
+			pContext->Dispatch(1, 1, 1);
+			pContext->CSSetShaderResources(0, (UINT)std::size(noViews), noViews);
+			pContext->CSSetUnorderedAccessViews(0, (UINT)std::size(noTargets), noTargets, nullptr);
+		}
+	}
 	pContext->CSSetConstantBuffers(0, 1, &noConstants);
 	pContext->CSSetShader(nullptr, nullptr, 0);
 }

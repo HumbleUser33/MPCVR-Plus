@@ -63,6 +63,10 @@ public:
 		float snapHigh = 1.0f;                                // and where it keeps it whole
 		int   snapGate = 0;                                   // 0: by distance; 1: by confidence; 2: only far and trusted blocks
 		float snapDeadZone = 0.0f;                            // a global motion shorter than this, working pixels, is none
+		int   globalRefine = 0;                               // with snap: Gauss-Newton steps refining the global motion on the
+		                                                      // flow frames (cs_dlss_global_refine.hlsl); 0: none
+		float globalNear   = 1.0f;                            // and the flow pixels a block's own vector may lie from it to take part
+		float globalRobust = 0.0f;                            // and groups past this times the median residual left out; 0: none
 		// What keeps its own vector: the mean of the trusted blocks around it that move
 		// alike, then a blend with the same content one picture earlier (PASS 4).
 		int   vectorRadius   = 0;                             // blocks on each side; 0: none
@@ -166,6 +170,11 @@ private:
 	CComPtr<ID3D11Texture2D>           m_pGlobalMotion;       // RGBA32F 1x1, see GetGlobalMotion
 	CComPtr<ID3D11ShaderResourceView>  m_pGlobalMotionView;
 	CComPtr<ID3D11UnorderedAccessView> m_pGlobalMotionTarget;
+	CComPtr<ID3D11ComputeShader>       m_pCSRefineStep;       // FlowSettings::globalRefine: its two passes
+	CComPtr<ID3D11ComputeShader>       m_pCSRefineSolve;
+	CComPtr<ID3D11Texture2D>           m_pRefinePartial[2];   // RGBA32F, a pixel per 16 x 16 group of the flow frame
+	CComPtr<ID3D11ShaderResourceView>  m_pRefinePartialView[2];
+	CComPtr<ID3D11UnorderedAccessView> m_pRefinePartialTarget[2];
 	CComPtr<ID3D11Buffer>      m_pConstants;
 	CComPtr<ID3D11Buffer>      m_pQuad;
 

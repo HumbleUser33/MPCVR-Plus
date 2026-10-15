@@ -1008,6 +1008,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 #include "downscale_quality_suite.inl"
 #include "sr_suite.inl"
 #include "sr_still_suite.inl"
+#include "srclip_suite.inl"
 #include "pipeline_suite.inl"
 #include "nrscale_suite.inl"
 
@@ -1096,6 +1097,19 @@ int wmain(int argc, wchar_t** argv)
 	const bool temporalSRPort = hasArg(L"--tsrport");
 	const bool temporalPipeline = hasArg(L"--tpipeline");
 	const bool temporalNRScale = hasArg(L"--tnrscale");
+	std::wstring srClip;   // --tsrclip <folder>: DLSS SR on a real film's frames
+	for (int i = 1; i + 1 < argc; i++) {
+		if (!wcscmp(argv[i], L"--tsrclip")) {
+			srClip = argv[i + 1];
+		}
+	}
+	const bool temporalSRClip = !srClip.empty();
+	std::wstring srClipWhich;   // --tsrclipwhich now,film,...: only those rows
+	for (int i = 1; i + 1 < argc; i++) {
+		if (!wcscmp(argv[i], L"--tsrclipwhich")) {
+			srClipWhich = argv[i + 1];
+		}
+	}
 	int nrFlowFactor = 0;   // --nrflow N: --tnrscale with Optical Flow at N working pixels per flow pixel
 	for (int i = 1; i + 1 < argc; i++) {
 		if (!wcscmp(argv[i], L"--nrflow")) {
@@ -1120,7 +1134,7 @@ int wmain(int argc, wchar_t** argv)
 	const bool suites[] = { temporal, temporalOracle, temporalEffect, temporalFlow, temporalStab || temporalStabPort,
 		temporalStabBench, temporalUpscale, temporalUpscaleCost, temporalChroma, temporalSharpen, temporalMpvPort,
 		temporalDownPort, temporalDownscale, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
-		temporalPipeline, temporalNRScale };
+		temporalPipeline, temporalNRScale, temporalSRClip };
 	if (std::count(std::begin(suites), std::end(suites), true) > 1) {
 		Head("Result");
 		printf("  more than one suite named: the harness runs one a call, give each its own\n");
@@ -1130,14 +1144,16 @@ int wmain(int argc, wchar_t** argv)
 		return 4;
 	}
 	if (temporal || temporalOracle || temporalEffect || temporalFlow
-			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale) {
+			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
 			if (!wcscmp(argv[i], L"--srrefs")) {
 				srRefs = _wtoi(argv[i + 1]);
 			}
 		}
-		const int rc = temporalNRScale ? temporal::RunNRScale(dev, ctx, dlss, temporalImage.c_str(), nrFlowFactor)
+		const int rc = temporalSRClip ? temporal::RunSRClip(dev, ctx, srClip.c_str(), srDllPath.c_str(), hasArg(L"--tsrcrops"), srClipWhich.c_str(),
+				hasArg(L"--tsrclipnr") ? &dlss : nullptr)
+			: temporalNRScale ? temporal::RunNRScale(dev, ctx, dlss, temporalImage.c_str(), nrFlowFactor)
 			: temporalPipeline ? temporal::RunPipeline(dev, ctx, dlss, srDllPath.c_str(), temporalFrames)
 			: temporalSRPort ? temporal::RunSRPort(dev, ctx, srRefs)
 			: temporalSRStill ? temporal::RunSRStill(dev, ctx, srDllPath.c_str(), srRefs)
