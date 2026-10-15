@@ -15,6 +15,12 @@
 // skin 0.90, auto mask, history kept, stabilizer at full strength on Optical Flow.
 //
 // --timage picks the picture; give it a 3840x2160 film frame (upscale_refs\4K1.png).
+//
+// The stabilizer's Optical Flow works on the picture reduced by a whole factor that
+// FlowFactor picks from the working height (1, 2 or 4: about 540 lines). --nrflow N
+// forces N at every working size below the full one, and runs the difference method
+// alone: what the flow's size does to the stabilizer, on the moving object above all,
+// and what it costs.
 
 #include "DLSS/DlssCompose.h"
 
@@ -40,13 +46,25 @@ static const NRScaleVariant s_NRScaleVariants[] = {
 
 struct NRScaleSequence {
 	const char* name;
-	int vx, vy;   // content motion, whole pixels per frame: no resampling of the picture
+	int vx, vy;    // content motion, whole pixels per frame: no resampling of the picture
+	bool object;   // a window of the picture moving over it, the rest still
+	int ux, uy;    // and its motion
 };
+
+// The object: a 1152x768 window of the picture's lower right, moved over the rest.
+constexpr int kObjW = 1152, kObjH = 768, kObjSrcX = 2304, kObjSrcY = 1152;
+
+static Rect NRScaleObject(const NRScaleSequence& s, int t)
+{
+	const int x = 400 + s.ux * t, y = 640 + s.uy * t;
+	return { x, y, x + kObjW, y + kObjH };
+}
 
 // What one row of the table adds up over the measured frames.
 struct NRScaleStats {
 	double psnr = 0, kept = 0, effect = 0, flick = 0, lfFlick = 0;
-	int count = 0, flickCount = 0;
+	double objFlick = 0, objDev = 0;   // inside the moving object: after its motion, and against no stabilizer
+	int count = 0, flickCount = 0, objFlickCount = 0, objDevCount = 0;
 	std::vector<float> prevY, prevLF;
 
 	void Reset() { *this = NRScaleStats{}; }
@@ -59,12 +77,15 @@ static void NRScaleFrame(const std::vector<float>& picture, int W, int H, const 
 {
 	rgba.resize(picture.size());
 	const int ox = 24 - s.vx * t, oy = 24 - s.vy * t;
+	const Rect obj = s.object ? NRScaleObject(s, t) : Rect{ 0, 0, 0, 0 };
 	Rng r(0x5EEDu + (uint32_t)t * 7919u);
 	for (int y = 0; y < H; y++) {
 		const int sy = std::clamp(y + oy, 0, H - 1);
 		for (int x = 0; x < W; x++) {
 			const int sx = std::clamp(x + ox, 0, W - 1);
-			const float* p = &picture[4 * ((size_t)sy * W + sx)];
+			const float* p = Inside(obj, x, y)
+				? &picture[4 * ((size_t)(kObjSrcY + y - obj.y0) * W + kObjSrcX + x - obj.x0)]
+				: &picture[4 * ((size_t)sy * W + sx)];
 			float* o = &rgba[4 * ((size_t)y * W + x)];
 			const float n = r.Gauss() * grain;
 			for (int k = 0; k < 3; k++) {
@@ -87,9 +108,11 @@ static void NRScaleLuma(const std::vector<float>& rgba, int W, int H, std::vecto
 	Blur(half, W / 2, H / 2, 4, lf);
 }
 
-// One measured frame of a row: out against the full-size reference ref, on input in.
+// One measured frame t of a row: out against the full-size reference ref, on input in.
+// unstab, when given, is the same without the stabilizer.
 static void NRScaleMeasure(NRScaleStats& st, const std::vector<float>& in, const std::vector<float>& ref,
-                           const std::vector<float>& out, int W, int H, const NRScaleSequence& s)
+                           const std::vector<float>& out, const std::vector<float>* unstab,
+                           int W, int H, const NRScaleSequence& s, int t)
 {
 	double se = 0, dot = 0, norm = 0, effOut = 0, effRef = 0;
 	for (size_t i = 0; i < out.size(); i += 4) {
@@ -112,7 +135,41 @@ static void NRScaleMeasure(NRScaleStats& st, const std::vector<float>& in, const
 
 	std::vector<float> y, lf;
 	NRScaleLuma(out, W, H, y, lf);
-	if (!st.prevY.empty()) {
+	if (s.object) {
+		// Inside the object, away from its edges: the change from the last picture after
+		// its own motion, and how far the stabilizer moved it from the network's output.
+		const Rect now = NRScaleObject(s, t);
+		const Rect inner = { now.x0 + 16, now.y0 + 16, now.x1 - 16, now.y1 - 16 };
+		if (unstab) {
+			double d = 0;
+			long long n = 0;
+			for (int yy = inner.y0; yy < inner.y1; yy++) {
+				for (int xx = inner.x0; xx < inner.x1; xx++) {
+					d += std::abs(y[(size_t)yy * W + xx] - Luma(&(*unstab)[4 * ((size_t)yy * W + xx)]));
+					n++;
+				}
+			}
+			st.objDev += n ? d / n : 0;
+			st.objDevCount++;
+		}
+		if (!st.prevY.empty()) {
+			double d = 0;
+			long long n = 0;
+			for (int yy = inner.y0; yy < inner.y1; yy++) {
+				for (int xx = inner.x0; xx < inner.x1; xx++) {
+					d += std::abs(y[(size_t)yy * W + xx] - st.prevY[(size_t)(yy - s.uy) * W + xx - s.ux]);
+					n++;
+				}
+			}
+			st.objFlick += n ? d / n : 0;
+			st.objFlickCount++;
+			// The rest stands still: what the object swept is left out.
+			const Rect swept = Expand(Union(now, NRScaleObject(s, t - 1)), 48, W, H);
+			st.flick += OutsideDiff(y, st.prevY, W, H, swept, 32);
+			st.lfFlick += OutsideDiff(lf, st.prevLF, W / 2, H / 2, Scale(swept, 2), 16);
+			st.flickCount++;
+		}
+	} else if (!st.prevY.empty()) {
 		const int margin = 32 + 2 * std::max(std::abs(s.vx), std::abs(s.vy));
 		st.flick += WarpDiff(y, st.prevY, W, H, (float)s.vx, (float)s.vy, margin, 0, W);
 		st.lfFlick += WarpDiff(lf, st.prevLF, W / 2, H / 2, s.vx * 0.5f, s.vy * 0.5f, margin / 2, 0, W / 2);
@@ -129,11 +186,14 @@ static void NRScaleRow(const char* name, const NRScaleStats& st, bool vsReferenc
 		return;
 	}
 	const double n = st.count, f = std::max(st.flickCount, 1);
+	const std::string objFlick = st.objFlickCount ? std::format("{:9.5f}", st.objFlick / st.objFlickCount) : std::string(9 - 1, ' ') + "-";
+	const std::string objDev = st.objDevCount ? std::format("{:9.5f}", st.objDev / st.objDevCount) : std::string(9 - 1, ' ') + "-";
 	if (vsReference) {
-		Out("  %-20s %8.2f %7.0f%% %7.0f%% %9.5f %9.5f\n", name, st.psnr / n, 100 * st.kept / n, 100 * st.effect / n,
-		    st.flick / f, st.lfFlick / f);
+		Out("  %-20s %8.2f %7.0f%% %7.0f%% %9.5f %9.5f %s %s\n", name, st.psnr / n, 100 * st.kept / n, 100 * st.effect / n,
+		    st.flick / f, st.lfFlick / f, objFlick.c_str(), objDev.c_str());
 	} else {
-		Out("  %-20s %8s %8s %8s %9.5f %9.5f\n", name, "-", "-", "-", st.flick / f, st.lfFlick / f);
+		Out("  %-20s %8s %8s %8s %9.5f %9.5f %s %s\n", name, "-", "-", "-", st.flick / f, st.lfFlick / f,
+		    objFlick.c_str(), objDev.c_str());
 	}
 }
 
@@ -151,17 +211,21 @@ static void NRScaleFinish(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 	}
 }
 
-static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, const wchar_t* imagePath)
+static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, const wchar_t* imagePath, int flowFactor)
 {
 	const int W = 3840, H = 2160;
 	const int frames = 20, warm = 12;
 	const float grain = 1.2f / 255;
 	const float diffGain = 8.0f;
-	static const int qualityScales[] = { 80, 75, 70, 60, 50 };
-	static const int costScales[] = { 100, 90, 80, 75, 70, 60, 50 };
+	static const int qualityScales[] = { 80, 75, 70, 65, 60, 55, 50 };
+	static const int costScales[] = { 100, 90, 80, 75, 70, 65, 60, 55, 50 };
 	static const NRScaleSequence seqs[] = {
-		{ "still picture, fresh grain every frame", 0, 0 },
-		{ "pan (2, 1) px/frame",                    2, 1 },
+		{ "still picture, fresh grain every frame",                 0, 0, false, 0, 0 },
+		{ "pan (2, 1) px/frame",                                    2, 1, false, 0, 0 },
+		{ "a 1152x768 object moving (6, 2) px/frame, the rest still", 0, 0, true,  6, 2 },
+	};
+	const auto Runs = [flowFactor](const NRScaleVariant& v) {
+		return !flowFactor || v.method == CDlssCompose::Method::Difference;
 	};
 
 	Head("DLSS 5 NR at a working size, its change carried back");
@@ -221,8 +285,13 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 				Out("  textures at %ux%u from %ux%u failed\n", workW, workH, fullW, fullH);
 				return false;
 			}
+			CDlssStabilizer::FlowSettings flow;
+			if (workW != fullW || workH != fullH) {
+				flow.flowFactor = (UINT)flowFactor;   // 0: FlowFactor, as the filter
+			}
 			if (FAILED(stabilizer.Create(dev, ctx, workW, workH, CDlssStabilizer::Motion::OpticalFlow,
-			                             passes.InputLayout(), passes.VertexShader(), passes.SamplerPoint(), passes.SamplerLinear()))
+			                             passes.InputLayout(), passes.VertexShader(), passes.SamplerPoint(), passes.SamplerLinear(),
+			                             false, flow))
 					|| stabilizer.ActiveMotion() != CDlssStabilizer::Motion::OpticalFlow) {
 				Out("  the stabilizer at %ux%u did not start on Optical Flow: %S\n", workW, workH, stabilizer.GetStatusLine().c_str());
 				return false;
@@ -275,18 +344,25 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 		}
 
 		if (!rc) {
-			g_report = fopen("temporal_results_nrscale.txt", "w");
+			const std::string reportName = flowFactor ? std::format("temporal_results_nrscale_flow{}.txt", flowFactor)
+				: std::string("temporal_results_nrscale.txt");
+			g_report = fopen(reportName.c_str(), "w");
 			Out("\nDLSS 5 NR at a working size -- %S at %dx%d, %d frames per run, the last %d measured.\n",
 			    imagePath, W, H, frames, frames - warm);
+			if (flowFactor) {
+				Out("Optical Flow at %d working pixels per flow pixel below the full size (--nrflow), the difference method alone.\n",
+				    flowFactor);
+			}
 			Out("The filter's default settings; grain %.1f/255 fresh every frame. Each row is the network and the stabilizer at\n",
 			    grain * 255);
 			Out("that share of the size, reduced with Lanczos, and the change carried back onto the picture by CDlssCompose.\n");
 			Out("PSNR = against the network and the stabilizer at the full size, frame for frame, RGB. kept = the change from the\n");
 			Out("input projected on the full-size change (100%% = all of it, in the same direction). effect = mean |change| as a\n");
 			Out("share of the full-size one. flick = mean |Y(t) - Y(t-1)| after the true motion; LF = the same on luma blurred\n");
-			Out("to sigma ~8 px.\n");
+			Out("to sigma ~8 px; with the object, on what it did not sweep. obj flick = the same inside the object, after its\n");
+			Out("motion. obj dev = mean |Y - Y(no stabilizer)| inside the object: what the stabilizer drags across it.\n");
 
-			std::vector<float> rgba, out, inY, inLF;
+			std::vector<float> rgba, out, unstab, inY, inLF;
 			std::vector<HALF> half(4 * (size_t)W * H);
 			std::vector<std::vector<float>> reference(frames - warm);
 			const Rect crop = { W / 2 - 480, H / 2 - 270, W / 2 + 480, H / 2 + 270 };
@@ -294,7 +370,7 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 			for (size_t si = 0; si < std::size(seqs) && !rc; si++) {
 				const NRScaleSequence& s = seqs[si];
 				Out("\n%s\n", s.name);
-				Out("  %-20s %8s %8s %8s %9s %9s\n", "", "PSNR", "kept", "effect", "flick", "LF flick");
+				Out("  %-20s %8s %8s %8s %9s %9s %9s %9s\n", "", "PSNR", "kept", "effect", "flick", "LF flick", "obj flick", "obj dev");
 
 				// The full size first: the reference every other row is measured against.
 				NRScaleStats inputStats, refStats;
@@ -302,6 +378,7 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 					g_failures++;
 					break;
 				}
+				Out("  full size: %S\n", stabilizer.GetStatusLine().c_str());
 				int failed = 0;
 				for (int t = 0; t < frames; t++) {
 					NRScaleFrame(picture, W, H, s, t, grain, rgba);
@@ -319,8 +396,15 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 						failed++;
 						continue;
 					}
-					NRScaleMeasure(inputStats, rgba, reference[t - warm], rgba, W, H, s);
-					NRScaleMeasure(refStats, rgba, reference[t - warm], reference[t - warm], W, H, s);
+					if (s.object) {
+						ctx->CopyResource(stage, texOut.pTexture);
+						if (!ReadRgbaHalf(ctx, stage, W, H, unstab)) {
+							failed++;
+							continue;
+						}
+					}
+					NRScaleMeasure(inputStats, rgba, reference[t - warm], rgba, nullptr, W, H, s, t);
+					NRScaleMeasure(refStats, rgba, reference[t - warm], reference[t - warm], s.object ? &unstab : nullptr, W, H, s, t);
 				}
 				if (failed || refStats.count != frames - warm) {
 					Out("  the full-size run lost %d frames: %S\n", failed, dlss.GetStatusLine().c_str());
@@ -342,11 +426,12 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 				for (const int scale : qualityScales) {
 					UINT ww = 0, wh = 0;
 					CDlssCompose::WorkingSize(W, H, scale, ww, wh);
-					Out("  %d %% (%ux%u)\n", scale, ww, wh);
 					if (!Setup(W, H, ww, wh)) {
+						Out("  %d %% (%ux%u)\n", scale, ww, wh);
 						g_failures++;
 						continue;
 					}
+					Out("  %d %% (%ux%u), %S\n", scale, ww, wh, stabilizer.GetStatusLine().c_str());
 					std::vector<NRScaleStats> stats(std::size(s_NRScaleVariants));
 					failed = 0;
 					for (int t = 0; t < frames; t++) {
@@ -361,8 +446,21 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 							continue;
 						}
 						const std::vector<float>& ref = reference[t - warm];
+						if (s.object) {
+							// The network's change carried back without the stabilizer, for obj dev.
+							CDlssCompose& c = compose[(int)CDlssCompose::Method::Difference];
+							c.Compose(ctx, texFull.pShaderResource, texIn.pShaderResource, texOut.pShaderResource);
+							ctx->CopyResource(stage, c.GetResult()->pTexture);
+							if (!ReadRgbaHalf(ctx, stage, W, H, unstab)) {
+								failed++;
+								continue;
+							}
+						}
 						for (size_t vi = 0; vi < std::size(s_NRScaleVariants); vi++) {
 							const NRScaleVariant& v = s_NRScaleVariants[vi];
+							if (!Runs(v)) {
+								continue;
+							}
 							CDlssCompose& c = compose[(int)v.method];
 							c.Compose(ctx, texFull.pShaderResource, texIn.pShaderResource,
 							          stabilizer.GetResult()->pShaderResource, v.tuning);
@@ -371,7 +469,8 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 								failed++;
 								continue;
 							}
-							NRScaleMeasure(stats[vi], rgba, ref, out, W, H, s);
+							const bool same = s.object && v.method == CDlssCompose::Method::Difference;
+							NRScaleMeasure(stats[vi], rgba, ref, out, same ? &unstab : nullptr, W, H, s, t);
 							if (si == 0 && scale == 75 && t == frames - 1 && v.png) {
 								std::vector<float> diff(out.size());
 								for (size_t i = 0; i < diff.size(); i++) {
@@ -387,7 +486,9 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 						g_failures++;
 					}
 					for (size_t vi = 0; vi < std::size(s_NRScaleVariants); vi++) {
-						NRScaleRow(std::format("  {}", s_NRScaleVariants[vi].name).c_str(), stats[vi], true);
+						if (Runs(s_NRScaleVariants[vi])) {
+							NRScaleRow(std::format("  {}", s_NRScaleVariants[vi].name).c_str(), stats[vi], true);
+						}
 					}
 				}
 			}
@@ -398,8 +499,9 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 			// picture: reduction, motion, network, stabilizer and the difference method.
 			static const struct { int w, h; } sizes[] = { { 3840, 2160 }, { 3840, 1600 } };
 			Out("\nCost, ms per picture on this GPU (the still picture, %d pictures each)\n", 16);
-			Out("  %-30s %7s %7s %7s %7s %7s %7s %7s %7s\n",
-			    "", "reduce", "motion", "network", "stab", "diff", "joint", "guided", "chain");
+			Out("motion = Optical Flow and its passes on the GPU's timestamps, OF wall = the same waited for.\n");
+			Out("  %-30s %7s %7s %7s %7s %7s %7s %7s %7s %7s  %s\n",
+			    "", "reduce", "motion", "OF wall", "network", "stab", "diff", "joint", "guided", "chain", "flow");
 			for (const auto& size : sizes) {
 				const UINT fw = size.w, fh = size.h;
 				std::vector<float> framePicture;
@@ -408,7 +510,7 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 					g_failures++;
 					continue;
 				}
-				const NRScaleSequence still = { "", 0, 0 };
+				const NRScaleSequence still = { "", 0, 0, false, 0, 0 };
 				NRScaleFrame(framePicture, (int)fw, (int)fh, still, 0, grain, rgba);
 				std::vector<HALF> frameHalf(rgba.size());
 				DirectX::PackedVector::XMConvertFloatToHalfStream(frameHalf.data(), sizeof(HALF), rgba.data(), sizeof(float), rgba.size());
@@ -456,6 +558,16 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 
 					const double reduceMs = reduce ? GpuMs(dev, ctx, 16, [&] { compose[0].Reduce(ctx, texFull.pShaderResource, inTarget); }) : 0;
 					const double motionMs = GpuMs(dev, ctx, 8, [&] { stabilizer.PrepareMotion(ctx, texIn.pShaderResource); });
+					double flowWall = 0;
+					for (int i = 0; i < 8; i++) {
+						NRScaleFinish(dev, ctx);
+						LARGE_INTEGER t0 = {}, t1 = {};
+						QueryPerformanceCounter(&t0);
+						stabilizer.PrepareMotion(ctx, texIn.pShaderResource);
+						NRScaleFinish(dev, ctx);
+						QueryPerformanceCounter(&t1);
+						flowWall += double(t1.QuadPart - t0.QuadPart) * 1000.0 / qpf.QuadPart / 8;
+					}
 					const double stabMs = GpuMs(dev, ctx, 16, [&] {
 						stabilizer.Stabilize(ctx, texIn.pShaderResource, texOut.pShaderResource, 1.0f, false);
 					});
@@ -468,12 +580,14 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 						}
 					}
 					const std::string label = std::format("{}x{} {} % ({}x{})", fw, fh, scale, ww, wh);
+					const std::string flowSize = std::format("{}x{}", stabilizer.GetFlow().Width(), stabilizer.GetFlow().Height());
 					if (reduce) {
-						Out("  %-30s %7.2f %7.2f %7.2f %7.2f %7.2f %7.2f %7.2f %7.2f\n", label.c_str(),
-						    reduceMs, motionMs, network / ok, stabMs, composeMs[1], composeMs[2], composeMs[3], chain / ok);
+						Out("  %-30s %7.2f %7.2f %7.2f %7.2f %7.2f %7.2f %7.2f %7.2f %7.2f  %s\n", label.c_str(),
+						    reduceMs, motionMs, flowWall, network / ok, stabMs, composeMs[1], composeMs[2], composeMs[3], chain / ok,
+						    flowSize.c_str());
 					} else {
-						Out("  %-30s %7s %7.2f %7.2f %7.2f %7s %7s %7s %7.2f\n", label.c_str(),
-						    "-", motionMs, network / ok, stabMs, "-", "-", "-", chain / ok);
+						Out("  %-30s %7s %7.2f %7.2f %7.2f %7.2f %7s %7s %7s %7.2f  %s\n", label.c_str(),
+						    "-", motionMs, flowWall, network / ok, stabMs, "-", "-", "-", chain / ok, flowSize.c_str());
 					}
 				}
 			}
@@ -483,7 +597,7 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 			Out("(nrscale_*.png), with their changes from the input amplified %.0fx (*_diff.png).\n", diffGain);
 			fclose(g_report);
 			g_report = nullptr;
-			printf("\n  written to temporal_results_nrscale.txt\n");
+			printf("\n  written to %s\n", reportName.c_str());
 		}
 
 		dlss.ReleaseFeature();

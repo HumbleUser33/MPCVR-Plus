@@ -1099,6 +1099,12 @@ int wmain(int argc, wchar_t** argv)
 	const bool temporalSRPort = hasArg(L"--tsrport");
 	const bool temporalPipeline = hasArg(L"--tpipeline");
 	const bool temporalNRScale = hasArg(L"--tnrscale");
+	int nrFlowFactor = 0;   // --nrflow N: --tnrscale with Optical Flow at N working pixels per flow pixel
+	for (int i = 1; i + 1 < argc; i++) {
+		if (!wcscmp(argv[i], L"--nrflow")) {
+			nrFlowFactor = std::clamp(_wtoi(argv[i + 1]), 0, 4);
+		}
+	}
 	std::wstring srDllPath;   // empty: CDlssSR looks next to the harness, then up to the repository root
 	for (int i = 1; i + 1 < argc; i++) {
 		if (!wcscmp(argv[i], L"--srdll")) {
@@ -1119,7 +1125,7 @@ int wmain(int argc, wchar_t** argv)
 				srRefs = _wtoi(argv[i + 1]);
 			}
 		}
-		const int rc = temporalNRScale ? temporal::RunNRScale(dev, ctx, dlss, temporalImage.c_str())
+		const int rc = temporalNRScale ? temporal::RunNRScale(dev, ctx, dlss, temporalImage.c_str(), nrFlowFactor)
 			: temporalPipeline ? temporal::RunPipeline(dev, ctx, dlss, srDllPath.c_str(), temporalFrames)
 			: temporalSRPort ? temporal::RunSRPort(dev, ctx, srRefs)
 			: temporalSRStill ? temporal::RunSRStill(dev, ctx, srDllPath.c_str(), srRefs)

@@ -308,6 +308,20 @@ says how much room is left. A new working size is taken on Apply, and the networ
 again at it: seven pictures went undrawn in the bench while it did
 (`playback_test --nrscale 100 --nrscaleto 70`).
 
+The stabilizer's Optical Flow follows the working size. It works on the working picture
+reduced by a whole factor, 1, 2 or 4, which `FlowFactor` takes from the height to stay near 540
+lines, so the flow's size jumps as the slider moves: on a 3840x2160 film, 960x540 at 100 %,
+672x378 at 70 %, 1248x702 at 65 %, 960x540 again at 50 %; on a 1920x1080 one, 960x540 at
+100 %, 672x378 at 70 % and 1248x702 at 65 %. `--tnrscale --nrflow N` forces the factor at
+every working size. From 270 to 864 lines of flow, on the still picture, the pan and a
+1152x768 object moving over the picture, the result moved by 0.17 dB at most and not in the
+order of the flow's size; what the stabilizer drags across the moving object (`obj dev`, its
+mean distance from the network without it) went down by 0.0001 at most with the finest flow,
+a fortieth of an 8-bit level, and by nothing below 65 %, where going from 80 to 55 % adds
+0.0004. Optical Flow
+took 0.6 ms at 480x270 and 2.1 ms at 1728x972, the factor as it is 0.8 to 1.4. The jump is
+left as it is.
+
 ---
 
 ## Temporal stabilizer
@@ -1625,6 +1639,7 @@ dlssnr_harness.exe --tstab        the post-DLSS stabilizer variants on real pict
 dlssnr_harness.exe --tstabport    the filter's stabilizer class against those passes, redraws included
 dlssnr_harness.exe --tstabbench   what the stabilizer costs at 1080p and 2160p
 dlssnr_harness.exe --tnrscale     DLSS 5 NR at a working size: each way of carrying its change back, and the cost
+                                  (--nrflow N: the stabilizer's Optical Flow at N working pixels per flow pixel)
 dlssnr_harness.exe --tpipeline    the whole DLSS chain as the renderer runs it: CPU and GPU time per stage
 dlssnr_harness.exe --tsr          DLSS Super Resolution: bring-up, presets, scales, costs, NR next to it
 dlssnr_harness.exe --tsrq         DLSS SR against the resize shaders on moving film frames
