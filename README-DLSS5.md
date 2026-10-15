@@ -310,11 +310,11 @@ again at it: seven pictures went undrawn in the bench while it did
 
 The stabilizer's Optical Flow works on the working picture divided by *Optical Flow
 Resolution Divider*, so its size follows the working size too: at 2, on a 3840x2160 film,
-1920x1080 at 100 % and 1056x594 at 55 %. Until the divider was put on the page, `FlowFactor`
-chose 1, 2 or 4 from the height to stay near 540 lines, and the flow's size jumped as the
-working size moved (672x378 at 70 %, 1248x702 at 65 %); DLSS Super Resolution keeps that rule
-for its own flow. A source under 720 lines had its flow at its own size under that rule; at 2
-it is half of it, 360x288 for 720x576.
+1920x1080 at 100 % and 1056x594 at 55 %. At Auto, the default, `FlowFactor` chooses 1, 2 or 4
+from the working height to stay near 540 lines, as the stabilizer always did and DLSS Super
+Resolution does for its own flow, and the flow's size jumps as the working size moves: 960x540
+at 100 %, 672x378 at 70 %, 1248x702 at 65 %, 960x540 again at 50 %. A source under 720 lines
+has its flow at its own size there.
 
 `--tnrscale --nrflow N` forces the divider at every working size below the full one. From 270
 lines of flow to the working picture itself, 2112x1188 to 3072x1728, on the still picture, the
@@ -323,7 +323,7 @@ on the pan, where the finest flow came lowest; what the stabilizer drags across 
 object (`obj dev`, its mean distance from the network without it) went down by 0.0001 at most
 with a finer flow, a fortieth of an 8-bit level, where going from 80 to 55 % adds 0.0004.
 Optical Flow took 0.6 ms at 480x270, 2.1 ms at 1728x972 and 6.8 ms at 3456x1944, Full at 90 %.
-So the divider is left to the viewer, and 2 keeps a 1080p film where it always was.
+So the divider is left to the viewer, and Auto keeps every film where it always was.
 
 ---
 
@@ -357,11 +357,12 @@ So the stabilizer works **after** the network and never touches its inputs
    wrong motion estimate cannot drag old values far.
 3. **Motion** comes from **NVIDIA Optical Flow**: forward and backward flow from the driver's
    `nvofapi64.dll` (4×4 grid, medium quality), computed on the working picture divided by
-   *Optical Flow Resolution Divider* -- 4, 3, 2 or Full, 2 by default, which on a 1080p film
-   is the 960x540 the stabilizer always ran with. The history is moved along the vectors, so
-   moving areas are steadied too. A vector is trusted according to its forward/backward
-   consistency, its matching cost, and how well the previous input, moved along it, matches
-   the current one; where trust falls, the network's output for that picture is used as it is.
+   *Optical Flow Resolution Divider* -- 4, 3, 2, Full, or Auto, the default, which takes 1, 2
+   or 4 from the working height for about 540 lines as the stabilizer always did: 960x540 for a
+   1080p film. The history is moved along the vectors, so moving areas are steadied too. A
+   vector is trusted according to its forward/backward consistency, its matching cost, and
+   how well the previous input, moved along it, matches the current one; where trust falls,
+   the network's output for that picture is used as it is.
 
    If Optical Flow cannot start (a GPU older than RTX 20, an old driver), nothing is
    steadied: every picture goes through as the network left it, and the statistics and the
@@ -1494,7 +1495,7 @@ it serves the luma prescalers as much as DLSS, so it sits on the **Settings** pa
 | Local struct. | 0.50 | |
 | Skin struct. | 0.90 | |
 | Stabilizer | 100 | 0–100. Where the history is trusted, the current picture weighs from 1 down to 0.25 at 100, the measured setting. 0 runs nothing. Applies live |
-| Optical Flow Resolution Divider | 2 | 4, 3, 2 or Full: what the working picture is divided by before Optical Flow measures its motion. See *A working size below the picture's* for what it changes. Applies on the next picture |
+| Optical Flow Resolution Divider | Auto | 4, 3, 2, Full or Auto: what the working picture is divided by before Optical Flow measures its motion. Auto takes 1, 2 or 4 from the working height for about 540 lines, as before the slider existed. See *A working size below the picture's* for what it changes. Applies on the next picture |
 | Send the motion vectors to DLSS | off | Needs the stabilizer. Steadier, but the network renders differently around moving objects |
 | Working size | 100 % | 50–100 %, in steps of 5. See *A working size below the picture's*: the network runs on the picture reduced, and its change is carried back onto the picture. Taken on Apply, which starts the network again. Registry `DlssNRWorkingScale` |
 | Use DLSS SR 4.5 for upscaling | off | See above: not perfect yet, which is why the box it sits in says so. Greys the Upscaling list while it is on |

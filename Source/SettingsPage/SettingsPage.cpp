@@ -76,10 +76,21 @@ static std::wstring StabilizerText(int value)
 	return value ? std::to_wstring(value) : std::wstring(L"off");
 }
 
-// What the stabilizer's Optical Flow divides the working picture by; 1 is the picture itself.
+// What the stabilizer's Optical Flow divides the working picture by; 1 is the picture
+// itself, 0 Auto. On the slider, 4, 3, 2, Full and Auto from left to right.
 static std::wstring FlowDividerText(int divider)
 {
-	return divider > 1 ? std::to_wstring(divider) : std::wstring(L"Full");
+	return divider > 1 ? std::to_wstring(divider) : std::wstring(divider ? L"Full" : L"Auto");
+}
+
+static int FlowDividerPos(int divider)
+{
+	return divider != DLSSNR_FLOW_AUTO ? DLSSNR_FLOW_MAX - divider : DLSSNR_FLOW_MAX;
+}
+
+static int FlowDividerAt(int pos)
+{
+	return pos < DLSSNR_FLOW_MAX ? DLSSNR_FLOW_MAX - pos : DLSSNR_FLOW_AUTO;
 }
 
 // DLSS 5 NR's working size, per cent of the picture's.
@@ -338,10 +349,11 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		L"What the picture the network works on is divided by before\n"
 		"NVIDIA Optical Flow measures the motion the stabilizer follows.\n"
 		"4 is the coarsest and cheapest, Full the picture itself: on a\n"
-		"1080p film, 480x270, 640x360, 960x540 or 1920x1080. 2 is what\n"
-		"the stabilizer always ran with on 1080p.\n"
-		"On a 4K film frame, from 270 to 864 lines the result moved by\n"
-		"0.17 dB at most, and Optical Flow took 0.6 to 2.1 ms.\n"
+		"1080p film, 480x270, 640x360, 960x540 or 1920x1080.\n"
+		"Auto takes 1, 2 or 4 from the picture's height for about 540\n"
+		"lines, as the stabilizer always did.\n"
+		"On a 4K film frame, from 270 lines to Full the result moved by\n"
+		"half a decibel at most; Optical Flow took 0.6 to 6.8 ms.\n"
 		"Taken on Apply, from the next picture." },
 	{ IDC_CHECK24,
 		L"Also gives the Optical Flow vectors to the network itself.\n"
@@ -705,8 +717,8 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_SLIDER7, TBM_SETRANGE, 0, MAKELONG(DLSSNR_STAB_MIN, DLSSNR_STAB_MAX));
 	Send(IDC_SLIDER7, TBM_SETLINESIZE, 0, 1);
 	Send(IDC_SLIDER7, TBM_SETPAGESIZE, 0, 10);
-	// 4, 3, 2 and Full from left to right: the position is how much finer than 4.
-	Send(IDC_SLIDER10, TBM_SETRANGE, 0, MAKELONG(0, DLSSNR_FLOW_MAX - DLSSNR_FLOW_MIN));
+	// 4, 3, 2, Full and Auto from left to right (FlowDividerPos).
+	Send(IDC_SLIDER10, TBM_SETRANGE, 0, MAKELONG(0, FlowDividerPos(DLSSNR_FLOW_AUTO)));
 	Send(IDC_SLIDER10, TBM_SETLINESIZE, 0, 1);
 	Send(IDC_SLIDER10, TBM_SETPAGESIZE, 0, 1);
 	// In steps of the slider's: the positions are the steps.
@@ -800,7 +812,7 @@ void CVRSettingsPPage::SetControls()
 		Send(s.idSlider, TBM_SETPOS, TRUE, (LPARAM)s.value);
 		SetText(s.idEdit, (s.bStrength ? StrengthText(s.value) : StabilizerText(s.value)).c_str());
 	}
-	Send(IDC_SLIDER10, TBM_SETPOS, TRUE, (LPARAM)(DLSSNR_FLOW_MAX - m_SetsPP.iDlssNRFlowDivider));
+	Send(IDC_SLIDER10, TBM_SETPOS, TRUE, (LPARAM)FlowDividerPos(m_SetsPP.iDlssNRFlowDivider));
 	SetText(IDC_EDIT12, FlowDividerText(m_SetsPP.iDlssNRFlowDivider).c_str());
 	Send(IDC_SLIDER9, TBM_SETPOS, TRUE, (LPARAM)(m_SetsPP.iDlssNRWorkingScale / DLSSNR_SCALE_STEP));
 	SetText(IDC_EDIT11, ScaleText(m_SetsPP.iDlssNRWorkingScale).c_str());
@@ -1364,7 +1376,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 		// The DLSS sliders are not applied on drag: a settings round-trip per pixel
 		// of travel would recreate state on every mouse move.
 		if (hCtrl == Item(IDC_SLIDER10)) {
-			const int value = DLSSNR_FLOW_MAX - (int)Send(IDC_SLIDER10, TBM_GETPOS);
+			const int value = FlowDividerAt((int)Send(IDC_SLIDER10, TBM_GETPOS));
 			if (value != m_SetsPP.iDlssNRFlowDivider) {
 				m_SetsPP.iDlssNRFlowDivider = value;
 				SetText(IDC_EDIT12, FlowDividerText(value).c_str());

@@ -132,11 +132,12 @@ constexpr inline auto DLSSNR_STAB_MIN  = 0;
 constexpr inline auto DLSSNR_STAB_MAX  = 100;
 constexpr inline auto DLSSNR_STAB_DEF  = 100;
 // What the picture is divided by for the stabilizer's NVIDIA Optical Flow: 4, 3, 2,
-// or 1 for the working size itself. 2 is what a 1080p film always ran with, at
-// 960x540.
-constexpr inline auto DLSSNR_FLOW_MIN  = 1;
+// or 1 for the working size itself. Auto takes 1, 2 or 4 from the working height for
+// about 540 lines, as the stabilizer always did: 960x540 for a 1080p film, and for a
+// 4K one at its own size.
+constexpr inline auto DLSSNR_FLOW_AUTO = 0;
 constexpr inline auto DLSSNR_FLOW_MAX  = 4;
-constexpr inline auto DLSSNR_FLOW_DEF  = 2;
+constexpr inline auto DLSSNR_FLOW_DEF  = DLSSNR_FLOW_AUTO;
 // The size DLSS 5 NR works at, per cent of the picture's each way. The network costs
 // in proportion to the pixels it is given; below 100 it runs on the picture reduced,
 // and the change it made is carried back onto the picture at its own size
@@ -288,7 +289,7 @@ struct Settings_t {
 	int  iDlssNRWorkingScale;
 
 	// What the working picture is divided by for the stabilizer's Optical Flow,
-	// DLSSNR_FLOW_*. DLSS Super Resolution keeps its own, about 540 lines.
+	// DLSSNR_FLOW_*, 0 being Auto. DLSS Super Resolution keeps its own Auto.
 	int  iDlssNRFlowDivider;
 
 	Settings_t() {
