@@ -1658,7 +1658,9 @@ dlssnr_harness.exe --tmpvport     the filter's prescaler runner against the harn
                                   (ArtCNN included: it is the one made of compute passes)
 ```
 
-`--tframes N` sets the frames per run; `--tstrong` uses the strongest network settings;
+One suite a call: the harness refuses two named together and says so, where it used to run
+the first and leave the others out without a word. `--tframes N` sets the frames per run;
+`--tstrong` uses the strongest network settings;
 `--timage <file>` picks the photo for `--teffect`, `--tflow` and `--tstab` (a Windows 11
 wallpaper by default), and the 4K film frame for `--tnrscale` (`upscale_refs\4K1.png`).
 `--nonr` skips the DLSS 5 NR session for the suites that do not need it, `--srdll <path>`

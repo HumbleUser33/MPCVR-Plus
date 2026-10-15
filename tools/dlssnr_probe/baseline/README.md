@@ -134,3 +134,20 @@ conversion, a shader was regenerated, a reference picture changed. Find it befor
 it. The four `port` suites are the ones to trust most — they run the filter's own code and
 the harness's on the same picture and demand the same result to the last half float, so they
 cannot drift for an innocent reason.
+
+## The stabilizer's port check, from 15 October 2026
+
+The step "the DLSS passes against the harness" named three suites, `--tport --tstabport
+--tsrport`, and the harness runs one a call: the first its chain finds, DLSS SR's. So this
+report, and every one before it, has DLSS SR's port check in that step and nothing of the
+stabilizer's or of the shader detector's. The detector has since left the filter, and
+`run_all.cmd` gives the stabilizer a step of its own, "the stabilizer against the harness"
+(`--tstabport` on the film frame: the wallpapers it used by default are not on this machine).
+The harness now refuses two suites in one call, with a failure in the report.
+
+Compared with this report, a battery run with that step shows its 31 rows as new, not as a
+failure, and the "every step ran" row with one step more; "the DLSS passes against the
+harness" keeps its 51 rows, as they were. Measured on the two steps alone in the working copy,
+both at 0 failures: the stabilizer's class against the reference passes on five sequences,
+every redraw identical. The battery itself has not been run with it yet; the report that
+replaces this one will hold the step.

@@ -40,7 +40,12 @@ ECHO.>> "%REPORT%"
 REM One quoted command per step: nothing is shifted or re-split, so a step cannot go
 REM missing over a quoting subtlety.
 CALL :Run "the filter's own code, 300 frames"  "dlssnr_harness.exe --frames 300"
-CALL :Run "the DLSS passes against the harness" "dlssnr_harness.exe --tstabport --tsrport --nomodels"
+REM One suite a step: the harness runs a single suite a call. This step named three, the
+REM detector's, the stabilizer's and DLSS SR's, and from the start only DLSS SR's ran -- the
+REM stabilizer's port check never reached a report. The stabilizer's own default pictures
+REM are Windows wallpapers the HTPC does not have: it measures on the film frame.
+CALL :Run "the DLSS passes against the harness" "dlssnr_harness.exe --tsrport --nomodels"
+CALL :Run "the stabilizer against the harness"  "dlssnr_harness.exe --tstabport --timage" "%REF%"
 CALL :Run "the prescalers against the harness" "dlssnr_harness.exe --tmpvport --nonr --nomodels"
 CALL :Run "the pipeline"                       "dlssnr_harness.exe --tpipeline --nonr --nomodels"
 CALL :Run "upscalers on film"                  "dlssnr_harness.exe --tupscale --nonr --nomodels"

@@ -1114,6 +1114,21 @@ int wmain(int argc, wchar_t** argv)
 			temporalImage = argv[i + 1];
 		}
 	}
+	// One suite a call. The chain below runs the first it finds and no other, and a
+	// battery step that named three ran DLSS SR's alone for as long as it existed: the
+	// stabilizer's port check never ran in it. Two named is refused, out loud.
+	const bool suites[] = { temporal, temporalOracle, temporalEffect, temporalFlow, temporalStab || temporalStabPort,
+		temporalStabBench, temporalUpscale, temporalUpscaleCost, temporalChroma, temporalSharpen, temporalMpvPort,
+		temporalDownPort, temporalDownscale, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
+		temporalPipeline, temporalNRScale };
+	if (std::count(std::begin(suites), std::end(suites), true) > 1) {
+		Head("Result");
+		printf("  more than one suite named: the harness runs one a call, give each its own\n");
+		g_failures++;
+		printf("  %d check(s) failed\n", g_failures);
+		dlss.Shutdown();
+		return 4;
+	}
 	if (temporal || temporalOracle || temporalEffect || temporalFlow
 			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale) {
 		int srRefs = 0;   // --srrefs N: only the first N references
