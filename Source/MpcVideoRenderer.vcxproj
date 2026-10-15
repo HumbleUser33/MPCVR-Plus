@@ -71,7 +71,6 @@
     <ClCompile Include="DisplayConfig.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="DX11Helper.cpp" />
-    <ClCompile Include="DLSS\DlssMotionMask.cpp" />
     <ClCompile Include="DLSS\DlssNR.cpp" />
     <ClCompile Include="DLSS\DlssOpticalFlow.cpp" />
     <ClCompile Include="DLSS\DlssStabilizer.cpp" />

@@ -78,9 +78,6 @@
     <FxCompile Include="d3d11\ps_convolution.hlsl">
       <Filter>d3d11</Filter>
     </FxCompile>
-    <FxCompile Include="d3d11\ps_dlss_motion.hlsl">
-      <Filter>d3d11</Filter>
-    </FxCompile>
     <FxCompile Include="d3d11\ps_dlss_stabilize.hlsl">
       <Filter>d3d11</Filter>
     </FxCompile>

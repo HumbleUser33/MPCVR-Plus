@@ -2,9 +2,10 @@
 //
 // Included by harness.cpp after flow_suite.inl. Runs DLSS 5 NR plainly, then the
 // stabilizer of Shaders/d3d11/ps_dlss_stabilize.hlsl in its two variants -- EFFECT
-// filters only out - in, OUTPUT filters the output -- with three sources of motion:
-// the shader detector's age map, NVIDIA Optical Flow, and the true motion. Also
-// Optical Flow vectors given to the network as DLSSNR.MVec. Measures the shimmer
+// filters only out - in, OUTPUT filters the output -- with two sources of motion:
+// NVIDIA Optical Flow and the true motion. Also Optical Flow vectors given to the
+// network as DLSSNR.MVec. The shader detector measured here as a third source until
+// it left the filter. Measures the shimmer
 // (low-frequency frame-to-frame change, compensated by the true motion), how much
 // of the network's effect survives, grain, and the deviation from plain DLSS
 // overall, on edges and where a moving object was.
@@ -25,7 +26,6 @@ public:
 	struct Params {
 		float minCurrent   = 0.25f;   // weight of the current frame where the history is trusted
 		float tolerance    = 0.02f;
-		bool  useFlow      = false;
 		float reprojection = 0.03f;
 		bool  reset        = false;
 		bool  outputMode   = false;
@@ -197,8 +197,8 @@ void CStabilizerPasses::Stabilize(ID3D11DeviceContext* ctx, ID3D11ShaderResource
                                   UINT width, UINT height, const Params& p)
 {
 	const float constants[8] = {
-		p.minCurrent, p.tolerance, p.useFlow ? 1.0f : 0.0f, p.reprojection,
-		p.reset ? 1.0f : 0.0f, p.outputMode ? 1.0f : 0.0f, 0.25f, 0
+		p.minCurrent, p.tolerance, 0, p.reprojection,
+		p.reset ? 1.0f : 0.0f, p.outputMode ? 1.0f : 0.0f, 0, 0
 	};
 	Draw(ctx, m_ps[2], { historyOut, colorOut }, width, height,
 	     { current, network, history, motion, previous, confidence }, constants, std::size(constants));
@@ -212,7 +212,7 @@ struct StabSequence {
 	int   cutAt;    // frame where the view jumps to another part of the picture, or -1
 };
 
-enum StabMotion { MotionNone, MotionDetector, MotionFlow, MotionTruth };
+enum StabMotion { MotionNone, MotionFlow, MotionTruth };
 
 struct StabConfig {
 	const char* name;
@@ -287,18 +287,14 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 	};
 	static const StabConfig measureCfgs[] = {
 		{ "plain",                  MotionNone,     false, false, false, 1.0f,  false },
-		{ "effect, detector",       MotionDetector, true,  false, false, 0.25f, false },
 		{ "effect, optical flow",   MotionFlow,     true,  false, false, 0.25f, false },
 		{ "effect, true motion",    MotionTruth,    true,  false, false, 0.25f, false },
-		{ "output, detector",       MotionDetector, true,  true,  false, 0.25f, false },
 		{ "output, optical flow",   MotionFlow,     true,  true,  false, 0.25f, false },
 		{ "MVec from flow",         MotionFlow,     false, false, true,  1.0f,  false },
 		{ "MVec + effect, flow",    MotionFlow,     true,  false, true,  0.25f, false },
 	};
 	static const StabConfig portCfgs[] = {
 		{ "plain",                  MotionNone,     false, false, false, 1.0f,  false },
-		{ "effect, detector",       MotionDetector, true,  false, false, 0.25f, false },
-		{ "  renderer class",       MotionDetector, true,  false, false, 0.25f, true  },
 		{ "effect, optical flow",   MotionFlow,     true,  false, false, 0.25f, false },
 		{ "  renderer class",       MotionFlow,     true,  false, false, 0.25f, true  },
 		{ "MVec + effect, flow",    MotionFlow,     true,  false, true,  0.25f, false },
@@ -315,9 +311,15 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 		Check(SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))), "WIC factory");
 		std::vector<float> background, objectPicture;
 		std::string error;
+		// The object is a Windows wallpaper the desktop had and the HTPC has not; there it
+		// is the background picture itself, whole and smaller.
+		const wchar_t* objectPath = L"C:\\Windows\\Web\\Wallpaper\\Spotlight\\img14.jpg";
+		if (GetFileAttributesW(objectPath) == INVALID_FILE_ATTRIBUTES) {
+			objectPath = imagePath;
+		}
 		const bool picturesOk = factory
 			&& LoadPicture(factory, imagePath, BW, BH, background, error)
-			&& LoadPicture(factory, L"C:\\Windows\\Web\\Wallpaper\\Spotlight\\img14.jpg", 960, 540, objectPicture, error);
+			&& LoadPicture(factory, objectPath, 960, 540, objectPicture, error);
 		Check(picturesOk, "pictures decoded");
 		if (!picturesOk) {
 			printf("  %s\n", error.c_str());
@@ -325,7 +327,6 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 		}
 
 		CStabilizerPasses passes;
-		CDlssMotionMask detector;
 		CDlssOpticalFlow flow;
 		CDlssStabilizer stabilizer;
 		std::vector<BYTE> shownBytes, redrawBytes;
@@ -353,8 +354,6 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 				&& MakeTarget(dev, W, H, false, finalTex, DXGI_FORMAT_R16G16B16A16_FLOAT)
 				&& MakeTarget(dev, W, H, false, prevInput, DXGI_FORMAT_R16G16B16A16_FLOAT);
 			Check(texturesOk, "textures");
-			const bool detectorOk = SUCCEEDED(detector.Create(dev, W, H));
-			Check(detectorOk, "shader detector");
 			const bool flowOk = flow.Init(dev, ctx, w2, h2, options);
 			Check(flowOk, "Optical Flow at 960x540, grid 4");
 			if (!flowOk) {
@@ -368,7 +367,7 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 				sd.MiscFlags = 0;
 				dev->CreateTexture2D(&sd, nullptr, &stage);
 			}
-			if (!texturesOk || !detectorOk || !flowOk || !stage) {
+			if (!texturesOk || !flowOk || !stage) {
 				rc = 1;
 			}
 		}
@@ -389,8 +388,8 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 			Out("\nPost-DLSS stabilizer on %S (1920x1080 windows) -- %d frames per run, first %d skipped, %s strengths.\n",
 			    imagePath, frames, warm, strong ? "strong (tone 1.00, structure 1.00)" : "default (tone 0.30, structure 0.50)");
 			if (port) {
-				Out("Port check: each \"renderer class\" row runs CDlssStabilizer (embedded shaders, its own Optical Flow or\n");
-				Out("detector, strength 1.0) on the network output of the row above it, and steadies every 5th picture twice.\n");
+				Out("Port check: each \"renderer class\" row runs CDlssStabilizer (embedded shaders, its own Optical Flow,\n");
+				Out("strength 1.0) on the network output of the row above it, and steadies every 5th picture twice.\n");
 			}
 			Out("Grain 1.2/255 and 8x8 block offsets of up to 1.5/255 per frame. Stabilizer: current-frame weight 0.25 where trusted,\n");
 			Out("history clamped to the 3x3 neighbourhood +-0.02. Optical Flow at 960x540, grid 4, medium, both directions.\n");
@@ -422,11 +421,9 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 					dlss.SetGuides(CDlssNR::Guides{});   // before the class's vectors go away
 					stabilizer.Release();
 					if (c.renderer) {
-						const CDlssStabilizer::Motion wanted = (c.motion == MotionFlow)
-							? CDlssStabilizer::Motion::OpticalFlow : CDlssStabilizer::Motion::Detector;
-						if (FAILED(stabilizer.Create(dev, ctx, W, H, wanted, passes.InputLayout(), passes.VertexShader(),
+						if (FAILED(stabilizer.Create(dev, ctx, W, H, passes.InputLayout(), passes.VertexShader(),
 						                             passes.SamplerPoint(), passes.SamplerLinear()))
-						    || stabilizer.ActiveMotion() != wanted) {
+						    || !stabilizer.HasFlow()) {
 							Out("  %-22s could not start the renderer class: %S\n", c.name, stabilizer.GetStatusLine().c_str());
 							g_failures++;
 							continue;
@@ -442,7 +439,6 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 						continue;
 					}
 					dlss.RequestReset();
-					detector.Reset();
 					flow.Reset();
 
 					double flick = 0, effect = 0, grain = 0, devAll = 0, devEdge = 0, devBand = 0;
@@ -533,10 +529,6 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 							ctx->UpdateSubresource(motionTex.pTexture, 0, nullptr, motionHalf.data(), 2 * sizeof(HALF) * W, 0);
 							ctx->UpdateSubresource(confTex.tex, 0, nullptr, confBytes.data(), W, 0);
 							haveMotion = true;
-						} else if (c.motion == MotionDetector) {
-							detector.Process(ctx, texIn.pShaderResource, 1.0f, passes.InputLayout(), passes.VertexShader(),
-							                 passes.SamplerPoint(), passes.SamplerLinear());
-							haveMotion = true;
 						}
 						if (c.mvecToDlss && !c.renderer && !haveMotion) {
 							const FLOAT zero[4] = { 0, 0, 0, 0 };
@@ -568,14 +560,12 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 							CStabilizerPasses::Params sp;
 							sp.minCurrent = c.minCurrent;
 							sp.tolerance = 0.02f;
-							sp.useFlow = (c.motion == MotionFlow || c.motion == MotionTruth);
 							sp.reprojection = (c.motion == MotionFlow) ? 0.03f : 0.0f;
 							sp.outputMode = c.outputMode;
 							sp.reset = !historyValid || !haveMotion;
 							const Target& read = history[historyIndex];
 							const Target& write = history[1 - historyIndex];
-							ID3D11ShaderResourceView* motionView = (c.motion == MotionDetector) ? detector.GetAge() : motionTex.pShaderResource.p;
-							passes.Stabilize(ctx, texIn.pShaderResource, texOut.pShaderResource, read.srv, motionView,
+							passes.Stabilize(ctx, texIn.pShaderResource, texOut.pShaderResource, read.srv, motionTex.pShaderResource,
 							                 prevInput.srv, confTex.srv, write.rtv, finalTex.rtv, W, H, sp);
 							historyIndex = 1 - historyIndex;
 							historyValid = true;
@@ -713,7 +703,7 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 }
 
 // --tstabbench: what the renderer's CDlssStabilizer costs per picture, run the way
-// DlssNRPass runs it, with each motion source.
+// DlssNRPass runs it, with Optical Flow at each divider the page offers.
 static int RunStabBench(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 {
 	Head("Temporal suite: stabilizer cost");
@@ -787,10 +777,12 @@ static int RunStabBench(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 			continue;
 		}
 
-		for (const CDlssStabilizer::Motion motion : { CDlssStabilizer::Motion::OpticalFlow, CDlssStabilizer::Motion::Detector }) {
+		for (const UINT divider : { 4u, 3u, 2u, 1u }) {
 			CDlssStabilizer stabilizer;
-			if (FAILED(stabilizer.Create(dev, ctx, sz.w, sz.h, motion, passes.InputLayout(), passes.VertexShader(),
-			                             passes.SamplerPoint(), passes.SamplerLinear()))) {
+			CDlssStabilizer::FlowSettings flow;
+			flow.flowFactor = divider;
+			if (FAILED(stabilizer.Create(dev, ctx, sz.w, sz.h, passes.InputLayout(), passes.VertexShader(),
+			                             passes.SamplerPoint(), passes.SamplerLinear(), false, flow))) {
 				Out("  %-10s could not create the stabilizer\n", sz.name);
 				g_failures++;
 				continue;

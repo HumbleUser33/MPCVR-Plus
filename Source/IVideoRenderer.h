@@ -131,10 +131,12 @@ constexpr inline auto DLSSNR_SKIN_MIN  = -100;
 constexpr inline auto DLSSNR_STAB_MIN  = 0;
 constexpr inline auto DLSSNR_STAB_MAX  = 100;
 constexpr inline auto DLSSNR_STAB_DEF  = 100;
-// Where the stabilizer takes motion from.
-constexpr inline auto DLSSNR_MOTION_DETECTOR    = 0;   // shader detector: still areas only
-constexpr inline auto DLSSNR_MOTION_OPTICALFLOW = 1;   // NVIDIA Optical Flow: moving areas too
-constexpr inline auto DLSSNR_MOTION_DEF         = DLSSNR_MOTION_OPTICALFLOW;
+// What the picture is divided by for the stabilizer's NVIDIA Optical Flow: 4, 3, 2,
+// or 1 for the working size itself. 2 is what a 1080p film always ran with, at
+// 960x540.
+constexpr inline auto DLSSNR_FLOW_MIN  = 1;
+constexpr inline auto DLSSNR_FLOW_MAX  = 4;
+constexpr inline auto DLSSNR_FLOW_DEF  = 2;
 // The size DLSS 5 NR works at, per cent of the picture's each way. The network costs
 // in proportion to the pixels it is given; below 100 it runs on the picture reduced,
 // and the change it made is carried back onto the picture at its own size
@@ -224,12 +226,14 @@ struct Settings_t {
 	int  iDlssNRLocalStructure;
 	int  iDlssNRSkinStructure;
 	bool bDlssNRAutoMask;
-	// The network blends with its own previous output, which does not follow the
-	// motion of the video; left alone, that blend measures the same as no history.
+	// Retired, and kept where it is, Settings_t being append-only: nothing reads it.
+	// It forced DLSSNR.Reset on every picture; the network's own blend with its last
+	// output measures the same as no history, and the box is gone from the page.
 	bool bDlssNRNoHistory;
 	// Temporal stabilizer after the network, DLSSNR_STAB_*; 0 = off.
 	int  iDlssNRStabilizer;
-	// Its motion source, DLSSNR_MOTION_*.
+	// Retired the same way: the stabilizer's motion source, when a shader detector
+	// could stand in for NVIDIA Optical Flow. Optical Flow is the only one left.
 	int  iDlssNRMotion;
 	// Optical Flow vectors given to the network as DLSSNR.MVec as well.
 	bool bDlssNRMotionVectors;
@@ -282,6 +286,10 @@ struct Settings_t {
 	// DLSS 5 NR at this share of the picture's size, DLSSNR_SCALE_*: 100 runs it at
 	// the size itself. On the DLSS 5 page, so CopyDlssSettings carries it.
 	int  iDlssNRWorkingScale;
+
+	// What the working picture is divided by for the stabilizer's Optical Flow,
+	// DLSSNR_FLOW_*. DLSS Super Resolution keeps its own, about 540 lines.
+	int  iDlssNRFlowDivider;
 
 	Settings_t() {
 		SetDefault();
@@ -349,7 +357,7 @@ struct Settings_t {
 		bDlssNRNoHistory                = false;
 		bDlssNRAfterUpscale             = false;
 		iDlssNRStabilizer               = DLSSNR_STAB_DEF;
-		iDlssNRMotion                   = DLSSNR_MOTION_DEF;
+		iDlssNRMotion                   = 1;   // retired: Optical Flow, as it always is now
 		bDlssNRMotionVectors            = false;
 		iDlssNRToggleKey                = VK_F12;
 		szDlssNRDllPath[0]              = L'\0';
@@ -362,6 +370,7 @@ struct Settings_t {
 		bDlssRenderAhead                = true;
 		iVideoDelay                     = 0;
 		iDlssNRWorkingScale             = DLSSNR_SCALE_DEF;
+		iDlssNRFlowDivider              = DLSSNR_FLOW_DEF;
 	}
 };
 
@@ -378,12 +387,11 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 	dst.iDlssNRLocalStructure = src.iDlssNRLocalStructure;
 	dst.iDlssNRSkinStructure  = src.iDlssNRSkinStructure;
 	dst.bDlssNRAutoMask       = src.bDlssNRAutoMask;
-	dst.bDlssNRNoHistory      = src.bDlssNRNoHistory;
 	dst.iDlssNRStabilizer     = src.iDlssNRStabilizer;
-	dst.iDlssNRMotion         = src.iDlssNRMotion;
 	dst.bDlssNRMotionVectors  = src.bDlssNRMotionVectors;
 	dst.bDlssNRAfterUpscale   = src.bDlssNRAfterUpscale;
 	dst.iDlssNRWorkingScale   = src.iDlssNRWorkingScale;
+	dst.iDlssNRFlowDivider    = src.iDlssNRFlowDivider;
 	dst.iDlssNRToggleKey      = src.iDlssNRToggleKey;
 	wcscpy_s(dst.szDlssNRDllPath, src.szDlssNRDllPath);
 	dst.bDlssSR               = src.bDlssSR;

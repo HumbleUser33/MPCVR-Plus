@@ -1,14 +1,10 @@
 // The stabilizer's shaders, embedded the way the filter embeds them
-// (Source\res\MpcVideoRenderer.rc2), so the harness runs CDlssMotionMask,
-// CDlssStabilizer and CDlssCompose unchanged.
+// (Source\res\MpcVideoRenderer.rc2), so the harness runs CDlssStabilizer and
+// CDlssCompose unchanged.
 // build.cmd compiles the .cso files next to this script first.
 
 #include "..\\..\\Source\\resource.h"
 
-IDF_PS_11_DLSS_MOTION_LUMA      FILE    "ps_dlss_motion_luma.cso"
-IDF_PS_11_DLSS_MOTION_DIFF      FILE    "ps_dlss_motion_diff.cso"
-IDF_PS_11_DLSS_MOTION_AGE       FILE    "ps_dlss_motion_age.cso"
-IDF_PS_11_DLSS_MOTION_MASK      FILE    "ps_dlss_motion_mask.cso"
 IDF_PS_11_DLSS_STAB_FLOWFRAME   FILE    "ps_dlss_stab_flowframe.cso"
 IDF_PS_11_DLSS_STAB_FLOWMOTION  FILE    "ps_dlss_stab_flowmotion.cso"
 IDF_PS_11_DLSS_STAB_STABILIZE   FILE    "ps_dlss_stab_stabilize.cso"

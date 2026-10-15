@@ -42,9 +42,6 @@
     <ClCompile Include="DX9VideoProcessor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DLSS\DlssMotionMask.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="DLSS\DlssNR.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

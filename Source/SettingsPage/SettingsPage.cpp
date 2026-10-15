@@ -76,6 +76,12 @@ static std::wstring StabilizerText(int value)
 	return value ? std::to_wstring(value) : std::wstring(L"off");
 }
 
+// What the stabilizer's Optical Flow divides the working picture by; 1 is the picture itself.
+static std::wstring FlowDividerText(int divider)
+{
+	return divider > 1 ? std::to_wstring(divider) : std::wstring(L"Full");
+}
+
 // DLSS 5 NR's working size, per cent of the picture's.
 static std::wstring ScaleText(int value)
 {
@@ -328,19 +334,20 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		L"Steadies the network's effect over time, after it runs, so the\n"
 		"video is never delayed. Removes most of the shimmer DLSS adds.\n"
 		"100 is the measured setting; 0 runs nothing." },
-	{ IDC_COMBO14,
-		L"Where the stabilizer takes motion from.\n"
-		"Optical Flow follows the picture, so moving areas are steadied\n"
-		"too: 2.8 ms a picture at 1080p against 0.8 for the shader\n"
-		"detector, which only steadies what stands still." },
+	{ IDC_SLIDER10,
+		L"What the picture the network works on is divided by before\n"
+		"NVIDIA Optical Flow measures the motion the stabilizer follows.\n"
+		"4 is the coarsest and cheapest, Full the picture itself: on a\n"
+		"1080p film, 480x270, 640x360, 960x540 or 1920x1080. 2 is what\n"
+		"the stabilizer always ran with on 1080p.\n"
+		"On a 4K film frame, from 270 to 864 lines the result moved by\n"
+		"0.17 dB at most, and Optical Flow took 0.6 to 2.1 ms.\n"
+		"Taken on Apply, from the next picture." },
 	{ IDC_CHECK24,
 		L"Also gives the Optical Flow vectors to the network itself.\n"
 		"Steadier, but the network renders differently around moving\n"
 		"objects.\n"
-		"Needs Optical Flow and a stabilizer above 0." },
-	{ IDC_CHECK22,
-		L"Makes the network ignore its own previous output every frame.\n"
-		"The stabilizer is not affected: it works after the network." },
+		"Needs a stabilizer above 0." },
 	{ IDC_BUTTON3,
 		L"Back to the measured tuning. Whether DLSS is on, its key, the\n"
 		"DLL paths and the working size, which is the card's, are left\n"
@@ -654,8 +661,6 @@ void CVRSettingsPPage::FillCombos()
 		Combo_AddData(Item(IDC_COMBO12), std::format(L"Preset {}", i).c_str(), i);
 	}
 
-	Combo_AddData(Item(IDC_COMBO14), L"NVIDIA Optical Flow", DLSSNR_MOTION_OPTICALFLOW);
-	Combo_AddData(Item(IDC_COMBO14), L"Shader detector (still areas)", DLSSNR_MOTION_DETECTOR);
 
 	Combo_AddData(Item(IDC_COMBO15), L"Automatic", DLSSSR_PRESET_DEF);
 	for (int preset = DLSSSR_PRESET_J; preset <= DLSSSR_PRESET_M; preset++) {
@@ -700,6 +705,10 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_SLIDER7, TBM_SETRANGE, 0, MAKELONG(DLSSNR_STAB_MIN, DLSSNR_STAB_MAX));
 	Send(IDC_SLIDER7, TBM_SETLINESIZE, 0, 1);
 	Send(IDC_SLIDER7, TBM_SETPAGESIZE, 0, 10);
+	// 4, 3, 2 and Full from left to right: the position is how much finer than 4.
+	Send(IDC_SLIDER10, TBM_SETRANGE, 0, MAKELONG(0, DLSSNR_FLOW_MAX - DLSSNR_FLOW_MIN));
+	Send(IDC_SLIDER10, TBM_SETLINESIZE, 0, 1);
+	Send(IDC_SLIDER10, TBM_SETPAGESIZE, 0, 1);
 	// In steps of the slider's: the positions are the steps.
 	Send(IDC_SLIDER9, TBM_SETRANGE, 0, MAKELONG(DLSSNR_SCALE_MIN / DLSSNR_SCALE_STEP, DLSSNR_SCALE_MAX / DLSSNR_SCALE_STEP));
 	Send(IDC_SLIDER9, TBM_SETLINESIZE, 0, 1);
@@ -774,13 +783,11 @@ void CVRSettingsPPage::SetControls()
 
 	SetCheck(IDC_CHECK20, m_SetsPP.bDlssNR);
 	SetCheck(IDC_CHECK21, m_SetsPP.bDlssNRAutoMask);
-	SetCheck(IDC_CHECK22, m_SetsPP.bDlssNRNoHistory);
 	SetCheck(IDC_CHECK23, m_SetsPP.bDlssNRAfterUpscale);
 	SetCheck(IDC_CHECK24, m_SetsPP.bDlssNRMotionVectors);
 	Combo_SelectData(Item(IDC_COMBO11), m_SetsPP.iDlssNRStyle);
 	Combo_SelectData(Item(IDC_COMBO12), m_SetsPP.iDlssNRPreset);
 	Combo_SelectData(Item(IDC_COMBO13), m_SetsPP.iDlssNRToggleKey);
-	Combo_SelectData(Item(IDC_COMBO14), m_SetsPP.iDlssNRMotion);
 
 	const struct { int idSlider; int idEdit; int value; bool bStrength; } sliders[] = {
 		{ IDC_SLIDER3, IDC_EDIT3, m_SetsPP.iDlssNRIntensity,      true  },
@@ -793,6 +800,8 @@ void CVRSettingsPPage::SetControls()
 		Send(s.idSlider, TBM_SETPOS, TRUE, (LPARAM)s.value);
 		SetText(s.idEdit, (s.bStrength ? StrengthText(s.value) : StabilizerText(s.value)).c_str());
 	}
+	Send(IDC_SLIDER10, TBM_SETPOS, TRUE, (LPARAM)(DLSSNR_FLOW_MAX - m_SetsPP.iDlssNRFlowDivider));
+	SetText(IDC_EDIT12, FlowDividerText(m_SetsPP.iDlssNRFlowDivider).c_str());
 	Send(IDC_SLIDER9, TBM_SETPOS, TRUE, (LPARAM)(m_SetsPP.iDlssNRWorkingScale / DLSSNR_SCALE_STEP));
 	SetText(IDC_EDIT11, ScaleText(m_SetsPP.iDlssNRWorkingScale).c_str());
 	SetText(IDC_EDIT7, m_SetsPP.szDlssNRDllPath);
@@ -867,7 +876,7 @@ void CVRSettingsPPage::EnableControls()
 	for (const int id : { IDC_CHECK20, IDC_STATIC27, IDC_EDIT7, IDC_BUTTON2, IDC_STATIC29, IDC_COMBO13 }) {
 		Enable(id, bD3D11);
 	}
-	for (const int id : { IDC_CHECK21, IDC_CHECK22, IDC_CHECK23, IDC_COMBO11, IDC_COMBO12,
+	for (const int id : { IDC_CHECK21, IDC_CHECK23, IDC_COMBO11, IDC_COMBO12,
 			IDC_SLIDER3, IDC_SLIDER4, IDC_SLIDER5, IDC_SLIDER6,
 			IDC_EDIT3, IDC_EDIT4, IDC_EDIT5, IDC_EDIT6,
 			IDC_STATIC21, IDC_STATIC22, IDC_STATIC23, IDC_STATIC24, IDC_STATIC25, IDC_STATIC26,
@@ -875,12 +884,14 @@ void CVRSettingsPPage::EnableControls()
 		Enable(id, bNROn);
 	}
 	// The stabilizer works after the network, whatever its own history does.
-	for (const int id : { IDC_STATIC31, IDC_STATIC32, IDC_SLIDER7, IDC_EDIT8, IDC_STATIC34, IDC_COMBO14 }) {
+	for (const int id : { IDC_STATIC31, IDC_STATIC32, IDC_SLIDER7, IDC_EDIT8 }) {
 		Enable(id, bNROn);
 	}
-	// Vectors exist only with Optical Flow, and only while the stabilizer runs.
-	Enable(IDC_CHECK24, bNROn && m_SetsPP.iDlssNRStabilizer > 0
-		&& m_SetsPP.iDlssNRMotion == DLSSNR_MOTION_OPTICALFLOW);
+	// Optical Flow and its vectors run only while the stabilizer does.
+	const BOOL bStabOn = bNROn && m_SetsPP.iDlssNRStabilizer > 0;
+	for (const int id : { IDC_STATIC_FLOW_DIVIDER, IDC_SLIDER10, IDC_EDIT12, IDC_CHECK24 }) {
+		Enable(id, bStabOn);
+	}
 
 	// DLSS Super Resolution does not depend on DLSS 5 NR: another DLL, another session.
 	for (const int id : { IDC_CHECK25, IDC_STATIC35, IDC_STATIC37, IDC_EDIT9, IDC_BUTTON4 }) {
@@ -1127,7 +1138,6 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK19, &m_SetsPP.bVPRTXVideoHDR,       false },
 				{ IDC_CHECK20, &m_SetsPP.bDlssNR,              true  },
 				{ IDC_CHECK21, &m_SetsPP.bDlssNRAutoMask,      false },
-				{ IDC_CHECK22, &m_SetsPP.bDlssNRNoHistory,     false },
 				{ IDC_CHECK23, &m_SetsPP.bDlssNRAfterUpscale,  false },
 				{ IDC_CHECK24, &m_SetsPP.bDlssNRMotionVectors, false },
 				{ IDC_CHECK25, &m_SetsPP.bDlssSR,              true  },
@@ -1245,7 +1255,6 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_COMBO11, &m_SetsPP.iDlssNRStyle,     false },
 				{ IDC_COMBO12, &m_SetsPP.iDlssNRPreset,    false },
 				{ IDC_COMBO13, &m_SetsPP.iDlssNRToggleKey, false },
-				{ IDC_COMBO14, &m_SetsPP.iDlssNRMotion,    true  },
 				{ IDC_COMBO15, &m_SetsPP.iDlssSRPreset,    false },
 			};
 			for (const auto& c : byData) {
@@ -1354,6 +1363,15 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 
 		// The DLSS sliders are not applied on drag: a settings round-trip per pixel
 		// of travel would recreate state on every mouse move.
+		if (hCtrl == Item(IDC_SLIDER10)) {
+			const int value = DLSSNR_FLOW_MAX - (int)Send(IDC_SLIDER10, TBM_GETPOS);
+			if (value != m_SetsPP.iDlssNRFlowDivider) {
+				m_SetsPP.iDlssNRFlowDivider = value;
+				SetText(IDC_EDIT12, FlowDividerText(value).c_str());
+				SetDirty();
+			}
+			return (INT_PTR)1;
+		}
 		if (hCtrl == Item(IDC_SLIDER9)) {
 			const int value = (int)Send(IDC_SLIDER9, TBM_GETPOS) * DLSSNR_SCALE_STEP;
 			if (value != m_SetsPP.iDlssNRWorkingScale) {

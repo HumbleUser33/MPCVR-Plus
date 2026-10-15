@@ -16,11 +16,12 @@
 //
 // --timage picks the picture; give it a 3840x2160 film frame (upscale_refs\4K1.png).
 //
-// The stabilizer's Optical Flow works on the picture reduced by a whole factor that
-// FlowFactor picks from the working height (1, 2 or 4: about 540 lines). --nrflow N
-// forces N at every working size below the full one, and runs the difference method
-// alone: what the flow's size does to the stabilizer, on the moving object above all,
-// and what it costs.
+// Without --nrflow the stabilizer's Optical Flow takes FlowFactor's whole factor, 1, 2
+// or 4 from the working height for about 540 lines: the rule DLSS SR keeps, and the
+// one DLSS 5 NR had before its divider went on the page. --nrflow N (1 to 4, the
+// page's divider) forces N at every working size below the full one, and runs the
+// difference method alone: what the flow's size does to the stabilizer, on the moving
+// object above all, and what it costs.
 
 #include "DLSS/DlssCompose.h"
 
@@ -287,12 +288,12 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 			}
 			CDlssStabilizer::FlowSettings flow;
 			if (workW != fullW || workH != fullH) {
-				flow.flowFactor = (UINT)flowFactor;   // 0: FlowFactor, as the filter
+				flow.flowFactor = (UINT)flowFactor;   // 0: FlowFactor
 			}
-			if (FAILED(stabilizer.Create(dev, ctx, workW, workH, CDlssStabilizer::Motion::OpticalFlow,
+			if (FAILED(stabilizer.Create(dev, ctx, workW, workH,
 			                             passes.InputLayout(), passes.VertexShader(), passes.SamplerPoint(), passes.SamplerLinear(),
 			                             false, flow))
-					|| stabilizer.ActiveMotion() != CDlssStabilizer::Motion::OpticalFlow) {
+					|| !stabilizer.HasFlow()) {
 				Out("  the stabilizer at %ux%u did not start on Optical Flow: %S\n", workW, workH, stabilizer.GetStatusLine().c_str());
 				return false;
 			}

@@ -238,7 +238,7 @@ private:
 	CComPtr<ID3D11RenderTargetView> m_pDlssInTarget;   // where the reduction writes the network's input
 	Tex2D_t m_TexDlssPicture;           // the picture on its own, when it is a part of a larger texture
 	CSize m_DlssNRPictureSize;
-	int  m_iDlssNRMotion = DLSSNR_MOTION_DEF;
+	int  m_iDlssNRFlowDivider = DLSSNR_FLOW_DEF;   // its Optical Flow on the working picture divided by this
 	bool m_bDlssNRMotionVectors = false; // Optical Flow vectors to the network as well
 	bool m_bDlssNewPicture = false;     // the next DLSS pass sees a new picture, not a redraw
 	// A session whose evaluation failed is started again, a moment later and no more
@@ -401,10 +401,11 @@ private:
 	void NoteSwapChainForTrace();
 	void NoteDlssForTrace();
 
-	CDlssStabilizer::Motion DlssMotionSource() const
+	CDlssStabilizer::FlowSettings DlssNRFlow() const
 	{
-		return (m_iDlssNRMotion == DLSSNR_MOTION_DETECTOR)
-			? CDlssStabilizer::Motion::Detector : CDlssStabilizer::Motion::OpticalFlow;
+		CDlssStabilizer::FlowSettings flow;
+		flow.flowFactor = (UINT)m_iDlssNRFlowDivider;
+		return flow;
 	}
 	D3D_FEATURE_LEVEL m_FeatureLevel = D3D_FEATURE_LEVEL_10_0;
 

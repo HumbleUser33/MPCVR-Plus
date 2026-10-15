@@ -105,7 +105,7 @@ Compare the report with `tools/dlssnr_probe/baseline/`. "0 failures" is necessar
 sufficient — the numbers are what tell you nothing regressed.
 
 The tools compile the filter's own sources, so they measure the shipped code, not a copy of
-it. `--tport`, `--tstabport`, `--tsrport` and `--tmpvport` run the filter's code and the
+it. `--tstabport`, `--tsrport` and `--tmpvport` run the filter's code and the
 harness's own on the same picture and require the same result to the last half float.
 `--tdownport` does it for the downscaling shaders against the kernels they are written from.
 

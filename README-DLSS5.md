@@ -45,7 +45,7 @@ the feature is off, and the rendering is bit-identical to upstream in that state
 | OS | Windows 10 1703 or later (shared fences), x64 only |
 | Player | MPC-BE or any DirectShow player that lets you force a renderer |
 | DLL | `nvngx_dlssnr.dll` — **not included, see below** |
-| Optical Flow | `nvofapi64.dll`, installed with the NVIDIA driver (RTX 20 series and later). Optional: without it the stabilizer uses its shader detector |
+| Optical Flow | `nvofapi64.dll`, installed with the NVIDIA driver (RTX 20 series and later). Optional: without it nothing is steadied, and the statistics say why |
 | DLSS Super Resolution | Optional: `nvngx_dlss.dll` 310.5 or later (DLSS 4.5), from the public [NVIDIA/DLSS](https://github.com/NVIDIA/DLSS) repository (`lib/Windows_x86_64/rel`). Developed with 310.9.1 |
 
 ### The DLL is not in this repository
@@ -181,7 +181,7 @@ The same handling, shorter, in each way it can be set up:
 | the shaders converting instead of the video processor | 1 131 | 1 015 |
 | after upscaling, at 3840x2160 | 1 014 | 482 |
 | without the stabilizer | 1 152 | 1 047 |
-| the stabilizer on the shader detector | 1 151 | 1 047 |
+| the stabilizer on the shader detector, since removed | 1 151 | 1 047 |
 | Optical Flow, vectors not given to the network | 1 151 | 1 047 |
 | DLSS Super Resolution after it | 1 137 | 1 033, and DLSS SR on 1 106 |
 | a 4K HDR film at 23.976 fps, the network at 3840x1600 | 1 010 | 480 |
@@ -308,19 +308,22 @@ says how much room is left. A new working size is taken on Apply, and the networ
 again at it: seven pictures went undrawn in the bench while it did
 (`playback_test --nrscale 100 --nrscaleto 70`).
 
-The stabilizer's Optical Flow follows the working size. It works on the working picture
-reduced by a whole factor, 1, 2 or 4, which `FlowFactor` takes from the height to stay near 540
-lines, so the flow's size jumps as the slider moves: on a 3840x2160 film, 960x540 at 100 %,
-672x378 at 70 %, 1248x702 at 65 %, 960x540 again at 50 %; on a 1920x1080 one, 960x540 at
-100 %, 672x378 at 70 % and 1248x702 at 65 %. `--tnrscale --nrflow N` forces the factor at
-every working size. From 270 to 864 lines of flow, on the still picture, the pan and a
-1152x768 object moving over the picture, the result moved by 0.17 dB at most and not in the
-order of the flow's size; what the stabilizer drags across the moving object (`obj dev`, its
-mean distance from the network without it) went down by 0.0001 at most with the finest flow,
-a fortieth of an 8-bit level, and by nothing below 65 %, where going from 80 to 55 % adds
-0.0004. Optical Flow
-took 0.6 ms at 480x270 and 2.1 ms at 1728x972, the factor as it is 0.8 to 1.4. The jump is
-left as it is.
+The stabilizer's Optical Flow works on the working picture divided by *Optical Flow
+Resolution Divider*, so its size follows the working size too: at 2, on a 3840x2160 film,
+1920x1080 at 100 % and 1056x594 at 55 %. Until the divider was put on the page, `FlowFactor`
+chose 1, 2 or 4 from the height to stay near 540 lines, and the flow's size jumped as the
+working size moved (672x378 at 70 %, 1248x702 at 65 %); DLSS Super Resolution keeps that rule
+for its own flow. A source under 720 lines had its flow at its own size under that rule; at 2
+it is half of it, 360x288 for 720x576.
+
+`--tnrscale --nrflow N` forces the divider at every working size below the full one. From 270
+lines of flow to the working picture itself, 2112x1188 to 3072x1728, on the still picture, the
+pan and a 1152x768 object moving over the picture, the result moved by half a decibel at most,
+on the pan, where the finest flow came lowest; what the stabilizer drags across the moving
+object (`obj dev`, its mean distance from the network without it) went down by 0.0001 at most
+with a finer flow, a fortieth of an 8-bit level, where going from 80 to 55 % adds 0.0004.
+Optical Flow took 0.6 ms at 480x270, 2.1 ms at 1728x972 and 6.8 ms at 3456x1944, Full at 90 %.
+So the divider is left to the viewer, and 2 keeps a 1080p film where it always was.
 
 ---
 
@@ -352,19 +355,20 @@ So the stabilizer works **after** the network and never touches its inputs
    enhancement.
 2. **The history is clamped** to the range of E in the current 3×3 neighbourhood, ± 0.02, so a
    wrong motion estimate cannot drag old values far.
-3. **Motion** comes from one of two sources, chosen on the page:
-   - **NVIDIA Optical Flow** (default): forward and backward flow from the driver's
-     `nvofapi64.dll`, computed at about 540 lines whatever the video (4×4 grid, medium
-     quality). The history is moved along the vectors, so moving areas are steadied too. A
-     vector is trusted according to its forward/backward consistency, its matching cost, and
-     how well the previous input, moved along it, matches the current one; where trust falls,
-     the network's output for that picture is used as it is.
-   - **Shader detector**: the four passes of the first version (`ps_dlss_motion.hlsl`) at a
-     quarter of the resolution, with a noise floor measured on the video, a dilation and an
-     8-picture hold. It has no vectors, so it steadies only what stands still.
+3. **Motion** comes from **NVIDIA Optical Flow**: forward and backward flow from the driver's
+   `nvofapi64.dll` (4×4 grid, medium quality), computed on the working picture divided by
+   *Optical Flow Resolution Divider* -- 4, 3, 2 or Full, 2 by default, which on a 1080p film
+   is the 960x540 the stabilizer always ran with. The history is moved along the vectors, so
+   moving areas are steadied too. A vector is trusted according to its forward/backward
+   consistency, its matching cost, and how well the previous input, moved along it, matches
+   the current one; where trust falls, the network's output for that picture is used as it is.
 
-   If Optical Flow cannot start (a GPU older than RTX 20, an old driver) or keeps failing,
-   the detector takes over; the statistics and the page's status line say which one runs.
+   If Optical Flow cannot start (a GPU older than RTX 20, an old driver), nothing is
+   steadied: every picture goes through as the network left it, and the statistics and the
+   page's status line say why. Until 2026-10-15 a shader detector stood in, and could be
+   chosen instead: four passes at a quarter of the resolution, with a noise floor measured
+   on the video, a dilation and an 8-picture hold. Without vectors it steadied only what
+   stood still (its row below), and it was removed with its setting.
 4. **Optionally**, the Optical Flow vectors also go to the network as `DLSSNR.MVec`.
 
 Only a new picture moves the history on. A redraw — paused video, the OSD, a change that
@@ -398,21 +402,31 @@ in the filter, measures exactly what the reference passes measure — every sequ
 motion source, vectors to DLSS included — and each of 285 redraws shows, bit for bit, what
 its picture showed.
 
-Cost on an RTX 3050 (`--tstabbench`, GPU time per picture):
+Cost on an RTX 3050 (`--tstabbench`, GPU time per picture), before the detector was removed:
 
 | Working size | Optical Flow | of which flow and vectors | Shader detector |
 |---|---|---|---|
 | 1920×1080 | 2.8 ms | 2.2 ms | 0.8 ms |
 | 3840×2160 | 5.5 ms | 3.0 ms | 2.9 ms |
 
+And on the RTX 4060 at each *Optical Flow Resolution Divider*, Optical Flow with its passes
+and the stabilizer together (`--tstabbench`, a moving picture, the flow's size in brackets):
+
+| Working size | 4 | 3 | 2 | Full |
+|---|---|---|---|---|
+| 1920×1080 | 1.12 ms (480x270) | 1.24 ms (640x360) | 1.37 ms (960x540) | 2.73 ms (1920x1080) |
+| 3840×2160 | 2.88 ms (960x540) | 3.22 ms (1280x720) | 4.11 ms (1920x1080) | 9.68 ms (3840x2160) |
+
 The CPU side stays under half a millisecond: nothing waits for the GPU. Memory: about 95 MB
 at 1080p — the history, two input copies and the result at the working size — and 375 MB at
 2160p, plus the Optical Flow engine's own buffers. With the stabilizer at 0, nothing is
 allocated and nothing runs.
 
-The detector itself was validated against a perfect motion map on synthetic sequences
-(`--tdetect`): no lag on fades and slow pans, no added smear around moving objects, and
-repeated pictures (variable frame rates, 25p stored as 50p) handled like the perfect map.
+The detector was validated against a perfect motion map on synthetic sequences (`--tdetect`,
+removed with it): no lag on fades and slow pans, no added smear around moving objects, and
+repeated pictures (variable frame rates, 25p stored as 50p) handled like the perfect map. It
+was still the weaker of the two everywhere anything moved, and the page offered it beside
+Optical Flow, which every card DLSS 5 NR runs on has.
 
 ---
 
@@ -1480,9 +1494,8 @@ it serves the luma prescalers as much as DLSS, so it sits on the **Settings** pa
 | Local struct. | 0.50 | |
 | Skin struct. | 0.90 | |
 | Stabilizer | 100 | 0–100. Where the history is trusted, the current picture weighs from 1 down to 0.25 at 100, the measured setting. 0 runs nothing. Applies live |
-| Motion | NVIDIA Optical Flow | Or *Shader detector (still areas)*. Applies on the next picture |
-| Send the motion vectors to DLSS | off | Optical Flow only. Steadier, but the network renders differently around moving objects |
-| Disable temporal history | off | Forces `DLSSNR.Reset` every frame. The stabilizer is not affected |
+| Optical Flow Resolution Divider | 2 | 4, 3, 2 or Full: what the working picture is divided by before Optical Flow measures its motion. See *A working size below the picture's* for what it changes. Applies on the next picture |
+| Send the motion vectors to DLSS | off | Needs the stabilizer. Steadier, but the network renders differently around moving objects |
 | Working size | 100 % | 50–100 %, in steps of 5. See *A working size below the picture's*: the network runs on the picture reduced, and its change is carried back onto the picture. Taken on Apply, which starts the network again. Registry `DlssNRWorkingScale` |
 | Use DLSS SR 4.5 for upscaling | off | See above: not perfect yet, which is why the box it sits in says so. Greys the Upscaling list while it is on |
 | Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p. Needs *Use DLSS SR* |
@@ -1512,8 +1525,8 @@ And under the Chroma upsampling list:
 | Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Disabled |
 | Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Request Super Resolution* greys while this is ticked, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
 
-**Default** on the **DLSS 5 NR** tab resets the tuning, from Style to Disable temporal history, motion
-settings and the DLSS SR preset; it leaves Enable, Use DLSS SR, the key, both DLL paths, the
+**Default** on the **DLSS 5 NR** tab resets the tuning, from Style to the stabilizer, its Optical
+Flow divider and the vectors, and the DLSS SR preset; it leaves Enable, Use DLSS SR, the key, both DLL paths, the
 working size, which is what the card can carry, and render ahead, which belongs to the Settings
 page, alone. Applying the page sends only what was changed on it, so it never undoes the
 toggle key or the main page, and the main page leaves these settings alone.
@@ -1563,16 +1576,12 @@ returns the statistics as they are drawn on the picture, for tools that log them
 ## Known limitations
 
 **Some shimmer remains.** With Optical Flow about 1.1× the input's flicker is left on moving
-content, and the shader detector leaves moving areas as the network rendered them. Lowering
-**Local tone** and **Local struct.** still helps, which is why they default low.
+content. Lowering **Local tone** and **Local struct.** still helps, which is why they default
+low.
 
 **Where Optical Flow is unsure** — large flat or dark areas, occlusions, transparency — trust
 falls and those pixels get the network's output for that picture alone. The clamp keeps any
 mistake within the local range of the effect.
-
-**Motion the detector misses.** In detector mode, motion finer than the noise over nearly
-flat areas can go undetected, and the steadied effect then lags behind it. Use Optical Flow,
-or lower the stabilizer.
 
 **Memory.** ~500 MB of VRAM at 1080p for DLSS, more at higher resolutions, plus a 159 MB
 module resident while the session is up. The stabilizer adds about 95 MB at 1080p and 375 MB
@@ -1623,21 +1632,18 @@ It should end with `0 check(s) failed`.
 Its temporal suites measure the network on sequences whose true motion is known, and write
 their tables next to the program. Run them from `tools/dlssnr_probe`: the reference passes
 compile the shaders from `Shaders/d3d11`, and `build.cmd` also embeds them the way the filter
-does, so the filter's own classes (`DlssMotionMask.cpp`, `DlssOpticalFlow.cpp`,
-`DlssStabilizer.cpp`) run unchanged.
+does, so the filter's own classes (`DlssOpticalFlow.cpp`, `DlssStabilizer.cpp`,
+`DlssCompose.cpp`) run unchanged.
 
 ```
 dlssnr_harness.exe --temporal     motion vector conventions, depth, history
 dlssnr_harness.exe --tmask        ControlMask values on still and moving content
 dlssnr_harness.exe --toracle      a perfect motion map as the mask
-dlssnr_harness.exe --tdetect      the shader detector against that map
-dlssnr_harness.exe --tport        the filter's detector class against the harness detector
-dlssnr_harness.exe --tbench       what the detector costs at 1080p and 2160p
 dlssnr_harness.exe --teffect      how much of the effect each ControlMask value leaves
 dlssnr_harness.exe --tflow        NVIDIA Optical Flow: direction, units, accuracy, timings
 dlssnr_harness.exe --tstab        the post-DLSS stabilizer variants on real pictures
 dlssnr_harness.exe --tstabport    the filter's stabilizer class against those passes, redraws included
-dlssnr_harness.exe --tstabbench   what the stabilizer costs at 1080p and 2160p
+dlssnr_harness.exe --tstabbench   what the stabilizer costs at 1080p and 2160p, at each Optical Flow divider
 dlssnr_harness.exe --tnrscale     DLSS 5 NR at a working size: each way of carrying its change back, and the cost
                                   (--nrflow N: the stabilizer's Optical Flow at N working pixels per flow pixel)
 dlssnr_harness.exe --tpipeline    the whole DLSS chain as the renderer runs it: CPU and GPU time per stage

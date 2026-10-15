@@ -192,7 +192,7 @@ static int RunPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dls
 			bool ok = true;
 			if (config.nr) {
 				ok = MakeSharedPair(dev, nrIn, nrOut, W, H) && dlss.CreateFeature(nrIn.pTexture, nrOut.pTexture, W, H, params)
-					&& SUCCEEDED(stabilizer.Create(dev, ctx, W, H, CDlssStabilizer::Motion::OpticalFlow,
+					&& SUCCEEDED(stabilizer.Create(dev, ctx, W, H,
 						stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear()));
 			}
 			Tex2D_t plainIn;
@@ -201,7 +201,7 @@ static int RunPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dls
 			}
 			if (ok && config.sr) {
 				// DLSS SR's own vectors, as DlssSRPass makes them, NR or not.
-				ok = SUCCEEDED(flow.Create(dev, ctx, W, H, CDlssStabilizer::Motion::OpticalFlow,
+				ok = SUCCEEDED(flow.Create(dev, ctx, W, H,
 					stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
 					true, CDlssStabilizer::ForDlssSR()));
 			}

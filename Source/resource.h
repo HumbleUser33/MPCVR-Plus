@@ -109,10 +109,6 @@
 #define IDF_PS_11_FINAL_PASS            880
 #define IDF_PS_11_FINAL_PASS_10         881
 #define IDF_PS_11_HDR10_TONEMAP         882
-#define IDF_PS_11_DLSS_MOTION_LUMA      1900
-#define IDF_PS_11_DLSS_MOTION_DIFF      1901
-#define IDF_PS_11_DLSS_MOTION_AGE       1902
-#define IDF_PS_11_DLSS_MOTION_MASK      1903
 #define IDF_PS_11_DLSS_STAB_FLOWFRAME   1904
 #define IDF_PS_11_DLSS_STAB_FLOWMOTION  1905
 #define IDF_PS_11_DLSS_STAB_STABILIZE   1906
@@ -211,7 +207,6 @@
 #define IDC_STATIC26                    1220
 #define IDC_STATIC27                    1221
 #define IDC_STATIC28                    1222
-#define IDC_CHECK22                     1223
 #define IDC_CHECK23                     1224
 #define IDC_COMBO13                     1225
 #define IDC_STATIC29                    1226
@@ -222,9 +217,7 @@
 #define IDC_STATIC32                    1231
 #define IDC_STATIC33                    1232
 #define IDC_BUTTON3                     1233
-#define IDC_COMBO14                     1234
 #define IDC_CHECK24                     1235
-#define IDC_STATIC34                    1236
 #define IDC_CHECK25                     1237
 #define IDC_COMBO15                     1238
 #define IDC_EDIT9                       1239
@@ -279,6 +272,9 @@
 #define IDC_STATIC_DLSSNR_SCALE         1287
 #define IDC_SLIDER9                     1288
 #define IDC_EDIT11                      1289
+#define IDC_STATIC_FLOW_DIVIDER         1290
+#define IDC_SLIDER10                    1291
+#define IDC_EDIT12                      1292
 #define IDC_PRESET_NAME1                   1300
 #define IDC_PRESET_NAME2                   1301
 #define IDC_PRESET_NAME3                   1302

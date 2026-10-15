@@ -481,10 +481,10 @@ static int RunSRQuality(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar
 								&& SUCCEEDED(dev->CreateRenderTargetView(exactMotion.pTexture, nullptr, &exactTarget));
 						}
 						if (ok && row.motion == 1) {
-							ok = SUCCEEDED(flow.Create(dev, ctx, sw, sh, CDlssStabilizer::Motion::OpticalFlow,
+							ok = SUCCEEDED(flow.Create(dev, ctx, sw, sh,
 								stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
 								true, row.flow))
-								&& flow.ActiveMotion() == CDlssStabilizer::Motion::OpticalFlow;
+								&& flow.HasFlow();
 							if (!ok) {
 								Out("  %-26s Optical Flow: %S\n", row.name, flow.GetStatusLine().c_str());
 							}

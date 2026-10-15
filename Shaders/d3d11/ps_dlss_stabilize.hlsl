@@ -10,14 +10,13 @@
 // Either way the history is clamped to the neighbourhood of the current value,
 // widened by a tolerance, so a wrong motion estimate cannot drag old content far.
 //
-// Motion comes from the shader detector (ps_dlss_motion.hlsl: its age map says
-// where something moved, no vectors) or from NVIDIA Optical Flow (vectors with a
-// confidence built from forward/backward consistency, matching cost and the input
-// itself): with vectors the history follows the picture, so moving areas can be
-// steadied too.
+// Motion comes from NVIDIA Optical Flow: vectors with a confidence built from
+// forward/backward consistency, matching cost and the input itself, so the history
+// follows the picture and moving areas are steadied too. A shader detector that only
+// said where something had moved stood in for it once; it is gone.
 //
-//   PASS 0  flow frame: luma of the working-size picture, box-filtered by an
-//           integer factor, into the R8 texture NVIDIA Optical Flow reads; the box
+//   PASS 0  flow frame: luma of the working-size picture, box-filtered by a whole
+//           factor of 1 to 4, into the R8 texture NVIDIA Optical Flow reads; the box
 //           can reach further, to take grain out of what the engine matches
 //   PASS 1  flow -> motion (MRT): target 0 motion in working-size pixels, current
 //           to previous (RG16F, also usable as DLSSNR.MVec); target 1 confidence
@@ -50,7 +49,7 @@ Texture2D picture : register(t0);
 
 cbuffer PS_DLSS_FLOW_FRAME : register(b0)
 {
-	float factor;   // working pixels per flow pixel: 1, 2 or 4
+	float factor;   // working pixels per flow pixel: 1 to 4
 	float reach;    // working pixels the box reaches beyond its flow pixel on each side: 0..4
 	float2 reserved;
 };
@@ -462,20 +461,20 @@ float4 main(PS_INPUT input) : SV_Target
 Texture2D current    : register(t0);   // the network's input this frame
 Texture2D network    : register(t1);   // its output
 Texture2D history    : register(t2);   // last frame's target 0
-Texture2D motion     : register(t3);   // flow: PASS 1 target 0; detector: its age map (R)
-Texture2D previous   : register(t4);   // flow: last frame's network input
-Texture2D confidence : register(t5);   // flow: PASS 1 target 1
+Texture2D motion     : register(t3);   // PASS 1 target 0
+Texture2D previous   : register(t4);   // last frame's network input
+Texture2D confidence : register(t5);   // PASS 1 target 1
 
 cbuffer PS_DLSS_STABILIZE : register(b0)
 {
 	float  minCurrent;     // weight of the current frame where the history is trusted
 	float  tolerance;      // how far the history may stray from the current neighbourhood
-	float  useFlow;        // 1: vectors in motion/confidence; 0: detector age in motion.r
-	float  reprojection;   // flow: input luma error where confidence starts to fall; 0 = off
+	float  reserved0;      // was the detector's switch
+	float  reprojection;   // input luma error where confidence starts to fall; 0 = off
 	float  reset;          // 1: no history this frame
 	float  outputMode;     // 0: EFFECT, 1: OUTPUT
-	float  ageSize;        // detector age map texels per working pixel (0.25)
-	float  reserved;
+	float  reserved1;      // was the detector's age map scale
+	float  reserved2;
 };
 
 struct STABILIZE_OUTPUT
@@ -497,16 +496,6 @@ float3 Bilinear(Texture2D tex, float2 pos, int2 last)
 	const float2 t = f - (float2)i0;
 	const float3 top    = lerp(Fetch(tex, i0, last), Fetch(tex, i0 + int2(1, 0), last), t.x);
 	const float3 bottom = lerp(Fetch(tex, i0 + int2(0, 1), last), Fetch(tex, i0 + int2(1, 1), last), t.x);
-	return lerp(top, bottom, t.y);
-}
-
-float BilinearR(Texture2D tex, float2 pos, int2 last)
-{
-	const float2 f = pos - 0.5;
-	const int2 i0 = (int2)floor(f);
-	const float2 t = f - (float2)i0;
-	const float top    = lerp(tex.Load(int3(clamp(i0, int2(0, 0), last), 0)).r, tex.Load(int3(clamp(i0 + int2(1, 0), int2(0, 0), last), 0)).r, t.x);
-	const float bottom = lerp(tex.Load(int3(clamp(i0 + int2(0, 1), int2(0, 0), last), 0)).r, tex.Load(int3(clamp(i0 + int2(1, 1), int2(0, 0), last), 0)).r, t.x);
 	return lerp(top, bottom, t.y);
 }
 
@@ -535,24 +524,14 @@ STABILIZE_OUTPUT main(PS_INPUT input)
 		}
 	}
 
-	float trust = 0.0;
-	float2 previousPos = input.Pos.xy;
-	if (useFlow > 0.5) {
-		previousPos += motion.Load(int3(p, 0)).rg;
-		trust = confidence.Load(int3(p, 0)).r;
-		if (reprojection > 0.0) {
-			const float error = abs(dot(Fetch(current, p, last) - Bilinear(previous, previousPos, last), kLuma));
-			trust *= 1.0 - smoothstep(reprojection, 2.0 * reprojection, error);
-		}
-		if (any(previousPos < 0.0) || any(previousPos > float2(w, h))) {
-			trust = 0.0;
-		}
-	} else {
-		// Detector age: 0 where nothing moved, 1 where something just did.
-		uint aw, ah;
-		motion.GetDimensions(aw, ah);
-		const float age = BilinearR(motion, input.Pos.xy * ageSize, int2(aw, ah) - 1);
-		trust = 1.0 - saturate(age * 2.0);
+	const float2 previousPos = input.Pos.xy + motion.Load(int3(p, 0)).rg;
+	float trust = confidence.Load(int3(p, 0)).r;
+	if (reprojection > 0.0) {
+		const float error = abs(dot(Fetch(current, p, last) - Bilinear(previous, previousPos, last), kLuma));
+		trust *= 1.0 - smoothstep(reprojection, 2.0 * reprojection, error);
+	}
+	if (any(previousPos < 0.0) || any(previousPos > float2(w, h))) {
+		trust = 0.0;
 	}
 	trust *= 1.0 - reset;
 

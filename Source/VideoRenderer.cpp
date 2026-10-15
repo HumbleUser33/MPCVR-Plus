@@ -80,14 +80,13 @@
 #define OPT_DlssNRLocalStructure           L"DlssNRLocalStructureStrength"
 #define OPT_DlssNRSkinStructure            L"DlssNRSkinStructureStrength"
 #define OPT_DlssNRAutoMask                 L"DlssNRUseAutoMask"
-#define OPT_DlssNRNoHistory                L"DlssNRDisableTemporalHistory"
 #define OPT_DlssNRAfterUpscale             L"DlssNRApplyAfterUpscaling"
 #define OPT_DlssNRToggleKey                L"DlssNRToggleKey"
 #define OPT_DlssNRDllPath                  L"DlssNRDllPath"
 #define OPT_DlssNRStabilizer               L"DlssNRStabilizerStrength"
-#define OPT_DlssNRMotion                   L"DlssNRMotionSource"
 #define OPT_DlssNRMotionVectors            L"DlssNRMotionVectorsToNetwork"
 #define OPT_DlssNRWorkingScale             L"DlssNRWorkingScale"
+#define OPT_DlssNRFlowDivider              L"DlssNRFlowDivider"
 #define OPT_DlssSR                         L"DlssSRUpscaling"
 #define OPT_DlssSRPreset                   L"DlssSRPreset"
 #define OPT_DlssSRDllPath                  L"DlssSRDllPath"
@@ -256,9 +255,6 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRAutoMask, dw)) {
 		sets.bDlssNRAutoMask = !!dw;
 	}
-	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRNoHistory, dw)) {
-		sets.bDlssNRNoHistory = !!dw;
-	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRAfterUpscale, dw)) {
 		sets.bDlssNRAfterUpscale = !!dw;
 	}
@@ -268,8 +264,8 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRWorkingScale, dw)) {
 		sets.iDlssNRWorkingScale = discard<int>((int)dw, DLSSNR_SCALE_DEF, DLSSNR_SCALE_MIN, DLSSNR_SCALE_MAX);
 	}
-	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRMotion, dw)) {
-		sets.iDlssNRMotion = discard<int>((int)dw, DLSSNR_MOTION_DEF, DLSSNR_MOTION_DETECTOR, DLSSNR_MOTION_OPTICALFLOW);
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRFlowDivider, dw)) {
+		sets.iDlssNRFlowDivider = discard<int>((int)dw, DLSSNR_FLOW_DEF, DLSSNR_FLOW_MIN, DLSSNR_FLOW_MAX);
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRMotionVectors, dw)) {
 		sets.bDlssNRMotionVectors = !!dw;
@@ -370,12 +366,11 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_DlssNRLocalStructure, sets.iDlssNRLocalStructure);
 	key.SetDWORDValue(OPT_DlssNRSkinStructure, sets.iDlssNRSkinStructure);
 	key.SetDWORDValue(OPT_DlssNRAutoMask,      sets.bDlssNRAutoMask);
-	key.SetDWORDValue(OPT_DlssNRNoHistory,     sets.bDlssNRNoHistory);
 	key.SetDWORDValue(OPT_DlssNRAfterUpscale,  sets.bDlssNRAfterUpscale);
 	key.SetDWORDValue(OPT_DlssNRStabilizer,    sets.iDlssNRStabilizer);
-	key.SetDWORDValue(OPT_DlssNRMotion,        sets.iDlssNRMotion);
 	key.SetDWORDValue(OPT_DlssNRMotionVectors, sets.bDlssNRMotionVectors);
 	key.SetDWORDValue(OPT_DlssNRWorkingScale,  sets.iDlssNRWorkingScale);
+	key.SetDWORDValue(OPT_DlssNRFlowDivider,   sets.iDlssNRFlowDivider);
 	key.SetDWORDValue(OPT_DlssNRToggleKey,     sets.iDlssNRToggleKey);
 	key.SetStringValue(OPT_DlssNRDllPath,      sets.szDlssNRDllPath);
 	key.SetDWORDValue(OPT_DlssSR,              sets.bDlssSR);

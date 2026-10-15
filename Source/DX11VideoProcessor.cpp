@@ -447,7 +447,9 @@ static CDlssNR::Params DlssParamsFromSettings(const Settings_t& config)
 	p.fLocalStructure = (float)config.iDlssNRLocalStructure / DLSSNR_STR_SCALE;
 	p.fSkinStructure  = (float)config.iDlssNRSkinStructure  / DLSSNR_STR_SCALE;
 	p.bUseAutoMask    = config.bDlssNRAutoMask;
-	p.bNoHistory      = config.bDlssNRNoHistory;
+	// The network keeps its own history: forcing DLSSNR.Reset on every picture
+	// measured the same (--temporal), and the box that asked for it is gone.
+	p.bNoHistory      = false;
 	return p;
 }
 
@@ -492,7 +494,7 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_strDlssNRDllPath     = config.szDlssNRDllPath;
 	m_bDlssNRAfterUpscale  = config.bDlssNRAfterUpscale;
 	m_iDlssNRStabilizer    = config.iDlssNRStabilizer;
-	m_iDlssNRMotion        = config.iDlssNRMotion;
+	m_iDlssNRFlowDivider   = config.iDlssNRFlowDivider;
 	m_bDlssNRMotionVectors = config.bDlssNRMotionVectors;
 	m_iDlssNRWorkingScale  = config.iDlssNRWorkingScale;
 	m_bDlssSR              = config.bDlssSR;
@@ -3921,7 +3923,7 @@ void CDX11VideoProcessor::UpdateTexures()
 		// The stabilizer follows the working size, and motion vectors of another
 		// size must not sit in the parameter block when the feature is created.
 		// DlssNRPass makes a new one.
-		if (m_DlssStabilizer.IsCreated() && !m_DlssStabilizer.Matches(ww, wh, DlssMotionSource())) {
+		if (m_DlssStabilizer.IsCreated() && !m_DlssStabilizer.Matches(ww, wh, false, DlssNRFlow())) {
 			ReleaseDlssNRTextures(false);
 		}
 
@@ -5069,14 +5071,14 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	// on new pictures only, and a redraw is steadied against the same history again.
 	bool bStabilize = false;
 	if (m_iDlssNRStabilizer > 0) {
-		const CDlssStabilizer::Motion motion = DlssMotionSource();
-		if (!m_DlssStabilizer.Matches(w, h, motion)) {
+		const CDlssStabilizer::FlowSettings flow = DlssNRFlow();
+		if (!m_DlssStabilizer.Matches(w, h, false, flow)) {
 			const bool bWasCreated = m_DlssStabilizer.IsCreated();
 			if (m_DlssNR.HasMotionVectors()) {
 				m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the old vectors go away
 			}
-			const HRESULT hrStab = m_DlssStabilizer.Create(m_pDevice, m_pDeviceContext, w, h, motion,
-				m_pVSimpleInputLayout, m_pVS_Simple, m_pSamplerPoint, m_pSamplerLinear);
+			const HRESULT hrStab = m_DlssStabilizer.Create(m_pDevice, m_pDeviceContext, w, h,
+				m_pVSimpleInputLayout, m_pVS_Simple, m_pSamplerPoint, m_pSamplerLinear, false, flow);
 			if (SUCCEEDED(hrStab)) {
 				m_bDlssNewPicture = true; // a new stabilizer has to see this picture
 			}
@@ -5093,13 +5095,9 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	const bool bNewPicture = m_bDlssNewPicture;
 	m_bDlssNewPicture = false;
 	if (bStabilize && bNewPicture) {
-		const CDlssStabilizer::Motion active = m_DlssStabilizer.ActiveMotion();
 		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::NRMotion);
 		m_DlssStabilizer.PrepareMotion(m_pDeviceContext, m_TexDlssIn.pShaderResource);
 		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::NRMotion);
-		if (m_DlssStabilizer.ActiveMotion() != active) {
-			UpdateStatsStatic(); // Optical Flow gave way to the detector
-		}
 	}
 
 	// The Optical Flow vectors reach the network as well when asked for.
@@ -5132,8 +5130,7 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	m_DlssNRTimes.Add(m_DlssNR.LastTiming().recordMs + m_DlssNR.LastTiming().gpuWaitMs);
 	m_traceNRTiming = m_DlssNR.LastTiming();
 	m_tracePasses |= CPacingTrace::DlssNR | (m_DlssNR.HasMotionVectors() ? CPacingTrace::NRVectors : 0)
-		| (!bStabilize ? 0 : m_DlssStabilizer.ActiveMotion() == CDlssStabilizer::Motion::OpticalFlow
-			? CPacingTrace::NRFlow : CPacingTrace::NRDetector);
+		| ((bStabilize && m_DlssStabilizer.HasFlow()) ? CPacingTrace::NRFlow : 0);
 
 	if (bStabilize) {
 		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::NRStabilize);
@@ -5262,8 +5259,8 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	m_bDlssSRNewPicture = false;
 	if (bNewPicture) {
 		const CDlssStabilizer::FlowSettings flow = CDlssStabilizer::ForDlssSR();
-		if (!m_DlssSRMotion.Matches(inW, inH, CDlssStabilizer::Motion::OpticalFlow, true, flow)) {
-			m_DlssSRMotion.Create(m_pDevice, m_pDeviceContext, inW, inH, CDlssStabilizer::Motion::OpticalFlow,
+		if (!m_DlssSRMotion.Matches(inW, inH, true, flow)) {
+			m_DlssSRMotion.Create(m_pDevice, m_pDeviceContext, inW, inH,
 				m_pVSimpleInputLayout, m_pVS_Simple, m_pSamplerPoint, m_pSamplerLinear, true, flow);
 		}
 		if (m_DlssSRMotion.IsCreated()) {
@@ -6009,7 +6006,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		// Nor does the stabilizer: DlssNRPass creates, changes or drops it on
 		// the next picture.
 		m_iDlssNRStabilizer    = config.iDlssNRStabilizer;
-		m_iDlssNRMotion        = config.iDlssNRMotion;
+		m_iDlssNRFlowDivider   = config.iDlssNRFlowDivider;
 		m_bDlssNRMotionVectors = config.bDlssNRMotionVectors;
 
 		// Only a different DLL justifies tearing the whole session down.

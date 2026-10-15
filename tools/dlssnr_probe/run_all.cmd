@@ -40,7 +40,7 @@ ECHO.>> "%REPORT%"
 REM One quoted command per step: nothing is shifted or re-split, so a step cannot go
 REM missing over a quoting subtlety.
 CALL :Run "the filter's own code, 300 frames"  "dlssnr_harness.exe --frames 300"
-CALL :Run "the DLSS passes against the harness" "dlssnr_harness.exe --tport --tstabport --tsrport --nomodels"
+CALL :Run "the DLSS passes against the harness" "dlssnr_harness.exe --tstabport --tsrport --nomodels"
 CALL :Run "the prescalers against the harness" "dlssnr_harness.exe --tmpvport --nonr --nomodels"
 CALL :Run "the pipeline"                       "dlssnr_harness.exe --tpipeline --nonr --nomodels"
 CALL :Run "upscalers on film"                  "dlssnr_harness.exe --tupscale --nonr --nomodels"

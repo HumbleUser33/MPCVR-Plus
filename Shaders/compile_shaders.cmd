@@ -112,11 +112,6 @@ SET fxc_ps4=%fxcexe% /nologo /O2 /T ps_4_0
 %fxc_ps4% /Fo "%workdir%\ps_convert_bitmap_to_pq1.cso"   "d3d11\ps_convert_bitmap_to_pq.hlsl" /DSDR_PEAK_LUM=50
 %fxc_ps4% /Fo "%workdir%\ps_convert_bitmap_to_pq2.cso"   "d3d11\ps_convert_bitmap_to_pq.hlsl" /DSDR_PEAK_LUM=30
 
-%fxc_ps4% /Fo "%workdir%\ps_dlss_motion_luma.cso"        "d3d11\ps_dlss_motion.hlsl" /DPASS=1
-%fxc_ps4% /Fo "%workdir%\ps_dlss_motion_diff.cso"        "d3d11\ps_dlss_motion.hlsl" /DPASS=2 /DBASELINES=3
-%fxc_ps4% /Fo "%workdir%\ps_dlss_motion_age.cso"         "d3d11\ps_dlss_motion.hlsl" /DPASS=3
-%fxc_ps4% /Fo "%workdir%\ps_dlss_motion_mask.cso"        "d3d11\ps_dlss_motion.hlsl" /DPASS=4
-
 %fxc_ps4% /Fo "%workdir%\ps_dlss_stab_flowframe.cso"     "d3d11\ps_dlss_stabilize.hlsl" /DPASS=0
 %fxc_ps4% /Fo "%workdir%\ps_dlss_stab_flowmotion.cso"    "d3d11\ps_dlss_stabilize.hlsl" /DPASS=1
 %fxc_ps4% /Fo "%workdir%\ps_dlss_stab_stabilize.cso"     "d3d11\ps_dlss_stabilize.hlsl" /DPASS=2

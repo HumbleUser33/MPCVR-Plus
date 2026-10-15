@@ -995,7 +995,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 
 } // namespace temporal
 
-#include "detect_suite.inl"
+#include "d3d_targets.inl"
 #include "effect_suite.inl"
 #include "flow_suite.inl"
 #include "stab_suite.inl"
@@ -1078,9 +1078,6 @@ int wmain(int argc, wchar_t** argv)
 		return false;
 	};
 	const bool temporalOracle = hasArg(L"--toracle");
-	const bool temporalDetect = hasArg(L"--tdetect");
-	const bool temporalBench = hasArg(L"--tbench");
-	const bool temporalPort = hasArg(L"--tport");
 	const bool temporalEffect = hasArg(L"--teffect");
 	const bool temporalFlow = hasArg(L"--tflow");
 	const bool temporalStab = hasArg(L"--tstab");
@@ -1117,7 +1114,7 @@ int wmain(int argc, wchar_t** argv)
 			temporalImage = argv[i + 1];
 		}
 	}
-	if (temporal || temporalOracle || temporalDetect || temporalBench || temporalPort || temporalEffect || temporalFlow
+	if (temporal || temporalOracle || temporalEffect || temporalFlow
 			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
@@ -1143,9 +1140,6 @@ int wmain(int argc, wchar_t** argv)
 			? temporal::RunStab(dev, ctx, dlss, temporalImage.c_str(), temporalFrames, temporalStrong, temporalStabPort)
 			: temporalFlow ? temporal::RunFlow(dev, ctx, temporalImage.c_str())
 			: temporalEffect ? temporal::RunEffect(dev, ctx, dlss, temporalImage.c_str(), temporalStrong)
-			: temporalBench ? temporal::RunDetectBench(dev, ctx)
-			: temporalPort ? temporal::RunDetect(dev, ctx, dlss, temporalFrames, temporalStrong, true)
-			: temporalDetect ? temporal::RunDetect(dev, ctx, dlss, temporalFrames, temporalStrong, false)
 			: temporalOracle ? temporal::RunOracle(dev, ctx, dlss, temporalFrames, temporalStrong)
 			: temporal::Run(dev, ctx, dlss, temporalFrames, temporalStrong, temporalMask);
 		dlss.Shutdown();

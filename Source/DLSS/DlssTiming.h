@@ -312,7 +312,7 @@ public:
 		Dropped     = 1024, // the scheduler left it out
 		DlssNR      = 2048, // DLSS 5 NR ran on it
 		NRFlow      = 4096, // and was steadied with Optical Flow
-		NRDetector  = 8192, // or with the shader detector
+		NRDetector  = 8192, // or with the shader detector, which is gone: no longer set
 		NRVectors   = 16384, // the network was given the vectors as well
 		DlssSR      = 32768, // DLSS Super Resolution enlarged it
 		Skipped     = 65536, // left out before it was drawn, as the scheduler asked

@@ -496,10 +496,10 @@ static int RunSRStill(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t
 						ok = SUCCEEDED(exactMotion.Create(dev, DXGI_FORMAT_R16G16_FLOAT, iw, ih, Tex2D_DefaultShaderRTarget));
 					}
 					if (ok && row.motion == 1) {
-						ok = SUCCEEDED(flow.Create(dev, ctx, iw, ih, CDlssStabilizer::Motion::OpticalFlow,
+						ok = SUCCEEDED(flow.Create(dev, ctx, iw, ih,
 							stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
 							true, row.flow))
-							&& flow.ActiveMotion() == CDlssStabilizer::Motion::OpticalFlow;
+							&& flow.HasFlow();
 						if (!ok) {
 							Out("  %-26s Optical Flow: %S\n", row.name, flow.GetStatusLine().c_str());
 						}
@@ -1116,10 +1116,10 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 			Tex2D_t input;
 			CDlssStabilizer flow;
 			const bool made = SUCCEEDED(input.Create(dev, DXGI_FORMAT_R16G16B16A16_FLOAT, sw, sh, Tex2D_DefaultShaderRTarget))
-				&& SUCCEEDED(flow.Create(dev, ctx, sw, sh, CDlssStabilizer::Motion::OpticalFlow,
+				&& SUCCEEDED(flow.Create(dev, ctx, sw, sh,
 					stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
 					true, settings))
-				&& flow.ActiveMotion() == CDlssStabilizer::Motion::OpticalFlow && flow.GetGlobalMotion();
+				&& flow.HasFlow() && flow.GetGlobalMotion();
 			Check(made, "motion-only Optical Flow with the snapping");
 			if (!made) {
 				continue;
@@ -1525,7 +1525,7 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 					Tex2D_t first, second;
 					CDlssStabilizer warm;
 					if (make(1.0f, 0, 0, 0x71E00001u, first) && make(1.0f, 7, 3, 0x71E00002u, second)
-						&& SUCCEEDED(warm.Create(dev, ctx, sw, sh, CDlssStabilizer::Motion::OpticalFlow,
+						&& SUCCEEDED(warm.Create(dev, ctx, sw, sh,
 							stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
 							true, CDlssStabilizer::ForDlssSR()))) {
 						GpuMs(dev, ctx, 200, [&] {
@@ -1543,7 +1543,7 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 					printf("    %-16s", m.name);
 					for (const auto& v : variants) {
 						CDlssStabilizer timed;
-						if (FAILED(timed.Create(dev, ctx, sw, sh, CDlssStabilizer::Motion::OpticalFlow,
+						if (FAILED(timed.Create(dev, ctx, sw, sh,
 								stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
 								true, v.settings))) {
 							printf("  %s: not made", v.name);

@@ -153,9 +153,10 @@ notice its absence.
 
 | What the fork adds | Where it lives | What proves it |
 |---|---|---|
-| DLSS 5 neural reconstruction (NGX feature 18) | `Source/DLSS/DlssNR.cpp` | `--frames 300`, `--tport` |
+| DLSS 5 neural reconstruction (NGX feature 18) | `Source/DLSS/DlssNR.cpp` | `--frames 300` |
+| DLSS 5 NR at a working size below the picture's | `Source/DLSS/DlssCompose.cpp` | `--tnrscale` |
 | Temporal stabilizer on Optical Flow | `Source/DLSS/DlssStabilizer.cpp`, `DlssOpticalFlow.cpp` | `--tstab`, `--tstabport` |
-| DLSS Super Resolution 4.5, with its own motion | `Source/DLSS/DlssSR.cpp`, `DlssMotionMask.cpp` | `--tsr`, `--tsrport`, `--tsrstill` |
+| DLSS Super Resolution 4.5, with its own motion | `Source/DLSS/DlssSR.cpp`, `DlssStabilizer.cpp` | `--tsr`, `--tsrport`, `--tsrstill` |
 | Render ahead | `Source/DX11VideoProcessor.cpp` | `playback_test --seconds` |
 | The settings page, seven tabs in one | `Source/SettingsPage/` | `playback_test --mainpage`, `--frame` |
 | mpv prescalers: FSRCNNX 8/16, RAVU-zoom, ArtCNN, the AR entries | `Source/Upscale/`, `Shaders/mpv/` | `--tmpvport`, `--tupscale`, `--scalers` |
