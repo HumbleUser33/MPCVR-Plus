@@ -75,6 +75,7 @@
     <ClCompile Include="DLSS\DlssNR.cpp" />
     <ClCompile Include="DLSS\DlssOpticalFlow.cpp" />
     <ClCompile Include="DLSS\DlssStabilizer.cpp" />
+    <ClCompile Include="DLSS\DlssCompose.cpp" />
     <ClCompile Include="DLSS\DlssSR.cpp" />
     <ClCompile Include="DLSS\DlssTiming.cpp" />
     <ClCompile Include="Upscale\MpvShader.cpp" />
@@ -119,6 +120,7 @@
     <ClInclude Include="DLSS\DlssNR.h" />
     <ClInclude Include="DLSS\DlssOpticalFlow.h" />
     <ClInclude Include="DLSS\DlssStabilizer.h" />
+    <ClInclude Include="DLSS\DlssCompose.h" />
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowCommon.h" />
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowD3D11.h" />
     <ClInclude Include="DLSS\DlssSR.h" />

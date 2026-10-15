@@ -37,6 +37,7 @@ _nvngx.dll
 /tools/dlssnr_probe/*.cso
 /tools/dlssnr_probe/*.res
 /tools/dlssnr_probe/effect_*.png
+/tools/dlssnr_probe/nrscale_*.png
 /tools/dlssnr_probe/upscale_*.png
 /tools/dlssnr_probe/chroma_*.png
 /tools/dlssnr_probe/chroma_*.bmp

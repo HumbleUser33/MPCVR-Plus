@@ -494,6 +494,7 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_iDlssNRStabilizer    = config.iDlssNRStabilizer;
 	m_iDlssNRMotion        = config.iDlssNRMotion;
 	m_bDlssNRMotionVectors = config.bDlssNRMotionVectors;
+	m_iDlssNRWorkingScale  = config.iDlssNRWorkingScale;
 	m_bDlssSR              = config.bDlssSR;
 	m_bDlssSRDlaa          = config.bDlssSRDlaa;
 	m_iDlssSRPreset        = config.iDlssSRPreset;
@@ -3697,6 +3698,9 @@ void CDX11VideoProcessor::NoteDlssForTrace()
 	std::wstring note = L"dlss:";
 	if (m_bDlssNR) {
 		note += std::format(L" NR {} ({})", m_bDlssNRActive ? L"on" : L"off", GetDlssStatus());
+		if (m_bDlssNRActive && m_DlssCompose.IsCreated()) {
+			note += std::format(L" at {}% {}x{}", m_iDlssNRWorkingScale, m_DlssCompose.WorkWidth(), m_DlssCompose.WorkHeight());
+		}
 	}
 	if (m_bDlssSR) {
 		note += std::format(L" SR {} ({})", m_bDlssSRActive ? L"on" : L"off", GetDlssSRStatus());
@@ -3908,25 +3912,43 @@ void CDX11VideoProcessor::UpdateTexures()
 			return;
 		}
 
+		// The network may work smaller than the picture: it costs in proportion to
+		// the pixels it is given.
+		UINT ww = w, wh = h;
+		CDlssCompose::WorkingSize(w, h, m_iDlssNRWorkingScale, ww, wh);
+		const bool bReduce = (ww != w || wh != h);
+
 		// The stabilizer follows the working size, and motion vectors of another
 		// size must not sit in the parameter block when the feature is created.
 		// DlssNRPass makes a new one.
-		if (m_DlssStabilizer.IsCreated() && !m_DlssStabilizer.Matches(w, h, DlssMotionSource())) {
+		if (m_DlssStabilizer.IsCreated() && !m_DlssStabilizer.Matches(ww, wh, DlssMotionSource())) {
 			ReleaseDlssNRTextures(false);
 		}
 
 		// Both textures are shared with the private D3D12 device, so the input
 		// copy is always needed -- m_TexConvertOutput carries no share handle
 		// even when its format already matches.
-		hr = m_TexDlssIn.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
+		hr = m_TexDlssIn.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, ww, wh, Tex2D_DefaultShaderRTargetUAVShared);
 		if (SUCCEEDED(hr)) {
-			hr = m_TexDlssOut.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
+			hr = m_TexDlssOut.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, ww, wh, Tex2D_DefaultShaderRTargetUAVShared);
 		}
+		m_pDlssInTarget.Release();
+		if (SUCCEEDED(hr) && bReduce) {
+			hr = m_DlssCompose.Create(m_pDevice, w, h, ww, wh, CDlssCompose::Method::Difference,
+				m_pVSimpleInputLayout, m_pVS_Simple);
+			if (SUCCEEDED(hr)) {
+				hr = m_pDevice->CreateRenderTargetView(m_TexDlssIn.pTexture, nullptr, &m_pDlssInTarget);
+			}
+		} else {
+			m_DlssCompose.Release();
+			m_TexDlssPicture.Release();
+		}
+		m_DlssNRPictureSize.SetSize(w, h);
 
 		if (FAILED(hr) || !m_TexDlssIn.pTexture || !m_TexDlssOut.pTexture) {
 			DLog(L"CDX11VideoProcessor::UpdateTexures() : failed to create DLSS textures");
 			m_bDlssNRActive = false;
-		} else if (!m_DlssNR.CreateFeature(m_TexDlssIn.pTexture, m_TexDlssOut.pTexture, w, h, m_DlssParams)) {
+		} else if (!m_DlssNR.CreateFeature(m_TexDlssIn.pTexture, m_TexDlssOut.pTexture, ww, wh, m_DlssParams)) {
 			m_bDlssNRActive = false;
 		} else {
 			// Until the first Evaluate lands these hold whatever was in memory;
@@ -3968,8 +3990,12 @@ void CDX11VideoProcessor::ReleaseDlssNRTextures(const bool bFeature)
 	if (bFeature) {
 		ReleaseVPScale();   // it enlarges what the network leaves
 		m_DlssNR.ReleaseFeature();
+		m_DlssCompose.Release();
+		m_pDlssInTarget.Release();
+		m_TexDlssPicture.Release();
 		m_TexDlssIn.Release();
 		m_TexDlssOut.Release();
+		m_DlssNRPictureSize = {};
 	}
 }
 
@@ -4004,8 +4030,8 @@ void CDX11VideoProcessor::ReleaseVPScale()
 // in P010, which is 4:2:0 met twice, and under half a decibel in Y410.
 void CDX11VideoProcessor::UpdateVPScale()
 {
-	const UINT w = m_TexDlssOut.pTexture ? m_TexDlssOut.desc.Width : 0;
-	const UINT h = m_TexDlssOut.pTexture ? m_TexDlssOut.desc.Height : 0;
+	const UINT w = m_TexDlssOut.pTexture ? (UINT)m_DlssNRPictureSize.cx : 0;
+	const UINT h = m_TexDlssOut.pTexture ? (UINT)m_DlssNRPictureSize.cy : 0;
 	const UINT outW = m_videoRect.Width(), outH = m_videoRect.Height();
 	// A picture already the size it is shown at is left alone: there is nothing to
 	// resize, and a second turn would only take it through Y'CbCr and back.
@@ -4991,23 +5017,49 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 		return E_FAIL;
 	}
 
+	// The network's working size, and the picture's: the same unless the working
+	// size is set below 100.
 	const UINT w = m_TexDlssOut.desc.Width;
 	const UINT h = m_TexDlssOut.desc.Height;
+	const UINT pw = (UINT)m_DlssNRPictureSize.cx;
+	const UINT ph = (UINT)m_DlssNRPictureSize.cy;
+	const bool bReduce = m_DlssCompose.IsCreated();
 
 	// The pass must never change the geometry. If the region we were handed is
-	// not exactly the working size, blitting it would rescale the picture; skip
+	// not exactly the picture's size, blitting it would rescale the picture; skip
 	// instead and let UpdateTexures catch up on the next frame.
-	if ((UINT)rSrc.Width() != w || (UINT)rSrc.Height() != h) {
+	if ((UINT)rSrc.Width() != pw || (UINT)rSrc.Height() != ph) {
 		DLogIf(m_bDlssNRActive, L"CDX11VideoProcessor::DlssNRPass() : {}x{} source into {}x{} textures, skipping",
-			rSrc.Width(), rSrc.Height(), w, h);
+			rSrc.Width(), rSrc.Height(), pw, ph);
 		return E_FAIL;
 	}
 
 	// Into the shared RGBA16F input. This blit is unconditional: the snippet
 	// reads the texture from a separate D3D12 device, and m_TexConvertOutput
 	// carries no share handle whatever its format.
-	const CRect rDst(0, 0, w, h);
-	HRESULT hr = TextureCopyRect(*pInputTexture, m_TexDlssIn.pTexture, rSrc, rDst, m_pPS_Simple, nullptr, 0, false);
+	//
+	// At a working size below the picture's, the reduction writes it instead. The
+	// reduction and the composition read the picture as a whole texture, which it
+	// is not when it is a part of a larger one -- after the resize, a letterboxed
+	// film -- so it is copied out first.
+	HRESULT hr = S_OK;
+	const Tex2D_t* pPicture = pInputTexture;
+	if (bReduce) {
+		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::NRReduce);
+		if (rSrc.left || rSrc.top || pInputTexture->desc.Width != pw || pInputTexture->desc.Height != ph) {
+			hr = m_TexDlssPicture.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, pw, ph, Tex2D_DefaultShaderRTarget);
+			if (SUCCEEDED(hr)) {
+				hr = TextureCopyRect(*pInputTexture, m_TexDlssPicture.pTexture, rSrc, CRect(0, 0, pw, ph), m_pPS_Simple, nullptr, 0, false);
+			}
+			pPicture = &m_TexDlssPicture;
+		}
+		if (SUCCEEDED(hr)) {
+			m_DlssCompose.Reduce(m_pDeviceContext, pPicture->pShaderResource, m_pDlssInTarget);
+		}
+		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::NRReduce);
+	} else {
+		hr = TextureCopyRect(*pInputTexture, m_TexDlssIn.pTexture, rSrc, CRect(0, 0, w, h), m_pPS_Simple, nullptr, 0, false);
+	}
 	if (FAILED(hr)) {
 		return hr;
 	}
@@ -5091,6 +5143,16 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 		*ppResult = m_DlssStabilizer.GetResult();
 	} else {
 		*ppResult = &m_TexDlssOut;
+	}
+
+	// What the network and the stabilizer changed, carried back onto the picture at
+	// its own size: it keeps its own detail and grain (tools/dlssnr_probe --tnrscale).
+	if (bReduce) {
+		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::NRCompose);
+		m_DlssCompose.Compose(m_pDeviceContext, pPicture->pShaderResource, m_TexDlssIn.pShaderResource,
+			(*ppResult)->pShaderResource);
+		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::NRCompose);
+		*ppResult = m_DlssCompose.GetResult();
 	}
 	return S_OK;
 }
@@ -5970,6 +6032,11 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 			changeDlssFeature = true;   // the working resolution changes
 			changeTextures = true;
 		}
+		if (config.iDlssNRWorkingScale != m_iDlssNRWorkingScale) {
+			m_iDlssNRWorkingScale = config.iDlssNRWorkingScale;
+			changeDlssFeature = true;   // so does this
+			changeTextures = true;
+		}
 	}
 
 	{
@@ -6549,6 +6616,10 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 				style, m_DlssParams.iPreset, m_DlssParams.fIntensity, m_DlssParams.fLocalTone,
 				m_DlssParams.fLocalStructure, m_DlssParams.fSkinStructure,
 				m_DlssParams.bUseAutoMask ? L" auto" : L"");
+			if (m_DlssCompose.IsCreated()) {
+				m_strStatsVProc += std::format(L", at {}% ({}x{})", m_iDlssNRWorkingScale,
+					m_DlssCompose.WorkWidth(), m_DlssCompose.WorkHeight());
+			}
 			if (m_iDlssNRStabilizer > 0) {
 				m_strStatsVProc += std::format(L"\nStabilizer    : {}, {}{}", m_iDlssNRStabilizer,
 					m_DlssStabilizer.IsCreated() ? m_DlssStabilizer.GetStatusLine() : std::wstring(L"not started"),
@@ -6874,6 +6945,12 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		// it serves DLSS 5 NR, as OF when DLSS SR runs its own.
 		if (m_bDlssNRActive) {
 			AddTime(L"NR", m_DlssNRTimes.Mean());
+			if (m_DlssCompose.IsCreated()) {
+				// The reduction and the composition at a working size below the picture's.
+				const double reduce = m_DlssStageTimes.MeanMs(CGpuStageTimes::NRReduce);
+				const double compose = m_DlssStageTimes.MeanMs(CGpuStageTimes::NRCompose);
+				AddTime(L"scale", (reduce >= 0 || compose >= 0) ? std::max(reduce, 0.0) + std::max(compose, 0.0) : -1.0);
+			}
 			const double motion = m_DlssStageTimes.MeanMs(CGpuStageTimes::NRMotion);
 			const double stabilize = m_DlssStageTimes.MeanMs(CGpuStageTimes::NRStabilize);
 			AddTime(L"stabilizer", (motion >= 0 || stabilize >= 0) ? std::max(motion, 0.0) + std::max(stabilize, 0.0) : -1.0);

@@ -1009,6 +1009,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 #include "sr_suite.inl"
 #include "sr_still_suite.inl"
 #include "pipeline_suite.inl"
+#include "nrscale_suite.inl"
 
 int wmain(int argc, wchar_t** argv)
 {
@@ -1097,6 +1098,7 @@ int wmain(int argc, wchar_t** argv)
 	const bool temporalSRStill = hasArg(L"--tsrstill");
 	const bool temporalSRPort = hasArg(L"--tsrport");
 	const bool temporalPipeline = hasArg(L"--tpipeline");
+	const bool temporalNRScale = hasArg(L"--tnrscale");
 	std::wstring srDllPath;   // empty: CDlssSR looks next to the harness, then up to the repository root
 	for (int i = 1; i + 1 < argc; i++) {
 		if (!wcscmp(argv[i], L"--srdll")) {
@@ -1110,14 +1112,15 @@ int wmain(int argc, wchar_t** argv)
 		}
 	}
 	if (temporal || temporalOracle || temporalDetect || temporalBench || temporalPort || temporalEffect || temporalFlow
-			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline) {
+			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
 			if (!wcscmp(argv[i], L"--srrefs")) {
 				srRefs = _wtoi(argv[i + 1]);
 			}
 		}
-		const int rc = temporalPipeline ? temporal::RunPipeline(dev, ctx, dlss, srDllPath.c_str(), temporalFrames)
+		const int rc = temporalNRScale ? temporal::RunNRScale(dev, ctx, dlss, temporalImage.c_str())
+			: temporalPipeline ? temporal::RunPipeline(dev, ctx, dlss, srDllPath.c_str(), temporalFrames)
 			: temporalSRPort ? temporal::RunSRPort(dev, ctx, srRefs)
 			: temporalSRStill ? temporal::RunSRStill(dev, ctx, srDllPath.c_str(), srRefs)
 			: temporalSRQuality ? temporal::RunSRQuality(dev, ctx, srDllPath.c_str(), srRefs)

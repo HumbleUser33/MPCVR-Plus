@@ -1,6 +1,6 @@
 // The stabilizer's shaders, embedded the way the filter embeds them
-// (Source\res\MpcVideoRenderer.rc2), so the harness runs CDlssMotionMask and
-// CDlssStabilizer unchanged.
+// (Source\res\MpcVideoRenderer.rc2), so the harness runs CDlssMotionMask,
+// CDlssStabilizer and CDlssCompose unchanged.
 // build.cmd compiles the .cso files next to this script first.
 
 #include "..\\..\\Source\\resource.h"
@@ -15,3 +15,12 @@ IDF_PS_11_DLSS_STAB_STABILIZE   FILE    "ps_dlss_stab_stabilize.cso"
 IDF_PS_11_DLSS_STAB_SNAPMOTION  FILE    "ps_dlss_stab_snapmotion.cso"
 IDF_CS_11_DLSS_GLOBAL_MOTION    FILE    "cs_dlss_global_motion.cso"
 IDF_PS_11_DLSS_STAB_BLOCKMOTION FILE    "ps_dlss_stab_blockmotion.cso"
+IDF_PS_11_DLSS_COMPOSE_0        FILE    "ps_dlss_compose_diff.cso"
+IDF_PS_11_DLSS_COMPOSE_1        FILE    "ps_dlss_compose_joint.cso"
+IDF_PS_11_DLSS_COMPOSE_2        FILE    "ps_dlss_compose_sums.cso"
+IDF_PS_11_DLSS_COMPOSE_3        FILE    "ps_dlss_compose_ab.cso"
+IDF_PS_11_DLSS_COMPOSE_4        FILE    "ps_dlss_compose_abx.cso"
+IDF_PS_11_DLSS_COMPOSE_5        FILE    "ps_dlss_compose_aby.cso"
+IDF_PS_11_DLSS_COMPOSE_6        FILE    "ps_dlss_compose_guided.cso"
+IDF_PS_11_DLSS_COMPOSE_7        FILE    "ps_dlss_compose_reducex.cso"
+IDF_PS_11_DLSS_COMPOSE_8        FILE    "ps_dlss_compose_reducey.cso"

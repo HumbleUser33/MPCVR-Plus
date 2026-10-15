@@ -216,6 +216,98 @@ them, and DLSS 5 NR stayed off for the rest of the film with its lines still in 
 statistics -- 0 pictures of 178 in the build before, 84 of 164 now, which is every picture
 the network has the time for at that size.
 
+### A working size below the picture's
+
+The network costs in proportion to the pixels it is given, and a 4K film gives it more than an
+RTX 4060 can carry in the time a picture lasts. *Working size*, on the DLSS 5 NR tab, runs it on
+the picture reduced -- 50 to 100 per cent of its size each way, in steps of 5, 100 by default --
+and carries what it changed back onto the picture at its own size. Game injectors such as
+OptiScaler offer the same trade. The DLL has a parameter whose name promises it,
+`DLSSNR.ScalingRatio`, and it does nothing: set to 0.5, `--tnrscale` measured the same pictures
+to the hundredth of a decibel and the network in the same time, 60.8 ms at 3840x2160 against
+60.7. So the reduction is the renderer's (`Source/DLSS/DlssCompose.cpp`,
+`Shaders/d3d11/ps_dlss_compose.hlsl`):
+
+1. the picture is reduced with Lanczos into the network's input;
+2. the network and the stabilizer run at that size, as they do at any other;
+3. the change between their input and their output is enlarged with Catmull-Rom and added to
+   the picture.
+
+The picture keeps its own fine detail and its own grain, and the network's change reaches it
+down to the detail the working size holds. Nothing else in the chain moves: the pass still
+takes and gives the picture at the source's size, or at the window's after upscaling, and
+whatever resizes goes on resizing after it. At 100 nothing is reduced and the pass is what it
+was. The statistics say the working size on the `DLSS 5 NR` line and the reduction and the
+composition as `scale` in `DLSS (ms)`; the trace's note says it too.
+
+Measured with `dlssnr_harness --tnrscale` on a 4K film frame (`4K1.png`, 3840x2160) with fresh
+grain on every picture and the filter's default settings, against the network and the
+stabilizer at the full size, frame for frame (PSNR, RGB, dB; still picture, 8 measured
+pictures after 12):
+
+| working size | network at | the picture as it is | the network's output enlarged | the change carried back |
+|---|---|---|---|---|
+| 80 % | 3072x1728 | 42.56 | 47.03 | 53.87 |
+| 75 % | 2880x1620 | 42.56 | 46.55 | 53.73 |
+| 70 % | 2688x1512 | 42.56 | 45.53 | 51.86 |
+| 60 % | 2304x1296 | 42.56 | 44.01 | 49.77 |
+| 50 % | 1920x1080 | 42.56 | 42.43 | 48.20 |
+
+The output enlarged loses the grain: its picture-to-picture change falls from 0.0054 to 0.0033
+at 80 % and 0.0021 at 50 %, where the network at the full size keeps the input's. The change
+carried back keeps it (0.0054 at every size). On a pan of 2 by 1 pixels a picture the same
+holds, 0.3 to 1 dB higher (54.84 dB at 80 %, 48.48 at 50 %). The smaller the working size,
+the stronger the change: projected on the full-size one it is 100 % of it at 80 %, 105 % at
+75 %, 108 % at 70 %, 114 % at 60 % and 115 % at 50 %. *Intensity* tempers it if it shows.
+
+Two other ways of carrying the change back were measured and left in the bench. A joint
+bilateral enlargement, guided by the picture's own colours, came within 0.13 dB of Catmull-Rom
+either way at every size and setting tried, for the same cost. A guided filter, fitted between
+the network's input and output and applied to the picture, took the grain away: with the
+regularisation at 0.001 it landed further from the network at the full size than the picture
+left alone (39.2 to 41.9 dB), and at 0.0001 it kept half the grain and stayed 3.8 to 7.5 dB
+under Catmull-Rom.
+
+What it costs on the RTX 4060, from the same suite: the network as the filter times it, and a
+whole picture through the reduction, Optical Flow, the network, the stabilizer and the
+composition, waited for:
+
+| working size | 3840x2160: network | whole | 3840x1600: network | whole |
+|---|---|---|---|---|
+| 100 % | 60.7 ms | 65.0 ms | 43.8 ms | 47.4 ms |
+| 90 % | 51.3 | 56.6 | 35.7 | 39.9 |
+| 80 % | 37.0 | 41.2 | 28.0 | 32.2 |
+| 75 % | 34.1 | 37.8 | 24.4 | 28.5 |
+| 70 % | 29.4 | 33.0 | 21.6 | 25.4 |
+| 60 % | 21.3 | 25.1 | 14.9 | 18.2 |
+| 50 % | 15.4 | 18.9 | 11.7 | 14.0 |
+
+The reduction takes 0.35 to 1.0 ms and the composition 0.4 to 1.1.
+
+And in MPC-HC, 40 s of each film from 10 minutes in, the television at 24 Hz, with the trace
+(`pacing_report.py --dlss`). A picture is drawn in the time the network takes and 11 to 16 ms
+more -- the decoded 4K HDR picture converted, Optical Flow, the stabilizer, the composition --
+and one that does not fit the 41.7 ms a picture lasts is left out undrawn:
+
+| film | working size | drawing (median) | pictures drawn |
+|---|---|---|---|
+| The Shepherd, 3840x2160 HDR | 100 % | 71.6 ms | 440 of 873 |
+| | 75 % | 51.4 ms | 462 of 908 |
+| | 60 % | 36.6 ms | 876 of 911 |
+| | 55 % | 32.5 ms | 910 of 912 |
+| | 50 % | 29.0 ms | 907 of 909 |
+| Kill Bill, 3840x1600 HDR | 100 % | 56.6 ms | 432 of 856 |
+| | 75 % | 36.1 ms | 881 of 885 |
+| | 70 % | 32.7 ms | 884 of 886 |
+| | 60 % | 25.7 ms | 890 of 892 |
+
+Where every picture but a few was drawn, those few are the first, while the session starts,
+and one more in Kill Bill at 75 %, 9.4 s in. On this card a 3840x2160 film wants 55 % and a
+3840x1600 one 75 %; a faster card wants less taken off, and the statistics' `DLSS (ms)` line
+says how much room is left. A new working size is taken on Apply, and the network starts
+again at it: seven pictures went undrawn in the bench while it did
+(`playback_test --nrscale 100 --nrscaleto 70`).
+
 ---
 
 ## Temporal stabilizer
@@ -1377,6 +1469,7 @@ it serves the luma prescalers as much as DLSS, so it sits on the **Settings** pa
 | Motion | NVIDIA Optical Flow | Or *Shader detector (still areas)*. Applies on the next picture |
 | Send the motion vectors to DLSS | off | Optical Flow only. Steadier, but the network renders differently around moving objects |
 | Disable temporal history | off | Forces `DLSSNR.Reset` every frame. The stabilizer is not affected |
+| Working size | 100 % | 50–100 %, in steps of 5. See *A working size below the picture's*: the network runs on the picture reduced, and its change is carried back onto the picture. Taken on Apply, which starts the network again. Registry `DlssNRWorkingScale` |
 | Use DLSS SR 4.5 for upscaling | off | See above: not perfect yet, which is why the box it sits in says so. Greys the Upscaling list while it is on |
 | Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p. Needs *Use DLSS SR* |
 | Preset (DLSS SR) | Automatic | Or J, K, L, M. Applies on the next picture |
@@ -1406,10 +1499,10 @@ And under the Chroma upsampling list:
 | Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Request Super Resolution* greys while this is ticked, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
 
 **Default** on the **DLSS 5 NR** tab resets the tuning, from Style to Disable temporal history, motion
-settings and the DLSS SR preset; it leaves Enable, Use DLSS SR, the key, both DLL paths and
-render ahead, which belongs to the Settings page, alone. Applying the page sends only what was
-changed on it, so it never undoes the toggle key or the main page, and the main page leaves
-these settings alone.
+settings and the DLSS SR preset; it leaves Enable, Use DLSS SR, the key, both DLL paths, the
+working size, which is what the card can carry, and render ahead, which belongs to the Settings
+page, alone. Applying the page sends only what was changed on it, so it never undoes the
+toggle key or the main page, and the main page leaves these settings alone.
 
 ### Presets
 
@@ -1531,6 +1624,7 @@ dlssnr_harness.exe --tflow        NVIDIA Optical Flow: direction, units, accurac
 dlssnr_harness.exe --tstab        the post-DLSS stabilizer variants on real pictures
 dlssnr_harness.exe --tstabport    the filter's stabilizer class against those passes, redraws included
 dlssnr_harness.exe --tstabbench   what the stabilizer costs at 1080p and 2160p
+dlssnr_harness.exe --tnrscale     DLSS 5 NR at a working size: each way of carrying its change back, and the cost
 dlssnr_harness.exe --tpipeline    the whole DLSS chain as the renderer runs it: CPU and GPU time per stage
 dlssnr_harness.exe --tsr          DLSS Super Resolution: bring-up, presets, scales, costs, NR next to it
 dlssnr_harness.exe --tsrq         DLSS SR against the resize shaders on moving film frames
@@ -1545,8 +1639,9 @@ dlssnr_harness.exe --tmpvport     the filter's prescaler runner against the harn
 
 `--tframes N` sets the frames per run; `--tstrong` uses the strongest network settings;
 `--timage <file>` picks the photo for `--teffect`, `--tflow` and `--tstab` (a Windows 11
-wallpaper by default). `--nonr` skips the DLSS 5 NR session for the suites that do not need
-it, `--srdll <path>` points at `nvngx_dlss.dll`, and `--srrefs N` limits `--tsrq`,
+wallpaper by default), and the 4K film frame for `--tnrscale` (`upscale_refs\4K1.png`).
+`--nonr` skips the DLSS 5 NR session for the suites that do not need it, `--srdll <path>`
+points at `nvngx_dlss.dll`, and `--srrefs N` limits `--tsrq`,
 `--tsrstill` and `--tsrport` to the first N references. `--tupscale`, `--tchroma`,
 `--tmpvport` and the three DLSS SR suites read 4K film frames from
 `tools/dlssnr_probe/upscale_refs/`. `--tupscale` also runs the mpv shaders it finds
@@ -1690,6 +1785,7 @@ playback_test.exe --chroma10 <png> the same in 10 bits: P010 against Y410 (--int
 playback_test.exe --toggle       each setting changed in full playback, as the player does
 playback_test.exe --toggle --gpu --hdr --switch   as a hardware decoder feeds it, in HDR
 playback_test.exe --toggle --file <mkv> --seek 1740   a real film, split and decoded
+playback_test.exe --nrscale 70 --nrscaleto 100   DLSS 5 NR's working size, and another taken while it plays
 playback_test.exe --filter <ax>   any of the above with another build of the x64 filter
 ```
 

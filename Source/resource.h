@@ -126,6 +126,17 @@
 #define IDF_PS_11_CONVOL_SPLINE36_Y     1913
 #define IDF_PS_9_CONVOL_SPLINE36_X      1914
 #define IDF_PS_9_CONVOL_SPLINE36_Y      1915
+// PASS n of ps_dlss_compose.hlsl. The filter embeds 0, 7 and 8, the passes it runs;
+// tools/dlssnr_probe embeds every one, for the methods it measures them against.
+#define IDF_PS_11_DLSS_COMPOSE_0        1916
+#define IDF_PS_11_DLSS_COMPOSE_1        1917
+#define IDF_PS_11_DLSS_COMPOSE_2        1918
+#define IDF_PS_11_DLSS_COMPOSE_3        1919
+#define IDF_PS_11_DLSS_COMPOSE_4        1920
+#define IDF_PS_11_DLSS_COMPOSE_5        1921
+#define IDF_PS_11_DLSS_COMPOSE_6        1922
+#define IDF_PS_11_DLSS_COMPOSE_7        1923
+#define IDF_PS_11_DLSS_COMPOSE_8        1924
 #define IDF_VS_11_MPV_HOOK              1950
 #define IDF_PS_11_MPV_LUMA              1951
 #define IDF_PS_11_MPV_COMBINE           1952
@@ -265,6 +276,9 @@
 #define IDC_STATIC_VIDEO_DELAY          1284
 #define IDC_SLIDER8                     1285
 #define IDC_EDIT10                      1286
+#define IDC_STATIC_DLSSNR_SCALE         1287
+#define IDC_SLIDER9                     1288
+#define IDC_EDIT11                      1289
 #define IDC_PRESET_NAME1                   1300
 #define IDC_PRESET_NAME2                   1301
 #define IDC_PRESET_NAME3                   1302

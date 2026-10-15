@@ -57,6 +57,9 @@
     <ClCompile Include="DLSS\DlssStabilizer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DLSS\DlssCompose.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="DLSS\DlssSR.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -180,6 +183,9 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="DLSS\DlssStabilizer.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DLSS\DlssCompose.h">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowCommon.h">

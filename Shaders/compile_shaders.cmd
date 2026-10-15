@@ -123,6 +123,10 @@ SET fxc_ps4=%fxcexe% /nologo /O2 /T ps_4_0
 %fxc_ps4% /Fo "%workdir%\ps_dlss_stab_snapmotion.cso"    "d3d11\ps_dlss_stabilize.hlsl" /DPASS=3
 %fxc_ps4% /Fo "%workdir%\ps_dlss_stab_blockmotion.cso"   "d3d11\ps_dlss_stabilize.hlsl" /DPASS=4
 
+%fxc_ps4% /Fo "%workdir%\ps_dlss_compose_diff.cso"      "d3d11\ps_dlss_compose.hlsl" /DPASS=0
+%fxc_ps4% /Fo "%workdir%\ps_dlss_compose_reducex.cso"   "d3d11\ps_dlss_compose.hlsl" /DPASS=7
+%fxc_ps4% /Fo "%workdir%\ps_dlss_compose_reducey.cso"   "d3d11\ps_dlss_compose.hlsl" /DPASS=8
+
 SET fxc_cs5=%fxcexe% /nologo /O2 /T cs_5_0
 %fxc_cs5% /Fo "%workdir%\cs_dlss_global_motion.cso"      "d3d11\cs_dlss_global_motion.hlsl"
 

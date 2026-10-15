@@ -76,6 +76,12 @@ static std::wstring StabilizerText(int value)
 	return value ? std::to_wstring(value) : std::wstring(L"off");
 }
 
+// DLSS 5 NR's working size, per cent of the picture's.
+static std::wstring ScaleText(int value)
+{
+	return std::format(L"{}%", value);
+}
+
 // The video delay goes both ways, so it says which.
 static std::wstring DelayText(int ms)
 {
@@ -309,6 +315,15 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_SLIDER6,
 		L"Fine structure on skin, separately. Higher than the others\n"
 		"because faces carry the detail the eye checks first." },
+	{ IDC_SLIDER9,
+		L"The size the network works at, per cent of the picture's.\n"
+		"It costs in proportion to the pixels. In MPC-HC on an RTX 4060,\n"
+		"a 3840x2160 film showed one picture in two at 100% (72 ms each)\n"
+		"and every one at 55% (32 ms); a 3840x1600 film, every one from\n"
+		"75% (36 ms). A picture at 24 frames a second has 41.7.\n"
+		"Below 100 its change is carried back onto the picture at full\n"
+		"size, which keeps its own detail and grain.\n"
+		"Taken on Apply: the network starts again at the new size." },
 	{ IDC_SLIDER7,
 		L"Steadies the network's effect over time, after it runs, so the\n"
 		"video is never delayed. Removes most of the shimmer DLSS adds.\n"
@@ -327,8 +342,9 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		L"Makes the network ignore its own previous output every frame.\n"
 		"The stabilizer is not affected: it works after the network." },
 	{ IDC_BUTTON3,
-		L"Back to the measured tuning. Whether DLSS is on, its key and the\n"
-		"DLL paths are left alone." },
+		L"Back to the measured tuning. Whether DLSS is on, its key, the\n"
+		"DLL paths and the working size, which is the card's, are left\n"
+		"alone." },
 
 	// HDR
 	{ IDC_CHECK18,
@@ -684,6 +700,10 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_SLIDER7, TBM_SETRANGE, 0, MAKELONG(DLSSNR_STAB_MIN, DLSSNR_STAB_MAX));
 	Send(IDC_SLIDER7, TBM_SETLINESIZE, 0, 1);
 	Send(IDC_SLIDER7, TBM_SETPAGESIZE, 0, 10);
+	// In steps of the slider's: the positions are the steps.
+	Send(IDC_SLIDER9, TBM_SETRANGE, 0, MAKELONG(DLSSNR_SCALE_MIN / DLSSNR_SCALE_STEP, DLSSNR_SCALE_MAX / DLSSNR_SCALE_STEP));
+	Send(IDC_SLIDER9, TBM_SETLINESIZE, 0, 1);
+	Send(IDC_SLIDER9, TBM_SETPAGESIZE, 0, 1);
 
 	// A range that goes below zero does not fit the two words of TBM_SETRANGE. And
 	// the slider is told to redraw with it: zero is where it starts and where it is
@@ -773,6 +793,8 @@ void CVRSettingsPPage::SetControls()
 		Send(s.idSlider, TBM_SETPOS, TRUE, (LPARAM)s.value);
 		SetText(s.idEdit, (s.bStrength ? StrengthText(s.value) : StabilizerText(s.value)).c_str());
 	}
+	Send(IDC_SLIDER9, TBM_SETPOS, TRUE, (LPARAM)(m_SetsPP.iDlssNRWorkingScale / DLSSNR_SCALE_STEP));
+	SetText(IDC_EDIT11, ScaleText(m_SetsPP.iDlssNRWorkingScale).c_str());
 	SetText(IDC_EDIT7, m_SetsPP.szDlssNRDllPath);
 
 	SetCheck(IDC_CHECK25, m_SetsPP.bDlssSR);
@@ -849,7 +871,7 @@ void CVRSettingsPPage::EnableControls()
 			IDC_SLIDER3, IDC_SLIDER4, IDC_SLIDER5, IDC_SLIDER6,
 			IDC_EDIT3, IDC_EDIT4, IDC_EDIT5, IDC_EDIT6,
 			IDC_STATIC21, IDC_STATIC22, IDC_STATIC23, IDC_STATIC24, IDC_STATIC25, IDC_STATIC26,
-			IDC_STATIC30, IDC_BUTTON3 }) {
+			IDC_STATIC30, IDC_BUTTON3, IDC_STATIC_DLSSNR_SCALE, IDC_SLIDER9, IDC_EDIT11 }) {
 		Enable(id, bNROn);
 	}
 	// The stabilizer works after the network, whatever its own history does.
@@ -1159,6 +1181,8 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				wcscpy_s(defaults.szDlssNRDllPath, m_SetsPP.szDlssNRDllPath);
 				defaults.bDlssSR = m_SetsPP.bDlssSR;
 				wcscpy_s(defaults.szDlssSRDllPath, m_SetsPP.szDlssSRDllPath);
+				// Nor is the working size: it is what the card can carry.
+				defaults.iDlssNRWorkingScale = m_SetsPP.iDlssNRWorkingScale;
 				CopyDlssSettings(m_SetsPP, defaults);
 				SetControls();
 				EnableControls();
@@ -1330,6 +1354,15 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 
 		// The DLSS sliders are not applied on drag: a settings round-trip per pixel
 		// of travel would recreate state on every mouse move.
+		if (hCtrl == Item(IDC_SLIDER9)) {
+			const int value = (int)Send(IDC_SLIDER9, TBM_GETPOS) * DLSSNR_SCALE_STEP;
+			if (value != m_SetsPP.iDlssNRWorkingScale) {
+				m_SetsPP.iDlssNRWorkingScale = value;
+				SetText(IDC_EDIT11, ScaleText(value).c_str());
+				SetDirty();
+			}
+			return (INT_PTR)1;
+		}
 		const struct { int idSlider; int idEdit; int* pValue; bool bStrength; } sliders[] = {
 			{ IDC_SLIDER3, IDC_EDIT3, &m_SetsPP.iDlssNRIntensity,      true  },
 			{ IDC_SLIDER4, IDC_EDIT4, &m_SetsPP.iDlssNRLocalTone,      true  },

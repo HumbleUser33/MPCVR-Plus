@@ -87,6 +87,7 @@
 #define OPT_DlssNRStabilizer               L"DlssNRStabilizerStrength"
 #define OPT_DlssNRMotion                   L"DlssNRMotionSource"
 #define OPT_DlssNRMotionVectors            L"DlssNRMotionVectorsToNetwork"
+#define OPT_DlssNRWorkingScale             L"DlssNRWorkingScale"
 #define OPT_DlssSR                         L"DlssSRUpscaling"
 #define OPT_DlssSRPreset                   L"DlssSRPreset"
 #define OPT_DlssSRDllPath                  L"DlssSRDllPath"
@@ -264,6 +265,9 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRStabilizer, dw)) {
 		sets.iDlssNRStabilizer = discard<int>((int)dw, DLSSNR_STAB_DEF, DLSSNR_STAB_MIN, DLSSNR_STAB_MAX);
 	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRWorkingScale, dw)) {
+		sets.iDlssNRWorkingScale = discard<int>((int)dw, DLSSNR_SCALE_DEF, DLSSNR_SCALE_MIN, DLSSNR_SCALE_MAX);
+	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRMotion, dw)) {
 		sets.iDlssNRMotion = discard<int>((int)dw, DLSSNR_MOTION_DEF, DLSSNR_MOTION_DETECTOR, DLSSNR_MOTION_OPTICALFLOW);
 	}
@@ -371,6 +375,7 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_DlssNRStabilizer,    sets.iDlssNRStabilizer);
 	key.SetDWORDValue(OPT_DlssNRMotion,        sets.iDlssNRMotion);
 	key.SetDWORDValue(OPT_DlssNRMotionVectors, sets.bDlssNRMotionVectors);
+	key.SetDWORDValue(OPT_DlssNRWorkingScale,  sets.iDlssNRWorkingScale);
 	key.SetDWORDValue(OPT_DlssNRToggleKey,     sets.iDlssNRToggleKey);
 	key.SetStringValue(OPT_DlssNRDllPath,      sets.szDlssNRDllPath);
 	key.SetDWORDValue(OPT_DlssSR,              sets.bDlssSR);

@@ -373,7 +373,8 @@ private:
 class CGpuStageTimes
 {
 public:
-	enum Stage { NRMotion, NRStabilize, SRMotion, SR, MpvLuma, MpvChroma, VPScale, StageCount };
+	// NRReduce and NRCompose: DLSS 5 NR at a working size below the picture's.
+	enum Stage { NRMotion, NRStabilize, SRMotion, SR, MpvLuma, MpvChroma, VPScale, NRReduce, NRCompose, StageCount };
 
 	void Release();
 

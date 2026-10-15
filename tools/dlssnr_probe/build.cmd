@@ -53,6 +53,15 @@ fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_stab_stabilize.cso "%SH%\ps_dlss_stabilize
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_stab_snapmotion.cso "%SH%\ps_dlss_stabilize.hlsl" /DPASS=3 >NUL || EXIT /B 1
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_stab_blockmotion.cso "%SH%\ps_dlss_stabilize.hlsl" /DPASS=4 >NUL || EXIT /B 1
 fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_global_motion.cso "%SH%\cs_dlss_global_motion.hlsl" >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_diff.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=0 >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_joint.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=1 >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_sums.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=2 >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_ab.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=3 >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_abx.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=4 >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_aby.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=5 >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_guided.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=6 >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_reducex.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=7 >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_reducey.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=8 >NUL || EXIT /B 1
 rc /nologo /fo detector_shaders.res detector_shaders.rc || EXIT /B 1
 
 REM ONNX Runtime with DirectML, when it has been fetched into external\onnxruntime.
@@ -72,7 +81,7 @@ IF EXIST "%ORT%\build\native\include\onnxruntime_cxx_api.h" (
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
    /DUNICODE /D_UNICODE /I"%SRC%" %ORTFLAGS% harness.cpp %ORTLIB% ^
    "%SRC%\DLSS\DlssNR.cpp" "%SRC%\DLSS\DlssMotionMask.cpp" "%SRC%\DLSS\DlssOpticalFlow.cpp" "%SRC%\DLSS\DlssStabilizer.cpp" ^
-   "%SRC%\DLSS\DlssSR.cpp" "%SRC%\Upscale\MpvShader.cpp" ^
+   "%SRC%\DLSS\DlssSR.cpp" "%SRC%\DLSS\DlssCompose.cpp" "%SRC%\Upscale\MpvShader.cpp" ^
    "%SRC%\DX11Helper.cpp" "%SRC%\Utils\Util.cpp" ^
    "%MH%\hook.c" "%MH%\buffer.c" "%MH%\trampoline.c" "%MH%\hde\hde64.c" ^
    detector_shaders.res /Fe:dlssnr_harness.exe || EXIT /B 1

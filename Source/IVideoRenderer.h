@@ -135,6 +135,14 @@ constexpr inline auto DLSSNR_STAB_DEF  = 100;
 constexpr inline auto DLSSNR_MOTION_DETECTOR    = 0;   // shader detector: still areas only
 constexpr inline auto DLSSNR_MOTION_OPTICALFLOW = 1;   // NVIDIA Optical Flow: moving areas too
 constexpr inline auto DLSSNR_MOTION_DEF         = DLSSNR_MOTION_OPTICALFLOW;
+// The size DLSS 5 NR works at, per cent of the picture's each way. The network costs
+// in proportion to the pixels it is given; below 100 it runs on the picture reduced,
+// and the change it made is carried back onto the picture at its own size
+// (CDlssCompose). The step is the slider's.
+constexpr inline auto DLSSNR_SCALE_MIN  = 50;
+constexpr inline auto DLSSNR_SCALE_MAX  = 100;
+constexpr inline auto DLSSNR_SCALE_STEP = 5;
+constexpr inline auto DLSSNR_SCALE_DEF  = 100;
 
 // DLSS Super Resolution render preset, stored as the NGX number: 0 lets DLSS
 // choose for the scale, 10 J and 11 K are the first transformer models, 12 L and
@@ -271,6 +279,10 @@ struct Settings_t {
 	// amplifier that decodes behind the television is seen by nothing in the player.
 	int  iVideoDelay;
 
+	// DLSS 5 NR at this share of the picture's size, DLSSNR_SCALE_*: 100 runs it at
+	// the size itself. On the DLSS 5 page, so CopyDlssSettings carries it.
+	int  iDlssNRWorkingScale;
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -349,6 +361,7 @@ struct Settings_t {
 		szDlssSRDllPath[0]              = L'\0';
 		bDlssRenderAhead                = true;
 		iVideoDelay                     = 0;
+		iDlssNRWorkingScale             = DLSSNR_SCALE_DEF;
 	}
 };
 
@@ -370,6 +383,7 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 	dst.iDlssNRMotion         = src.iDlssNRMotion;
 	dst.bDlssNRMotionVectors  = src.bDlssNRMotionVectors;
 	dst.bDlssNRAfterUpscale   = src.bDlssNRAfterUpscale;
+	dst.iDlssNRWorkingScale   = src.iDlssNRWorkingScale;
 	dst.iDlssNRToggleKey      = src.iDlssNRToggleKey;
 	wcscpy_s(dst.szDlssNRDllPath, src.szDlssNRDllPath);
 	dst.bDlssSR               = src.bDlssSR;

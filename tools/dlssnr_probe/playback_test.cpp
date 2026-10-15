@@ -32,6 +32,7 @@
 //   playback_test.exe --toggle          settings changed in full playback, as the player does
 //   playback_test.exe --delay N [--delayto M]   the Video delay setting, and moved while it plays;
 //                                     with MPCVR_PACING_TRACE set, pacing_report.py says where the pictures went
+//   playback_test.exe --nrscale N [--nrscaleto M]   DLSS 5 NR's working size, per cent, and moved while it plays
 //                                     which processor then converts the picture
 
 #include <windows.h>
@@ -112,6 +113,8 @@ static bool g_bAfterNR = false;        // --afternr: who enlarges what DLSS 5 NR
 static int g_smallUpscaling = -1;      // --small N: another method under 5 %
 static int g_videoDelay = 0;           // --delay N: every picture N ms after its time (the Video delay setting)
 static int g_videoDelayTo = INT_MIN;   // --delayto N: and changed to N three seconds in, as the page's slider does
+static int g_nrScale = DLSSNR_SCALE_DEF;   // --nrscale N: DLSS 5 NR at N per cent of the picture's size
+static int g_nrScaleTo = 0;            // --nrscaleto N: and changed to N three seconds in, as Apply does
 static int g_hz = 0;                   // --hz N: put the screen at N Hz for the run, and back after
 static bool g_bJolt = false;           // --jolt: change a setting while it plays, and watch the queue
 static bool g_bPresetKeys = false;     // --presets: save two, recall each by its key while it plays
@@ -1025,6 +1028,8 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	// --delay N. Without it there is none, whatever the registry holds: a delay set by
 	// ear in somebody's room is not what the other runs measure.
 	sets.iVideoDelay = g_videoDelay;
+	// --nrscale N. Without it, the full size, for the same reason.
+	sets.iDlssNRWorkingScale = g_nrScale;
 	if (config.iUpscaling >= 0) {
 		sets.iUpscaling = config.iUpscaling;
 	}
@@ -1097,9 +1102,9 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		// is the one place that would show it.
 		Settings_t back;
 		pVR->GetSettings(back);
-		printf("   settings kept: stats %d, rtxhdr %d, superres %d, prepass %d, hdrout %d, vpscale %d\n",
+		printf("   settings kept: stats %d, rtxhdr %d, superres %d, prepass %d, hdrout %d, vpscale %d, nrscale %d\n",
 			(int)back.bShowStats, (int)back.bVPRTXVideoHDR, back.iVPSuperRes,
-			(int)back.bVPReplaceChroma, (int)back.bHdrPassthrough, (int)back.bVPScaling);
+			(int)back.bVPReplaceChroma, (int)back.bHdrPassthrough, (int)back.bVPScaling, back.iDlssNRWorkingScale);
 	}
 	}
 
@@ -1260,6 +1265,18 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 			moved.iVideoDelay = g_videoDelayTo;
 			pVR->SetSettings(moved);
 			printf("   %4.1f s  -- Video delay changed from %d to %d ms --\n", i / 10.0, g_videoDelay, g_videoDelayTo);
+		}
+		if (g_nrScaleTo && i == 30) {
+			// Apply on the page: the network starts again at the new size while the film plays.
+			Settings_t moved;
+			pVR->GetSettings(moved);
+			moved.iDlssNRWorkingScale = g_nrScaleTo;
+			pVR->SetSettings(moved);
+			printf("   %4.1f s  -- DLSS 5 NR working size changed from %d to %d %% --\n", i / 10.0, g_nrScale, g_nrScaleTo);
+		}
+		if ((g_nrScale != DLSSNR_SCALE_DEF || g_nrScaleTo) && i % 10 == 9) {
+			wprintf(L"   %4.1f s  %s | %s | skipped %s\n", i / 10.0, StatsLine(text, L"DLSS 5 NR     : ").c_str(),
+				StatsLine(text, L"DLSS (ms)     : ").c_str(), StatsLine(text, L"Frames        : ").c_str());
 		}
 		if ((g_videoDelay || g_videoDelayTo != INT_MIN) && i % 10 == 9) {
 			wprintf(L"   %4.1f s  sync %s | on screen %s | %s\n", i / 10.0, sync.c_str(),
@@ -2080,6 +2097,10 @@ int wmain(int argc, wchar_t* argv[])
 			g_videoDelay = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--delayto")) {
 			g_videoDelayTo = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--nrscale")) {
+			g_nrScale = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--nrscaleto")) {
+			g_nrScaleTo = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--hover")) {
 			g_hoverIds.push_back(_wtoi(argv[i + 1]));
 		} else if (!wcscmp(argv[i], L"--click")) {

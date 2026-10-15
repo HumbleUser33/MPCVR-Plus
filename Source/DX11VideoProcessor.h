@@ -31,6 +31,7 @@
 #include "D3DUtil/D3D11Font.h"
 #include "D3DUtil/D3D11Geometry.h"
 #include "DLSS/DlssStabilizer.h"
+#include "DLSS/DlssCompose.h"
 #include "DLSS/DlssNR.h"
 #include "DLSS/DlssSR.h"
 #include "DLSS/DlssTiming.h"
@@ -228,6 +229,15 @@ private:
 	bool m_bDlssNRAfterUpscale = false; // run at display resolution instead
 	CDlssStabilizer m_DlssStabilizer;   // steadies the network's effect after it runs
 	int  m_iDlssNRStabilizer = DLSSNR_STAB_DEF;
+	// Below 100 the network and the stabilizer work on the picture reduced, and what
+	// they changed is carried back onto it (CDlssCompose). The pass takes and gives a
+	// picture of m_DlssNRPictureSize either way; m_TexDlssIn and m_TexDlssOut are the
+	// working size.
+	int  m_iDlssNRWorkingScale = DLSSNR_SCALE_DEF;
+	CDlssCompose m_DlssCompose;
+	CComPtr<ID3D11RenderTargetView> m_pDlssInTarget;   // where the reduction writes the network's input
+	Tex2D_t m_TexDlssPicture;           // the picture on its own, when it is a part of a larger texture
+	CSize m_DlssNRPictureSize;
 	int  m_iDlssNRMotion = DLSSNR_MOTION_DEF;
 	bool m_bDlssNRMotionVectors = false; // Optical Flow vectors to the network as well
 	bool m_bDlssNewPicture = false;     // the next DLSS pass sees a new picture, not a redraw
