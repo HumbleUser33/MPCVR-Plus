@@ -124,7 +124,7 @@ private:
 	// tag: a value unique among this dialog's tools and never a window handle.
 	void AddHint(int id, LPCWSTR text, UINT_PTR tag);
 
-	// The Presets tab: eight rows of a name, a key, Save and Load.
+	// The Presets tab: ten rows of a name, a key, Save and Load.
 	void ShowPresets();
 	int  PresetKeyShown(int slot);
 	bool OnPresetCommand(int nID, int action);

@@ -384,7 +384,7 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_VideoDelay,          (DWORD)sets.iVideoDelay);
 }
 
-// Presets: eight keys beside the settings, each holding a whole Settings_t under
+// Presets: ten keys beside the settings, each holding a whole Settings_t under
 // the same names, the name the user gave it and the key that recalls it.
 static std::wstring PresetKeyPath(int slot)
 {

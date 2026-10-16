@@ -1214,12 +1214,14 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 				a.iUpscaling = UPSCALE_CatmullRom;
 				b.iUpscaling = UPSCALE_Lanczos3;
 				b.iSharpen = SHARPEN_Adaptive;
-				printf("   save 1 \"Soft\" on F6: 0x%08X, save 2 \"Sharp\" on Ctrl+F7: 0x%08X\n",
-					(unsigned)pVR->SavePreset(0, a, L"Soft", VK_F6), (unsigned)pVR->SavePreset(1, b, L"Sharp", VK_F7 | PRESETKEY_Ctrl));
+				// The first slot and the last, so that the last is reached by its key too.
+				printf("   save 1 \"Soft\" on F6: 0x%08X, save %d \"Sharp\" on Ctrl+F7: 0x%08X\n",
+					(unsigned)pVR->SavePreset(0, a, L"Soft", VK_F6), PRESET_COUNT,
+					(unsigned)pVR->SavePreset(PRESET_COUNT - 1, b, L"Sharp", VK_F7 | PRESETKEY_Ctrl));
 				Settings_t empty;
 				printf("   slot 3, never saved, loads as 0x%08X (S_FALSE is 1)\n", (unsigned)pVR->LoadPreset(2, empty));
 			}
-			// F7 alone first, which belongs to nobody: preset 2 wants Ctrl held with it.
+			// F7 alone first, which belongs to nobody: the last preset wants Ctrl held with it.
 			// Then Ctrl+F7, then Ctrl+F6, which is not preset 1's key either, then F6.
 			// And paused, where nothing draws the name unless the recall asks for it:
 			// Ctrl+F7 a second into the pause, F6 four seconds later, once the first

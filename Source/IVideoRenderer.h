@@ -403,7 +403,7 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 	// the prescalers as much as for DLSS.
 }
 
-constexpr int PRESET_COUNT = 8;
+constexpr int PRESET_COUNT = 10;
 
 // The key that recalls a preset: a virtual key in the low byte and, above it, the
 // keys that must be held with it. Ctrl+1 and 1 are two different keys.

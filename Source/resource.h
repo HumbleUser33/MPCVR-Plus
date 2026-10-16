@@ -285,6 +285,8 @@
 #define IDC_PRESET_NAME6                   1305
 #define IDC_PRESET_NAME7                   1306
 #define IDC_PRESET_NAME8                   1307
+#define IDC_PRESET_NAME9                   1308
+#define IDC_PRESET_NAME10                  1309
 #define IDC_PRESET_KEY1                    1310
 #define IDC_PRESET_KEY2                    1311
 #define IDC_PRESET_KEY3                    1312
@@ -293,6 +295,8 @@
 #define IDC_PRESET_KEY6                    1315
 #define IDC_PRESET_KEY7                    1316
 #define IDC_PRESET_KEY8                    1317
+#define IDC_PRESET_KEY9                    1318
+#define IDC_PRESET_KEY10                   1319
 #define IDC_PRESET_SAVE1                   1320
 #define IDC_PRESET_SAVE2                   1321
 #define IDC_PRESET_SAVE3                   1322
@@ -301,6 +305,8 @@
 #define IDC_PRESET_SAVE6                   1325
 #define IDC_PRESET_SAVE7                   1326
 #define IDC_PRESET_SAVE8                   1327
+#define IDC_PRESET_SAVE9                   1328
+#define IDC_PRESET_SAVE10                  1329
 #define IDC_PRESET_LOAD1                   1330
 #define IDC_PRESET_LOAD2                   1331
 #define IDC_PRESET_LOAD3                   1332
@@ -309,6 +315,8 @@
 #define IDC_PRESET_LOAD6                   1335
 #define IDC_PRESET_LOAD7                   1336
 #define IDC_PRESET_LOAD8                   1337
+#define IDC_PRESET_LOAD9                   1338
+#define IDC_PRESET_LOAD10                  1339
 #define IDC_PRESET_MOD1                    1340
 #define IDC_PRESET_MOD2                    1341
 #define IDC_PRESET_MOD3                    1342
@@ -317,13 +325,15 @@
 #define IDC_PRESET_MOD6                    1345
 #define IDC_PRESET_MOD7                    1346
 #define IDC_PRESET_MOD8                    1347
+#define IDC_PRESET_MOD9                    1348
+#define IDC_PRESET_MOD10                   1349
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        4010
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1338
+#define _APS_NEXT_CONTROL_VALUE         1350
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

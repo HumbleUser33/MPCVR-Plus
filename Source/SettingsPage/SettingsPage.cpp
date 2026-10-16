@@ -1441,7 +1441,7 @@ static const struct { const wchar_t* name; int vk; } g_presetKeys[] = {
 };
 
 // What may be held with the key. Ctrl+1 and Shift+1 are two keys to the hook, so
-// eight presets fit on the digits without taking a single one from the player.
+// ten presets fit on the digits without taking a single one from the player.
 static const struct { const wchar_t* name; int held; } g_presetHeld[] = {
 	{ L"None", 0 },
 	{ L"Ctrl", PRESETKEY_Ctrl }, { L"Shift", PRESETKEY_Shift }, { L"Alt", PRESETKEY_Alt },
@@ -1450,7 +1450,7 @@ static const struct { const wchar_t* name; int held; } g_presetHeld[] = {
 	{ L"Ctrl + Shift + Alt", PRESETKEY_Ctrl | PRESETKEY_Shift | PRESETKEY_Alt },
 };
 
-// Tags for the tooltips of the 40 controls: unique, and not window handles.
+// Tags for the tooltips of the 50 controls: unique, and not window handles.
 static const char g_presetTags[PRESET_COUNT * 5] = {};
 
 // The key a row is showing, with what is held: nothing held counts without a key.

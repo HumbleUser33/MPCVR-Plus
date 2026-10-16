@@ -1534,7 +1534,7 @@ toggle key or the main page, and the main page leaves these settings alone.
 
 ### Presets
 
-The **Presets** tab holds eight sets of settings. Each line has a name, a key, *Save* and
+The **Presets** tab holds ten sets of settings. Each line has a name, a key, *Save* and
 *Load*:
 
 - *Save* keeps everything the pages show at that moment, applied or not, and writes it at
@@ -1559,12 +1559,12 @@ delay, and whether the statistics are showing -- a preset saved while they were 
 Direct3D 11, the swap effect, exclusive fullscreen or the texture format restarts the
 rendering, the same short break those options cause from the page; between two presets that
 differ only in the picture, the change is immediate. Measured with `playback_test --presets`,
-which saves a Catmull-Rom preset on F6 and a Lanczos3 one with Adaptive-Sharpen on Ctrl+F7
-and presses F7, Ctrl+F7, Ctrl+F6 and F6 during playback: F7 alone and Ctrl+F6 change
-nothing, the Scaling line follows the other two, and no frame is skipped.
+which saves a Catmull-Rom preset on F6 in the first slot and a Lanczos3 one with
+Adaptive-Sharpen on Ctrl+F7 in the last, and presses F7, Ctrl+F7, Ctrl+F6 and F6 during
+playback: F7 alone and Ctrl+F6 change nothing, the Scaling line follows the other two, and no frame is skipped.
 
 They are stored beside the settings, in `HKCU\Software\MPC-BE Filters\MPC Video
-Renderer\Presets\1` to `\8`, under the same value names as the settings themselves plus
+Renderer\Presets\1` to `\10`, under the same value names as the settings themselves plus
 `Name` and `Key` (the virtual key, plus 0x100 for Shift, 0x200 for Ctrl, 0x400 for Alt), written and read by the same code: a setting added later is in the presets
 without anyone thinking of it.
 
