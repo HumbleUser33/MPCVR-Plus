@@ -37,7 +37,7 @@
 // what it is doing with the picture at hand, and the page used to listen, which read
 // well and worked badly: a 4K film on a 4K screen leaves the processor nothing to
 // resize, and a Dolby Vision one keeps it out of the chain altogether, so the page
-// moved under the user as the film changed. Worse, it put Request Super Resolution
+// moved under the user as the film changed. Worse, it put Video Super Resolution
 // out of reach -- with the processor out of the chain it greyed whatever the chroma
 // pre-pass box said, and that box is the one it is supposed to answer. These are
 // settings for every film there will ever be, so the film playing now does not get
@@ -54,7 +54,7 @@ struct Greying {
 	bool bChromaList;        // Chroma upsampling, and its label
 	bool bUpscalingList;     // Upscaling, and its label
 	bool bDownscalingList;   // Downscaling, and its label
-	bool bSuperRes;          // Request Super Resolution, and its label
+	bool bSuperRes;          // Video Super Resolution, and its label
 };
 
 inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDoViNow)
@@ -70,9 +70,10 @@ inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDo
 	// DLSS Super Resolution is the one that takes the resizing: it enlarges in the
 	// processor's place, and in the Upscaling method's, which then only stands in
 	// where it cannot run.
-	// "Replace the video processor's chroma upsampling" gives the chroma of a
-	// progressive 4:2:0/4:2:2 picture back to the shaders, and only the chroma: the
-	// processor is handed a 4:4:4 picture and goes on converting and resizing it.
+	// "Use this method instead of the video processor's chroma upsampling" gives the
+	// chroma of a progressive 4:2:0/4:2:2 picture back to the shaders, and only the
+	// chroma: the processor is handed a 4:4:4 picture and goes on converting and
+	// resizing it.
 	const bool bAllVPFormats = s.VPFmts.bNV12 && s.VPFmts.bP01x
 		&& s.VPFmts.bYUY2 && s.VPFmts.bOther;
 	const bool bVPAvailable = !(s.bUseD3D11 && !bWin8);   // no D3D11 VP on Windows 7

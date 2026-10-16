@@ -11,7 +11,7 @@
 //   mpchc_drive.exe <mpc-hc64.exe> <film> [--windowed] [--select A,B,...] [--combo ID]
 //
 // --select lists the positions to put the list on, one visit to the options each
-// (default: the HDR10/DV list, IDC_COMBO10, moved to 3 and back to 1). Position -1
+// (default: the HDR output list, IDC_COMBO10, moved to 3 and back to 1). Position -1
 // opens and closes the options without touching anything, which is the control.
 //
 // Point it at a copy of the player, not the installed one, and save
@@ -540,7 +540,7 @@ int wmain(int argc, wchar_t** argv)
 		return 2;
 	}
 	bool windowed = false;
-	int comboId = 1063; // IDC_COMBO10, the HDR10/DV list
+	int comboId = 1063; // IDC_COMBO10, the HDR output list
 	std::vector<int> positions = { -1, 3, 1 };
 	for (int i = 3; i < argc; i++) {
 		if (!wcscmp(argv[i], L"--windowed")) {

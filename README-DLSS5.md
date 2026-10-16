@@ -361,7 +361,7 @@ So the stabilizer works **after** the network and never touches its inputs
    wrong motion estimate cannot drag old values far.
 3. **Motion** comes from **NVIDIA Optical Flow**: forward and backward flow from the driver's
    `nvofapi64.dll` (4×4 grid, medium quality), computed on the working picture divided by
-   *Optical Flow Resolution Divider* -- 4, 3, 2, Full, or Auto, the default, which takes 1, 2
+   *Optical Flow resolution* -- 1/4, 1/3, 1/2, Full, or Auto, the default, which takes 1, 2
    or 4 from the working height for about 540 lines as the stabilizer always did: 960x540 for a
    1080p film. The history is moved along the vectors, so moving areas are steadied too. A
    vector is trusted according to its forward/backward consistency, its matching cost, and
@@ -429,7 +429,7 @@ in the filter, measures exactly what the reference passes measure — every sequ
 giving the network its cleaned vectors — and each of its redraws shows, bit for bit, what its
 picture showed.
 
-Cost on the RTX 4060 at each *Optical Flow Resolution Divider* (`--tstabbench`, GPU time per
+Cost on the RTX 4060 at each *Optical Flow resolution* (`--tstabbench`, GPU time per
 picture, a moving picture, the flow's size in brackets): Optical Flow with its passes and the
 stabilizer together, and in brackets the same without the network's cleaned vectors:
 
@@ -456,7 +456,7 @@ Optical Flow, which every card DLSS 5 NR runs on has.
 
 ## DLSS Super Resolution (experimental)
 
-**Use DLSS SR 4.5 for upscaling**, in the **NVIDIA DLSS Super Resolution (experimental)**
+**Use DLSS Super Resolution for upscaling**, in the **NVIDIA DLSS Super Resolution (experimental)**
 box on the **Scaling** tab beside the other
 enlargers, enlarges the picture with DLSS Super Resolution instead of the **Upscaling** method,
 which is then greyed. It is independent of DLSS 5 NR: another DLL, another session, and it works with NR on
@@ -991,7 +991,7 @@ own reshaping, which a fixed-function video processor cannot convert, so the ren
 the whole chain to the shaders and the processor is not in it at all
 (`DX11VideoProcessor.cpp`, `disableD3D11VP`). While that is what is playing, the page says so:
 *Use the video processor for resizing* greys, with a line under it explaining why, and
-**Request Super Resolution** greys with it -- that extension lives inside the processor.
+**Video Super Resolution** greys with it -- that extension lives inside the processor.
 **Chroma upsampling**, **Upscaling** and **Downscaling** stay live, because on such a picture
 the shaders really are doing all three.
 
@@ -1007,7 +1007,7 @@ choice does not arise.
 
 *Use for resizing* decides the resizing and nothing else -- the chroma is the business of the
 format boxes and of *Replace VP chroma upsampling*. What it also decides is whether
-**Request Super Resolution** can do anything at all: that extension lives inside the video
+**Video Super Resolution** can do anything at all: that extension lives inside the video
 processor and is part of its resizing, so it greys without the box, greys while DLSS SR
 enlarges in the processor's place, and greys while the chroma pre-pass is on, because the
 processor is then handed a 4:4:4 picture the driver will not touch. The driver is still asked
@@ -1021,9 +1021,9 @@ One thing resizes the picture, and the boxes say which:
 
 | Ticked | The picture is resized by |
 |---|---|
-| *Use DLSS SR 4.5 for upscaling* | DLSS Super Resolution, whatever else is ticked. The shaders finish what it does not cover, and reduce |
+| *Use DLSS Super Resolution for upscaling* | DLSS Super Resolution, whatever else is ticked. The shaders finish what it does not cover, and reduce |
 | *Use the video processor for resizing* | the video processor, with the driver's Super Resolution when it is requested. **Upscaling**, **Downscaling** and *Use a lighter filter for small enlargements* grey |
-| neither | the shaders: the **Upscaling** and **Downscaling** lists. *Request Super Resolution* greys |
+| neither | the shaders: the **Upscaling** and **Downscaling** lists. *Video Super Resolution* greys |
 
 DLSS 5 NR is not in that table. It is a step of its own, at the source's size, and it leaves
 the resizing to whoever had it:
@@ -1053,7 +1053,7 @@ back. In which format is decided by what Super Resolution needs, since the drive
 | Y410, 4:4:4 | no Super Resolution, or *Replace VP chroma upsampling* ticked | under 0.5 dB, and levels within 0.16 of 255 in SDR, 0.29 in PQ | 0.9 ms |
 | P010, 4:2:0 | Super Resolution requested, and the driver takes it on a picture that size | 2.2 to 3.1 dB, and 2.3 to 4.0 dB of chroma where the luma has an edge | 13.7 ms, Super Resolution included |
 
-The tooltip of *Request Super Resolution* says so, since that is where the choice is made.
+The tooltip of *Video Super Resolution* says so, since that is where the choice is made.
 
 The P010 row is 4:2:0 met twice: the film's own, and the one Super Resolution asks for. It is
 measured on film frames halved from 4K, against the same frame through the processor once
@@ -1144,7 +1144,7 @@ the picture, in 8-bit levels):
   not: see *Following upstream* for what happens when it does;
 - **Super Resolution** does nothing to a 4:4:4 picture (0.000, against 4.0 on 4:2:0, with or
   without RTX Video HDR), so this box costs it. The driver is still asked for it exactly as
-  upstream asks -- nothing is taken away from it here -- but *Request Super Resolution* greys
+  upstream asks -- nothing is taken away from it here -- but *Video Super Resolution* greys
   while this pre-pass is in service, and the scaling line reads `D3D11 (No Super Resolution
   when chroma by shaders)` instead of starring work nobody did;
 - **deinterlacing** works on NV12 only on this driver, so interlaced video keeps the
@@ -1570,7 +1570,7 @@ thing to try when they do not is another audio renderer.
 
 ## The pointer that stayed on the picture
 
-A fault as old as the renderer, in MPC-HC in fullscreen: change the **HDR10/DV** list (or the
+A fault as old as the renderer, in MPC-HC in fullscreen: change the **HDR output** list (or the
 swap effect), close the options, and the mouse pointer stays over the film for good instead of
 going away after two seconds.
 
@@ -1607,22 +1607,22 @@ it serves the luma prescalers as much as DLSS, so it sits on the **Settings** pa
 
 | Setting | Default | Notes |
 |---|---|---|
-| Enable | off | Forces 16-bit float internal textures |
+| Enable DLSS 5 NR | off | Forces 16-bit float internal textures |
 | Apply after upscaling | off | Runs at display resolution instead of source. Much heavier at 4K |
 | Toggle key | F12 | Toggles during playback. The filter swallows this key |
 | DLL | empty | Empty means search the locations listed above |
 | Style | Default | Default / Natural / Cinematic. Applies live |
 | Preset | 0 | **No effect with the DLL builds seen so far** — they ship a single network and every preset falls back to it |
-| Auto mask | on | |
+| Auto mask | on | The network finds skin (faces, hands) by itself and gives it *Skin detail* rather than *Detail*. Off, the whole picture is treated alike and *Skin detail* does nothing: on a 1950 film, the output without it measured the same with Skin detail at 0, 0.50, 0.90 and 2.00, and with it the network changed a face by 19 thousandths of luma more at the defaults (`--tautomask`) |
 | Intensity | 1.50 | |
 | Local tone | 0.30 | Low on purpose: the local terms amplify frame-to-frame variation |
-| Local struct. | 0.50 | |
-| Skin struct. | 0.90 | |
-| Stabilizer | 100 | 0–100. Where the history is trusted, the current picture weighs from 1 down to 0.25 at 100, the measured setting. Its Optical Flow also gives the network its motion vectors, cleaned as DLSS SR's are, whatever the strength above 0. 0 runs nothing, vectors included. Applies live |
-| Optical Flow Resolution Divider | Auto | 4, 3, 2, Full or Auto: what the working picture is divided by before Optical Flow measures its motion. Auto takes 1, 2 or 4 from the working height for about 540 lines, as before the slider existed. See *A working size below the picture's* for what it changes. Applies on the next picture |
+| Detail | 0.50 | |
+| Skin detail | 0.90 | On the skin Auto mask finds; nothing while it is off |
+| Temporal stabilizer strength | 100 | 0–100. Where the history is trusted, the current picture weighs from 1 down to 0.25 at 100, the measured setting. Its Optical Flow also gives the network its motion vectors, cleaned as DLSS SR's are, whatever the strength above 0. 0 runs nothing, vectors included. Applies live |
+| Optical Flow resolution | Auto | 1/4, 1/3, 1/2, Full or Auto: the fraction of the working picture before Optical Flow measures its motion. Auto takes 1, 2 or 4 from the working height for about 540 lines, as before the slider existed. See *A working size below the picture's* for what it changes. Applies on the next picture |
 | Working size | 100 % | 50–100 %, in steps of 5. See *A working size below the picture's*: the network runs on the picture reduced, and its change is carried back onto the picture. Taken on Apply, which starts the network again. Registry `DlssNRWorkingScale` |
-| Use DLSS SR 4.5 for upscaling | off | See above: not perfect yet, which is why the box it sits in says so. Greys the Upscaling list while it is on |
-| Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p. Needs *Use DLSS SR* |
+| Use DLSS Super Resolution for upscaling | off | See above: not perfect yet, which is why the box it sits in says so. Greys the Upscaling list while it is on |
+| Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p. Needs *Use DLSS Super Resolution* |
 | Preset (DLSS SR) | Automatic | Or J, K, L, M. Applies on the next picture |
 | DLL (DLSS SR) | empty | `nvngx_dlss.dll` or its folder. Empty means search next to the filter and up |
 
@@ -1645,12 +1645,12 @@ And under the Chroma upsampling list:
 
 | Setting | Default | Notes |
 |---|---|---|
-| Sharpening | Disabled | *Adaptive-Sharpen* or *Unsharp + Clamp*, run after the resize, so it also reaches a film already at the screen's size. See above for what each is worth. Needs Direct3D 11 |
-| Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Disabled |
-| Replace VP chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Request Super Resolution* greys while this is ticked, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
+| Sharpening | Off | *Adaptive-Sharpen* or *Unsharp + Clamp*, run after the resize, so it also reaches a film already at the screen's size. See above for what each is worth. Needs Direct3D 11 |
+| Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Off |
+| Use this method instead of the video processor's chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Video Super Resolution* greys while this is ticked, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
 
 **Default** on the **DLSS 5 NR** tab resets the tuning, from Style to the stabilizer, its Optical
-Flow divider and the vectors, and the DLSS SR preset; it leaves Enable, Use DLSS SR, the key, both DLL paths, the
+Flow divider and the vectors, and the DLSS SR preset and DLAA; it leaves Enable, Use DLSS SR, the key, both DLL paths, the
 working size, which is what the card can carry, and render ahead, which belongs to the Settings
 page, alone. Applying the page sends only what was changed on it, so it never undoes the
 toggle key or the main page, and the main page leaves these settings alone.
@@ -1700,7 +1700,7 @@ returns the statistics as they are drawn on the picture, for tools that log them
 ## Known limitations
 
 **Some shimmer remains.** With Optical Flow about 1.1× the input's flicker is left on moving
-content. Lowering **Local tone** and **Local struct.** still helps, which is why they default
+content. Lowering **Local tone** and **Detail** still helps, which is why they default
 low.
 
 **Where Optical Flow is unsure** — large flat or dark areas, occlusions, transparency — trust

@@ -73,14 +73,15 @@ static std::wstring StrengthText(int value)
 // The stabilizer is a plain 0..100, where 0 turns it off.
 static std::wstring StabilizerText(int value)
 {
-	return value ? std::to_wstring(value) : std::wstring(L"off");
+	return value ? std::to_wstring(value) : std::wstring(L"Off");
 }
 
 // What the stabilizer's Optical Flow divides the working picture by; 1 is the picture
-// itself, 0 Auto. On the slider, 4, 3, 2, Full and Auto from left to right.
+// itself, 0 Auto. On the slider, 1/4, 1/3, 1/2, Full and Auto from left to right: the
+// fraction of the picture, which a bare 4 did not say.
 static std::wstring FlowDividerText(int divider)
 {
-	return divider > 1 ? std::to_wstring(divider) : std::wstring(divider ? L"Full" : L"Auto");
+	return divider > 1 ? std::format(L"1/{}", divider) : std::wstring(divider ? L"Full" : L"Auto");
 }
 
 static int FlowDividerPos(int divider)
@@ -159,290 +160,295 @@ static void RememberSection(int section)
 	RegSetKeyValueW(HKEY_CURRENT_USER, kRegKey, kRegSection, REG_DWORD, &value, sizeof(value));
 }
 
-// One line of what it does, one of what it needs. The measurements and the
-// reasoning are in README-DLSS5.md; a tooltip that has to be read twice is one
-// nobody reads.
+// What each option does, when it applies and what it needs. The measurements and the
+// reasoning are in README-DLSS5.md; a tooltip that has to be read twice is one nobody reads,
+// and one that quotes a measurement goes out of date with the next driver.
 static const struct { int id; const wchar_t* text; } g_hints[] = {
+	// The page
+	{ IDC_BUTTON1,
+		L"Restores the default settings of every tab, except the DLSS settings (the DLSS 5 NR tab "
+		"has its own Default button) and the presets.\n"
+		"The video delay is reset too." },
+
 	// Source
 	{ IDC_CHECK1,
-		L"Direct3D 11 instead of Direct3D 9.\n"
-		"Everything below that says Direct3D 11 needs it: the shader\n"
-		"prescalers, the chroma replacement, sharpening and DLSS.\n"
-		"Windows 8 or newer." },
+		L"Renders with Direct3D 11 instead of Direct3D 9.\n"
+		"Required by most MPCVR-Plus features: DLSS, the neural upscalers, the chroma "
+		"replacement, sharpening, HDR output and Render ahead.\n"
+		"Windows 7 SP1 or later. On Windows 7, the GPU video processor is not available with "
+		"Direct3D 11." },
 	{ IDC_COMBO1,
-		L"The precision the renderer works in.\n"
-		"Auto follows the source. 16-bit float is forced while DLSS 5 NR\n"
-		"runs, and costs twice the video memory of 8-bit." },
+		L"Bit depth of the pictures the renderer works on.\n"
+		"Auto: 10-bit for sources above 8 bits and with RTX Video HDR, 8-bit otherwise.\n"
+		"DLSS 5 NR always works in 16-bit float, whatever is chosen here. RTX Video HDR does not "
+		"run in 8-bit." },
 	{ IDC_STATIC1,
-		L"Formats handed to the hardware video processor.\n"
-		"Unticking one gives that format to the shaders instead, which is\n"
-		"what makes the chroma and scaling lists below live again." },
+		L"Video converted by the GPU's hardware video processor.\n"
+		"Hardware deinterlacing, RTX Video Super Resolution and RTX Video HDR only work on "
+		"formats ticked here.\n"
+		"If disabled, video is converted and resized by the shaders, with the methods chosen in "
+		"the Chroma and Scaling tabs." },
+	{ IDC_CHECK7,
+		L"8-bit 4:2:0: most 8-bit video." },
+	{ IDC_CHECK8,
+		L"10 and 16-bit 4:2:0: 10-bit video, including most HDR video." },
+	{ IDC_CHECK9,
+		L"8-bit 4:2:2." },
 	{ IDC_CHECK4,
-		L"Everything the processor takes beyond NV12, P010/P016 and YUY2.\n"
-		"Untick it and those formats go to the shaders." },
+		L"Every other format the video processor accepts. Unticked, they are converted by the "
+		"shaders." },
 	{ IDC_COMBO9,
-		L"Deinterlacing by the hardware video processor.\n"
-		"HACK future frames works around drivers that need them; try it\n"
-		"only if interlaced video judders." },
+		L"Deinterlacing of interlaced video by the GPU video processor.\n"
+		"Only for interlaced sources in a format the processor converts (see GPU video "
+		"processor).\n"
+		"'With future frames' is a workaround for some drivers: try it only if interlaced video "
+		"judders." },
 	{ IDC_CHECK3,
-		L"One field becomes one frame: 50i plays as 50p instead of 25p.\n"
-		"Smoother motion, twice the work. Interlaced sources only." },
+		L"Shows one picture per field: 50i plays as 50p instead of 25p, for smoother motion, with "
+		"twice the pictures to process.\n"
+		"Needs hardware deinterlacing on, and an interlaced source converted by the video "
+		"processor." },
 	{ IDC_CHECK17,
-		L"Blends the two fields with a shader instead of deinterlacing\n"
-		"them. Softer but free of combing. Progressive video is not\n"
-		"affected. Direct3D 11 and YUV 4:2:0." },
+		L"For an interlaced 4:2:0 source converted by the shaders (its format unticked above, or "
+		"Dolby Vision): blends the two fields instead of showing combing. Softer, but no combing.\n"
+		"Progressive video is not affected." },
 
 	// Chroma
 	{ IDC_COMBO5,
-		L"Rebuilds the colour of a 4:2:0/4:2:2 picture.\n"
-		"Used when the shaders do the conversion; greyed while the video\n"
-		"processor does it, except for what it refuses (Dolby Vision,\n"
-		"YCgCo, RGB on Nvidia). Listed best measured first.\n"
-		"RAVU-zoom and FSRCNNX cost a few milliseconds; Jinc is free." },
+		L"Rebuilds the colour (chroma) from 4:2:0 and 4:2:2 video to full resolution.\n"
+		"Used when the shaders convert the picture: formats unticked in Source, Dolby Vision, or "
+		"with the replacement below. Greyed while the video processor converts every format.\n"
+		"Listed from best to simplest. RAVU-zoom and FSRCNNX 8 AR need Direct3D 11 and 4:2:0 "
+		"video; Catmull-Rom is used otherwise." },
 	{ IDC_CHECK27,
-		L"The shaders rebuild the chroma with the method above and hand the\n"
-		"processor a 4:4:4 picture, so it stays in the chain.\n"
-		"Gains 5.6 dB of colour on 10-bit, 0.6 on 8-bit.\n"
-		"It costs RTX Video Super Resolution, which does nothing to a\n"
-		"4:4:4 picture. Progressive YUV, Direct3D 11." },
+		L"The shaders rebuild the colour with the method above, then hand the video processor a "
+		"full-resolution (4:4:4) picture, which it goes on converting and resizing. Better colour "
+		"detail, most visible on 10-bit video.\n"
+		"Progressive 4:2:0 and 4:2:2 video only. Direct3D 11.\n"
+		"Not compatible with RTX Video Super Resolution, which the driver does not apply to 4:4:4 "
+		"pictures." },
 
 	// Scaling
 	{ IDC_CHECK5,
-		L"The hardware video processor resizes instead of the shaders.\n"
-		"Fast, and lower quality than the lists below, which then grey.\n"
-		"Request Super Resolution needs it. With DLSS 5 NR on, the\n"
-		"processor enlarges what the network leaves; DLSS Super Resolution\n"
-		"takes the resizing for itself.\n"
-		"Greyed while Dolby Vision plays: the processor cannot convert that\n"
-		"picture, so the shaders take all of it. Leaving Prefer Dolby Vision\n"
-		"over PQ and HLG off keeps the processor on a file that also carries\n"
-		"an HDR10 layer." },
+		L"The GPU video processor resizes the picture instead of the shaders: fast, but lower "
+		"quality than the Upscaling and Downscaling methods, which are then greyed.\n"
+		"Required for Video Super Resolution.\n"
+		"With DLSS 5 NR on, the processor enlarges what the network outputs. DLSS Super "
+		"Resolution, when on, does the enlarging instead.\n"
+		"Greyed while a Dolby Vision video plays: the shaders then process the whole picture. "
+		"Leave 'Prefer Dolby Vision over PQ and HLG' (HDR tab) off to keep the video processor on "
+		"files that also carry an HDR10 layer." },
 	{ IDC_COMBO8,
-		L"The driver sharpens as the processor enlarges.\n"
-		"Needs \"Use the video processor for resizing\" ticked.\n"
-		"With DLSS 5 NR on it comes after the network, and costs colour\n"
-		"fidelity there: the driver only takes 4:2:0, so the picture's\n"
-		"colour is cut to half resolution a second time -- 2.2 to 3.1 dB\n"
-		"measured on film, and 13.7 ms a picture from 1080p to 4K.\n"
-		"Disable keeps the colour whole.\n"
-		"Greys while DLSS Super Resolution enlarges instead, and while\n"
-		"the chroma replacement above is on: the driver will not touch\n"
-		"the 4:4:4 picture it then receives.\n"
-		"Nvidia RTX (x64) or Intel UHD 610 and later." },
+		L"Asks the graphics driver to sharpen the picture with its Video Super Resolution (NVIDIA "
+		"RTX, or Intel UHD 610 and later) while the video processor enlarges it, for sources up "
+		"to the chosen size.\n"
+		"Needs 'Use the video processor for resizing', every format ticked in Source, Windows 10, "
+		"Direct3D 11 and the 64-bit filter.\n"
+		"Greyed while DLSS Super Resolution or the chroma replacement (Chroma tab) is on: the "
+		"driver does not process the 4:4:4 picture the replacement produces.\n"
+		"With DLSS 5 NR on, it applies after the network and halves the colour resolution again: "
+		"choose Off to keep full colour." },
 	{ IDC_COMBO2,
-		L"Enlarges when the shaders do the resizing.\n"
-		"Greyed while the video processor resizes, or while DLSS Super\n"
-		"Resolution does. Listed best measured first.\n"
-		"AR holds what the network invented inside the source's range;\n"
-		"ArtCNN is the best and the dearest, about 13 ms 1080p to 4K.\n"
-		"A network runs at any enlargement, however small, and costs the\n"
-		"same at all of them: it works at twice the source either way.\n"
-		"Direct3D 11." },
+		L"Enlarges the picture when the shaders do the resizing. Greyed while the video processor "
+		"resizes or DLSS Super Resolution is on.\n"
+		"Listed from best to simplest. ArtCNN, RAVU-zoom and FSRCNNX are neural upscalers: "
+		"sharper but much heavier, Direct3D 11 only (Catmull-Rom otherwise). ArtCNN also reduces "
+		"noise. 'AR' versions limit ringing (halos around edges).\n"
+		"A neural upscaler costs the same at any enlargement, even a tiny one: see the option "
+		"below." },
 	{ IDC_CHECK29,
-		L"Another Upscaling method when the picture grows by less than 5 %\n"
-		"on both axes. A network doubles its source whatever the target, so\n"
-		"a 4K film cropped to 3838 across costs it a pass at 7676x4320:\n"
-		"FSRCNNX 16 measured 399 ms a frame there, RAVU-zoom 12, Jinc2m none.\n"
-		"The statistics name the method really in use." },
+		L"Uses the method chosen below when the picture grows by less than 5 % on both sides, for "
+		"example a slightly cropped 4K film on a 4K screen. A neural upscaler costs as much there "
+		"as for a large enlargement, for no visible gain.\n"
+		"The statistics show which method is really in use." },
 	{ IDC_COMBO16,
-		L"The method used on enlargements under 5 %.\n"
-		"A classic kernel is the sensible choice: nothing a network adds\n"
-		"shows at that size." },
+		L"Method used for enlargements under 5 %. A classic filter (Catmull-Rom, Lanczos, Jinc2m) "
+		"is enough at that size." },
 	{ IDC_COMBO3,
-		L"Reduces when the shaders do the resizing, at every ratio.\n"
-		"Listed best measured first. The top three are close and differ in\n"
-		"taste: Spline36 rings least, Bicubic sharp adds contrast, Lanczos\n"
-		"sits between them. The last four let far more aliasing through.\n"
-		"Greyed while the video processor resizes." },
+		L"Reduces the picture when the shaders do the resizing. Greyed while the video processor "
+		"resizes.\n"
+		"Listed from best to simplest. The first three are close: Spline36 shows the least "
+		"ringing, Bicubic sharp the most contrast, Lanczos is in between." },
 	{ IDC_CHECK25,
-		L"Enlarges with NVIDIA DLSS Super Resolution instead of the\n"
-		"Upscaling method, which then greys.\n"
-		"Needs nvngx_dlss.dll and an RTX card. Works with or without\n"
-		"DLSS 5 NR.\n"
+		L"Enlarges the picture with NVIDIA DLSS Super Resolution. It takes over the enlarging from "
+		"the video processor and the Upscaling method.\n"
+		"It also cleans grain and compression noise.\n"
+		"Runs only when the picture is enlarged, up to 4 times; the Upscaling method finishes "
+		"larger enlargements.\n"
+		"Needs an NVIDIA RTX card, the 64-bit filter, Direct3D 11 and nvngx_dlss.dll. Works with "
+		"or without DLSS 5 NR.\n"
 		"Experimental: moving subjects can still shimmer on grainy film." },
 	{ IDC_CHECK28,
-		L"DLSS also runs when the picture is already the size it is shown at,\n"
-		"rebuilding it without enlarging it -- the same network and the same\n"
-		"cost. Games call it DLAA.\n"
-		"A whole DLSS pass at the output size: measured 14 ms a frame at 1080p\n"
-		"on an RTX 3050 and 70 ms at 4K, where a 24 fps film allows 41.7.\n"
-		"Watch skipped and the sync offset in the statistics.\n"
-		"Needs Use DLSS SR." },
+		L"Also runs DLSS when the picture is already shown at its own size (for example a 4K film "
+		"on a 4K screen), to clean it without enlarging it. Games call this DLAA.\n"
+		"Costs a full DLSS pass at the output size, which at 4K needs a high-end card: watch "
+		"'skipped' and the sync offset in the statistics.\n"
+		"Needs 'Use DLSS Super Resolution'." },
 	{ IDC_COMBO15,
-		L"Which DLSS model to use. Automatic picks it from the scale.\n"
-		"Live only while DLSS Super Resolution is ticked." },
+		L"Which DLSS model runs. Automatic lets DLSS choose for the enlargement ratio." },
 	{ IDC_EDIT9,
-		L"Path to nvngx_dlss.dll, or its folder; the file must keep that\n"
-		"name. Empty means look next to the filter, then one and two\n"
-		"directories up." },
+		L"Path to nvngx_dlss.dll, or to its folder (the file must keep this name). Leave empty to "
+		"search next to the filter, then one and two folders up." },
+	{ IDC_BUTTON4,
+		L"Browse for nvngx_dlss.dll." },
 
 	// Detail
 	{ IDC_SHARPEN,
-		L"Sharpens after the resize, so it also reaches a film already at\n"
-		"the screen's size.\n"
-		"Adaptive-Sharpen is the only one that does not amplify grain,\n"
-		"and the dearest: about 3 ms for a 4K frame.\n"
-		"Unsharp + Clamp rings least and costs five times less.\n"
+		L"Sharpens the picture after resizing, also applies to native screen resolution videos.\n"
+		"Adaptive-Sharpen does not amplify grain, but is heavier.\n"
+		"Unsharp + Clamp is lighter and shows less ringing on clean video.\n"
 		"Direct3D 11." },
 	{ IDC_SHARPEN_LEVEL,
-		L"The same amount of sharpening whichever method is chosen:\n"
-		"+4, +8, +13, +20 and +28 per cent of mean gradient.\n"
-		"3 is where the measurements settle; 4 and 5 are past fidelity.\n"
-		"Live only while a method is chosen." },
+		L"Strength from 1 to 5, the same for both methods. 3 is recommended; 4 and 5 sharpen "
+		"beyond the original detail." },
 	{ IDC_CHECK10,
-		L"Adds an ordered noise below the last bit before output, so flat\n"
-		"gradients band less -- skies, fades to black.\n"
-		"Costs nothing measurable. Leave it on." },
+		L"Adds a very fine noise before output so that smooth gradients (skies, fades to black) "
+		"don't show banding.\n"
+		"Negligible cost: leave it on." },
 
 	// DLSS 5 NR
 	{ IDC_CHECK20,
-		L"Neural reconstruction of each picture, at the source's size.\n"
-		"Whatever resizes goes on resizing, after it.\n"
-		"Needs nvngx_dlssnr.dll, Direct3D 11, x64 and an NVIDIA card.\n"
-		"Forces 16-bit float textures and about 500 MB of video memory\n"
-		"at 1080p." },
+		L"Runs NVIDIA DLSS 5 neural rendering on every picture: the network rebuilds detail, "
+		"texture and local contrast, in the style chosen on the right.\n"
+		"It works at the source's size, before resizing (unless 'Apply after upscaling'); the "
+		"resizing is unchanged and happens afterwards.\n"
+		"Needs an NVIDIA RTX card, Direct3D 11, the 64-bit filter and nvngx_dlssnr.dll. Uses "
+		"16-bit processing and several hundred MB of video memory." },
 	{ IDC_CHECK23,
-		L"Run the network on the enlarged picture instead of the source.\n"
-		"At 4K output that is roughly four times the pixels, and four\n"
-		"times the cost." },
+		L"Runs the network on the enlarged video instead of its native resolution. Much heavier: "
+		"from 1080p to 4K that is four times the pixels." },
 	{ IDC_COMBO13,
-		L"Switches DLSS on and off during playback.\n"
-		"The filter swallows this key, so pick one the player does not\n"
-		"need. None disables the shortcut." },
+		L"Key that switches DLSS 5 NR on and off during playback.\n"
+		"The filter captures this key, so choose one the player doesn't need. None: no shortcut." },
 	{ IDC_EDIT7,
-		L"Path to nvngx_dlssnr.dll.\n"
-		"Empty means look next to the filter, then one and two\n"
-		"directories up." },
-	{ IDC_COMBO11,
-		L"How far the network is allowed to reinterpret the picture.\n"
-		"Default is the measured one." },
-	{ IDC_COMBO12,
-		L"This DLL build ships a single network, so every preset falls\n"
-		"back to the same one. Kept for other builds." },
-	{ IDC_CHECK21,
-		L"Lets the network decide where to apply itself rather than\n"
-		"treating the whole picture alike." },
-	{ IDC_SLIDER3,
-		L"How much of the network's result is kept. 1.00 is all of it." },
-	{ IDC_SLIDER4,
-		L"Local contrast the network adds. Kept low on purpose: the local\n"
-		"terms amplify what changes from one frame to the next." },
-	{ IDC_SLIDER5,
-		L"Fine structure the network adds. Same caution as local tone." },
-	{ IDC_SLIDER6,
-		L"Fine structure on skin, separately. Higher than the others\n"
-		"because faces carry the detail the eye checks first." },
-	{ IDC_SLIDER9,
-		L"The size the network works at, per cent of the picture's.\n"
-		"It costs in proportion to the pixels. In MPC-HC on an RTX 4060,\n"
-		"a 3840x2160 film showed one picture in two at 100% (72 ms each)\n"
-		"and every one at 55% (32 ms); a 3840x1600 film, every one from\n"
-		"75% (36 ms). A picture at 24 frames a second has 41.7.\n"
-		"Below 100 its change is carried back onto the picture at full\n"
-		"size, which keeps its own detail and grain.\n"
-		"Taken on Apply: the network starts again at the new size." },
+		L"Path to nvngx_dlssnr.dll. Leave empty to search next to the filter, then one and two "
+		"folders up." },
+	{ IDC_BUTTON2,
+		L"Browse for nvngx_dlssnr.dll." },
 	{ IDC_SLIDER7,
-		L"Steadies the network's effect over time, after it runs, so the\n"
-		"video is never delayed. Removes most of the shimmer DLSS adds.\n"
-		"Its Optical Flow also gives the network its motion vectors.\n"
-		"100 is the measured setting; 0 runs nothing, vectors included." },
+		L"Steadies the network's changes over time, so the picture doesn't shimmer from one frame "
+		"to the next, without delaying the video.\n"
+		"Its NVIDIA Optical Flow also gives the network its motion vectors.\n"
+		"100 is recommended. 0 turns the stabilizer and the motion vectors off." },
 	{ IDC_SLIDER10,
-		L"What the picture the network works on is divided by before\n"
-		"NVIDIA Optical Flow measures the motion the stabilizer follows\n"
-		"and the network is given.\n"
-		"4 is the coarsest and cheapest, Full the picture itself: on a\n"
-		"1080p film, 480x270, 640x360, 960x540 or 1920x1080.\n"
-		"Auto takes 1, 2 or 4 from the picture's height for about 540\n"
-		"lines, as the stabilizer always did.\n"
-		"On a 4K film frame, from 270 lines to Full the result moved by\n"
-		"half a decibel at most; Optical Flow took 0.6 to 6.8 ms.\n"
-		"Taken on Apply, from the next picture." },
+		L"Resolution at which NVIDIA Optical Flow measures motion for the stabilizer and the "
+		"network: 1/4, 1/3 or 1/2 of the working picture, or Full size.\n"
+		"Lower is faster; higher follows fine motion more closely. Auto, the default, uses about "
+		"540 lines (half size for a 1080p film)." },
+	{ IDC_COMBO11,
+		L"The look the network aims for. Default is recommended; Natural and Cinematic are "
+		"NVIDIA's other styles." },
+	{ IDC_COMBO12,
+		L"Network variant. The current DLL contains a single network, so every preset gives the "
+		"same result." },
+	{ IDC_CHECK21,
+		L"Lets the network find skin (faces, hands) by itself, so that Skin detail applies there "
+		"and Detail everywhere else.\n"
+		"Off: the whole picture is treated alike, and Skin detail has no effect.\n"
+		"Recommended: on." },
+	{ IDC_SLIDER3,
+		L"Overall strength of the effect, from 0 (none) to 2.00. 1.00 is the network's own result; "
+		"above it, its changes are amplified." },
+	{ IDC_SLIDER4,
+		L"Local contrast added by the network. Keeping it low is recommended." },
+	{ IDC_SLIDER5,
+		L"Fine detail added by the network. Keeping it low is recommended." },
+	{ IDC_SLIDER6,
+		L"Fine detail added on skin (faces, hands), which Auto mask finds, set apart from Detail. "
+		"From -1.00 to 2.00.\n"
+		"No effect while Auto mask is off." },
+	{ IDC_SLIDER9,
+		L"Size at which the network works, as a percentage of the picture. Its cost follows the "
+		"number of pixels: lower is much faster, useful for 4K video on mid-range GPUs.\n"
+		"The picture itself keeps its native lossless resolution, only DLSS 5 NR is at lower "
+		"resolution." },
 	{ IDC_BUTTON3,
-		L"Back to the measured tuning. Whether DLSS is on, its key, the\n"
-		"DLL paths and the working size, which is the card's, are left\n"
-		"alone." },
+		L"Restores the recommended DLSS settings. Kept as they are: whether DLSS 5 NR and DLSS SR "
+		"are on, the toggle key, the DLL paths and the working size.\n"
+		"Also resets the DLSS SR preset and DLAA (Scaling tab)." },
 
 	// HDR
 	{ IDC_CHECK18,
-		L"When a stream carries both, take the Dolby Vision layer rather\n"
-		"than its PQ or HLG base." },
+		L"For files that carry both Dolby Vision and an HDR10 (PQ) or HLG layer: adapts the Dolby "
+		"Vision layer to the output.\n"
+		"Dolby Vision is processed entirely by the shaders, without the GPU video processor => no "
+		"hardware resizing, no RTX Video Super Resolution.\n"
+		"Off: the HDR10 or HLG layer is played." },
 	{ IDC_COMBO10,
-		L"What to do with an HDR source.\n"
-		"Passthrough sends it untouched to an HDR display; the others\n"
-		"tone map it here instead.\n"
-		"RTX Video HDR needs Passthrough and greys with anything else." },
+		L"How HDR video is output.\n"
+		"Passthrough: sent unchanged to the HDR display, which does the tone mapping.\n"
+		"Tone map: the renderer adapts the picture to your display's peak brightness (box on the "
+		"right) and outputs HDR.\n"
+		"BT.2390 uses Dolby Vision's dynamic metadata when the video has it.\n"
+		"Off: the video is output in SDR (see the box on the right of this tab).\n"
+		"Needs Windows 10, Direct3D 11 and an HDR display with Windows HDR on, or allowed to "
+		"switch on below.\n"
+		"RTX Video HDR needs Passthrough." },
 	{ IDC_EDIT_DISPLAYMAX,
-		L"The peak your display really reaches, used by the tone mapping\n"
-		"chosen above. 100 to 10000.\n"
-		"Live only while a tone mapping is chosen." },
+		L"Your display's real peak brightness in nits (100 to 10000), used by the tone mapping "
+		"methods.\n"
+		"Available while a tone mapping method is chosen." },
 	{ IDC_COMBO7,
-		L"Whether the filter may switch the desktop into HDR by itself\n"
-		"when an HDR film starts, and back afterwards." },
+		L"Whether the filter may switch Windows HDR mode on by itself when HDR video (or RTX Video "
+		"HDR) starts: only in fullscreen, or always. 'On/off' also switches it back off "
+		"afterwards.\n"
+		"Needs Windows 10 and Direct3D 11." },
 	{ IDC_SLIDER1,
-		L"How bright subtitles and the statistics are drawn over an HDR\n"
-		"picture. Raise it if they look grey." },
-	{ IDC_CHECK14,
-		L"When HDR cannot be passed through, tone map it to SDR here\n"
-		"rather than showing it washed out." },
-	{ IDC_SLIDER2,
-		L"The brightness that conversion aims at. Applies as you drag it,\n"
-		"so the picture follows.\n"
-		"Live only while Convert to SDR is ticked." },
+		L"How bright subtitles, the player's messages and the statistics are drawn over an HDR "
+		"picture: about 100, 200 or 330 nits from left to right." },
 	{ IDC_CHECK19,
-		L"The driver makes an HDR picture out of an SDR source.\n"
-		"Needs Passthrough above, an HDR display, x64 and an RTX card.\n"
-		"The statistics carry a star while it is really running." },
+		L"The NVIDIA driver turns SDR video into HDR.\n"
+		"Needs HDR output set to Passthrough, an HDR display with Windows HDR on, an NVIDIA RTX "
+		"card, the 64-bit filter, Direct3D 11, a bit depth other than 8-bit (Source tab), and a "
+		"format converted by the video processor. Applies to SDR video only.\n"
+		"The statistics show a star (*) when it is really running." },
+	{ IDC_CHECK14,
+		L"When HDR video is not output in HDR (SDR display, Windows HDR off, or HDR output set to "
+		"Off), converts it to SDR so that it doesn't look washed out." },
+	{ IDC_SLIDER2,
+		L"Target brightness of that conversion, in nits (25 to 400). Applies while you drag, so "
+		"you can judge it on the picture." },
 
 	// Presentation
 	{ IDC_COMBO4,
-		L"How finished pictures reach the screen.\n"
-		"Flip is the modern path and the lower latency one. Discard is\n"
-		"the old one, for drivers that misbehave with flip. It keeps no\n"
-		"account of the refreshes, so \"Render ahead\" cannot choose one\n"
-		"for each picture with it; an HDR picture uses Flip whatever\n"
-		"is chosen here." },
+		L"How pictures are handed to Windows.\n"
+		"Flip: the modern, lower-latency mode. Render ahead needs it to time each picture to a "
+		"screen refresh.\n"
+		"Discard: the older mode, for drivers that misbehave with Flip.\n"
+		"HDR output always uses Flip." },
 	{ IDC_CHECK11,
-		L"Takes the display outright instead of going through the desktop.\n"
-		"Lower latency, and it can break overlays, alt-tab and anything\n"
-		"else drawn over the video." },
+		L"In fullscreen, takes direct control of the display instead of going through the Windows "
+		"desktop. Lower latency, but menus and windows drawn over the video may not show, and "
+		"Alt+Tab is slower." },
 	{ IDC_CHECK15,
-		L"Waits for the display's vertical blank before presenting.\n"
-		"Can steady tearing on some setups. It costs a refresh of\n"
-		"latency -- 42 ms at 24 Hz -- during which the renderer is busy.\n"
-		"Not used while \"Render ahead\" chooses a refresh for each\n"
-		"picture: that already calls Present just after a blank." },
+		L"Waits for the screen's next refresh before sending each picture. Can reduce tearing on "
+		"some setups, but adds up to one refresh of delay.\n"
+		"Not used while Render ahead schedules the pictures: it already sends each one right "
+		"after a refresh." },
 	{ IDC_CHECK13,
-		L"Holds each picture until its own time on the audio clock rather\n"
-		"than presenting it as soon as it is ready.\n"
-		"Leave it on: it is what keeps the picture on the sound.\n"
-		"Not used while \"Render ahead\" chooses a refresh for each picture." },
+		L"Holds each picture until its exact time on the audio clock, instead of showing it as "
+		"soon as it is ready. Keeps the picture in sync with the sound: leave it on.\n"
+		"Not used while Render ahead schedules the pictures." },
 	{ IDC_CHECK16,
-		L"Rebuilds the device when the window moves to another screen.\n"
-		"Needed only if moving the player between monitors leaves the\n"
-		"picture wrong." },
+		L"Recreates the Direct3D device when the player window moves to another screen. Only "
+		"needed if the picture is wrong after moving the player between monitors." },
 	{ IDC_CHECK26,
-		L"Gives every picture a refresh of its own, chosen in advance: the\n"
-		"one nearest its time on the audio clock. Each picture is started\n"
-		"early -- by the time the screen's queue and the heavy passes take --\n"
-		"and Present is called just after a vertical blank, so that it is\n"
-		"on the screen when its time comes and not a refresh or two later.\n"
-		"The statistics then say \"scheduled\", and how many pictures had\n"
-		"to be repeated or dropped to keep the step. Needs the Flip swap\n"
-		"effect (an HDR picture always has it). Direct3D 11." },
-	{ IDC_SLIDER8,
-		L"Shows every picture this long after its time, for a sound that\n"
-		"arrives late: an amplifier that decodes behind the television.\n"
-		"Negative shows it earlier.\n"
-		"A picture only moves by whole refreshes, 42 ms at 24 Hz and 8 ms\n"
-		"at 120 Hz: the statistics say where it really is.\n"
-		"Applies as it is dragged. It belongs to the room and not to a\n"
-		"taste, so the presets leave it alone." },
+		L"Prepares each picture in advance and shows it on the screen refresh closest to its time "
+		"on the audio clock, so heavy processing (DLSS, neural upscalers) never makes it late.\n"
+		"The statistics then show 'scheduled', and how many pictures were repeated or dropped.\n"
+		"Needs Direct3D 11. Scheduling each picture needs the Flip swap effect (always used for "
+		"HDR)." },
 	{ IDC_CHECK2,
-		L"Draws the renderer's own statistics over the picture: formats,\n"
-		"what each stage costs, sync offset.\n"
-		"Ctrl+J in MPC-HC toggles the same thing." },
+		L"Shows the renderer's statistics over the picture: formats, processing steps and their "
+		"cost, sync offset.\n"
+		"In MPC-HC, Ctrl+J shows or hides them." },
 	{ IDC_COMBO6,
-		L"Whether the statistics keep one size or grow with the window." },
+		L"Whether the statistics keep a fixed size or grow with the window." },
+	{ IDC_SLIDER8,
+		L"Shows every picture later (positive) or earlier (negative) than its time, to match a "
+		"sound that arrives late, for example through an amplifier that delays it.\n"
+		"The picture moves by whole screen refreshes: the statistics show where it really is.\n"
+		"Applies while you drag. Not changed by presets." },
 };
 
 
@@ -583,29 +589,29 @@ HRESULT CVRSettingsPPage::OnDisconnect()
 
 void CVRSettingsPPage::FillCombos()
 {
-	Send(IDC_COMBO6, CB_ADDSTRING, 0, (LPARAM)L"Fixed font size");
-	Send(IDC_COMBO6, CB_ADDSTRING, 0, (LPARAM)L"Increase font by window");
+	Send(IDC_COMBO6, CB_ADDSTRING, 0, (LPARAM)L"Fixed size");
+	Send(IDC_COMBO6, CB_ADDSTRING, 0, (LPARAM)L"Grow with the window");
 
-	Combo_AddData(Item(IDC_COMBO1), L"Auto 8/10-bit Integer",  0);
-	Combo_AddData(Item(IDC_COMBO1), L"8-bit Integer",          8);
-	Combo_AddData(Item(IDC_COMBO1), L"10-bit Integer",        10);
-	Combo_AddData(Item(IDC_COMBO1), L"16-bit Floating Point", 16);
+	Combo_AddData(Item(IDC_COMBO1), L"Auto (8 or 10-bit)",  0);
+	Combo_AddData(Item(IDC_COMBO1), L"8-bit",               8);
+	Combo_AddData(Item(IDC_COMBO1), L"10-bit",             10);
+	Combo_AddData(Item(IDC_COMBO1), L"16-bit float",       16);
 
-	Send(IDC_COMBO9, CB_ADDSTRING, 0, (LPARAM)L"Disable");
-	Send(IDC_COMBO9, CB_ADDSTRING, 0, (LPARAM)L"Enable");
-	Send(IDC_COMBO9, CB_ADDSTRING, 0, (LPARAM)L"HACK future frames");
+	Send(IDC_COMBO9, CB_ADDSTRING, 0, (LPARAM)L"Off");
+	Send(IDC_COMBO9, CB_ADDSTRING, 0, (LPARAM)L"On");
+	Send(IDC_COMBO9, CB_ADDSTRING, 0, (LPARAM)L"On, with future frames (workaround)");
 
-	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"Disable");
-	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"for SD");
-	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"for \x2264 720p");
-	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"for \x2264 1080p");
-	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"for \x2264 1440p");
+	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"Off");
+	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"SD sources");
+	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"Up to 720p");
+	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"Up to 1080p");
+	Send(IDC_COMBO8, CB_ADDSTRING, 0, (LPARAM)L"Up to 1440p");
 
-	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Do not change");
-	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Allow turn on (fullscreen)");
-	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Allow turn on");
-	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Allow turn on/off (fullscreen)");
-	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Allow turn on/off");
+	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Don't change");
+	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Turn on in fullscreen");
+	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Turn on");
+	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Turn on/off in fullscreen");
+	Send(IDC_COMBO7, CB_ADDSTRING, 0, (LPARAM)L"Turn on/off");
 
 	// Both lists are shown best first, as they measured on ten film references
 	// brought from 1080p to 4K (tools/dlssnr_probe, --tchroma and --tupscale, the
@@ -646,21 +652,21 @@ void CVRSettingsPPage::FillCombos()
 	Combo_AddData(Item(IDC_COMBO3), L"Hamming",       DOWNSCALE_Hamming);
 	Combo_AddData(Item(IDC_COMBO3), L"Box",           DOWNSCALE_Box);
 
-	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Discard");
-	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Flip");
+	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Discard (legacy)");
+	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Flip (recommended)");
 
 	// In the order of the enum, so the position is the value.
-	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Disabled");
+	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Off");
 	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Adaptive-Sharpen");
 	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Unsharp + Clamp");
 
-	Combo_AddData(Item(IDC_COMBO10), L"Ignore", -1);
+	Combo_AddData(Item(IDC_COMBO10), L"Off (SDR)", -1);
 	Combo_AddData(Item(IDC_COMBO10), L"Passthrough", 0);
-	Combo_AddData(Item(IDC_COMBO10), L"ACES", 1);
-	Combo_AddData(Item(IDC_COMBO10), L"Reinhard", 2);
-	Combo_AddData(Item(IDC_COMBO10), L"Hable", 3);
-	Combo_AddData(Item(IDC_COMBO10), L"Mobius", 4);
-	Combo_AddData(Item(IDC_COMBO10), L"BT2390/ST 2094-10", 5);
+	Combo_AddData(Item(IDC_COMBO10), L"Tone map: ACES", 1);
+	Combo_AddData(Item(IDC_COMBO10), L"Tone map: Reinhard", 2);
+	Combo_AddData(Item(IDC_COMBO10), L"Tone map: Hable", 3);
+	Combo_AddData(Item(IDC_COMBO10), L"Tone map: Mobius", 4);
+	Combo_AddData(Item(IDC_COMBO10), L"Tone map: BT.2390 / DV", 5);
 
 	Combo_AddData(Item(IDC_COMBO11), L"Default",   DLSSNR_STYLE_Default);
 	Combo_AddData(Item(IDC_COMBO11), L"Natural",   DLSSNR_STYLE_Natural);
@@ -671,11 +677,12 @@ void CVRSettingsPPage::FillCombos()
 	}
 
 
+	// J and K are DLSS 4's models, L and M DLSS 4.5's.
 	Combo_AddData(Item(IDC_COMBO15), L"Automatic", DLSSSR_PRESET_DEF);
-	for (int preset = DLSSSR_PRESET_J; preset <= DLSSSR_PRESET_M; preset++) {
-		Combo_AddData(Item(IDC_COMBO15),
-			std::format(L"Preset {}", (wchar_t)(L'J' + preset - DLSSSR_PRESET_J)).c_str(), preset);
-	}
+	Combo_AddData(Item(IDC_COMBO15), L"J (DLSS 4)", DLSSSR_PRESET_J);
+	Combo_AddData(Item(IDC_COMBO15), L"K (DLSS 4)", DLSSSR_PRESET_J + 1);
+	Combo_AddData(Item(IDC_COMBO15), L"L (DLSS 4.5)", DLSSSR_PRESET_J + 2);
+	Combo_AddData(Item(IDC_COMBO15), L"M (DLSS 4.5)", DLSSSR_PRESET_M);
 
 	// Keys that players rarely bind to anything destructive. The hook swallows
 	// whichever one is chosen, so it must not be something the player needs.
@@ -1175,7 +1182,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				ofn.hwndOwner   = hDlg;
 				ofn.lpstrFilter = bSR
 					? L"DLSS Super Resolution\0nvngx_dlss.dll\0DLL files (*.dll)\0*.dll\0All files (*.*)\0*.*\0\0"
-					: L"NGX snippet\0nvngx_dlssnr.dll;nvngx*.dll\0DLL files (*.dll)\0*.dll\0All files (*.*)\0*.*\0\0";
+					: L"DLSS 5 NR\0nvngx_dlssnr.dll;nvngx*.dll\0DLL files (*.dll)\0*.dll\0All files (*.*)\0*.*\0\0";
 				ofn.lpstrFile   = path;
 				ofn.nMaxFile    = (DWORD)std::size(path);
 				ofn.lpstrTitle  = bSR ? L"Select nvngx_dlss.dll" : L"Select nvngx_dlssnr.dll";
@@ -1485,19 +1492,18 @@ void CVRSettingsPPage::ShowPresets()
 		Combo_SelectData(hHeld, vk & ~0xFF);
 		Enable(IDC_PRESET_LOAD1 + slot, hr == S_OK);
 
-		AddHint(IDC_PRESET_NAME1 + slot, L"What this preset is called. Shown on the picture for a\n"
-			"moment when its key recalls it.", (UINT_PTR)&g_presetTags[slot * 5]);
-		AddHint(IDC_PRESET_MOD1 + slot, L"Keys to hold with the one on the right, as in Ctrl+1 or\n"
-			"Shift+F6. None: the key alone. Does nothing without a key.", (UINT_PTR)&g_presetTags[slot * 5 + 4]);
-		AddHint(IDC_PRESET_KEY1 + slot, L"The key that recalls this preset while a film plays, without\n"
-			"opening this page. The player no longer sees it, with what is\n"
-			"held on the left; it is left alone while a text box is typed in.\n"
-			"A preset that changes Direct3D 11, the swap effect or exclusive\n"
-			"fullscreen restarts the rendering: a short cut in the picture.", (UINT_PTR)&g_presetTags[slot * 5 + 1]);
-		AddHint(IDC_PRESET_SAVE1 + slot, L"Keeps everything this page is showing in this preset, applied\n"
-			"or not, and at once: Apply is not needed for it.", (UINT_PTR)&g_presetTags[slot * 5 + 2]);
-		AddHint(IDC_PRESET_LOAD1 + slot, L"Brings this preset back into the page. Nothing changes on\n"
-			"screen until Apply. Greyed while nothing was saved here.", (UINT_PTR)&g_presetTags[slot * 5 + 3]);
+		AddHint(IDC_PRESET_NAME1 + slot, L"Name of this preset. Shown briefly on the picture when its shortcut is used.", (UINT_PTR)&g_presetTags[slot * 5]);
+		AddHint(IDC_PRESET_MOD1 + slot, L"Key(s) to hold with the key on the right, as in Ctrl+1 or Shift+F6. None: the "
+			"key alone. Ignored without a key.", (UINT_PTR)&g_presetTags[slot * 5 + 4]);
+		AddHint(IDC_PRESET_KEY1 + slot, L"Key that applies this preset during playback, without opening this page. The "
+			"player no longer receives this key combination, except while you type in a text "
+			"box.\n"
+			"A preset that changes Direct3D 11, the swap effect or exclusive fullscreen "
+			"restarts the rendering: the picture blinks briefly.", (UINT_PTR)&g_presetTags[slot * 5 + 1]);
+		AddHint(IDC_PRESET_SAVE1 + slot, L"Stores everything this page shows into this preset, applied or not. Takes effect "
+			"at once: Apply is not needed.", (UINT_PTR)&g_presetTags[slot * 5 + 2]);
+		AddHint(IDC_PRESET_LOAD1 + slot, L"Puts this preset back into the page. Nothing changes until you click Apply. "
+			"Greyed while nothing has been saved here.", (UINT_PTR)&g_presetTags[slot * 5 + 3]);
 	}
 }
 
@@ -1535,7 +1541,7 @@ bool CVRSettingsPPage::OnPresetCommand(int nID, int action)
 			}
 		}
 		if (!taken.empty()) {
-			MessageBoxW(std::format(L"That key already belongs to {}.", taken).c_str(), L"Presets", MB_OK | MB_ICONINFORMATION);
+			MessageBoxW(std::format(L"This shortcut is already used by {}.", taken).c_str(), L"Presets", MB_OK | MB_ICONINFORMATION);
 			Combo_SelectData(Item(IDC_PRESET_KEY1 + slot), 0);
 		}
 		SetDirty();
@@ -1614,7 +1620,8 @@ HRESULT CVRSettingsPPage::OnApplyChanges()
 	}
 	// Both ends are allowed, as the message says and as the registry reads it back.
 	if (!translated || displayMaxNits < HDR_NITS_MIN || displayMaxNits > HDR_NITS_MAX) {
-		MessageBoxW(L"Invalid HDR Brightness. Please enter a valid number from 100 to 10000.", L"Error", MB_OK | MB_ICONERROR);
+		MessageBoxW(L"Invalid display peak brightness (HDR tab): enter a number of nits from 100 to 10000.", L"MPCVR-Plus",
+			MB_OK | MB_ICONERROR);
 	}
 	else {
 		m_SetsPP.iHdrDisplayMaxNits = displayMaxNits;

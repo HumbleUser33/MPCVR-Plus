@@ -1690,7 +1690,7 @@ static const UINT WM_VR_REMAKE = WM_APP + 0x3A1;
 // is set, so that the mouse falls through to its own window, which is the one that
 // hides the pointer after two seconds. A replacement made enabled took the mouse for
 // itself, and the pointer stayed over the film until it was closed -- upstream's fault
-// too, with any setting that has the window made again, HDR10/DV first among them.
+// too, with any setting that has the window made again, the HDR output list first among them.
 HWND CMpcVideoRenderer::CreateVideoWindow(const bool bDisabled)
 {
 	return CreateWindowExW(
