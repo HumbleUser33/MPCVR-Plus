@@ -34,6 +34,8 @@ _nvngx.dll
 /external/nvof-sdk/
 /Optical_Flow_SDK_*/
 /tools/dlssnr_probe/temporal_results*.txt
+/tools/dlssnr_probe/cutscan_*.csv
+/tools/dlssnr_probe/__pycache__/
 /tools/dlssnr_probe/*.cso
 /tools/dlssnr_probe/*.res
 /tools/dlssnr_probe/effect_*.png

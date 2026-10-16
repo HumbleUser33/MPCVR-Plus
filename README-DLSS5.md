@@ -634,6 +634,54 @@ source's shimmer (`--tsrclipnr`); and DLSS SR's vectors computed on the picture 
 network serve as well as those computed after it, 0.43 either way, which is what one Optical
 Flow shared by the two would see. DLSS SR keeps its own, on the picture it enlarges.
 
+**A cut.** DLSS resamples its history along the vectors it is given, and nothing told it that
+the picture before a cut belonged to another shot: where a bright shot followed a darker one,
+it blended the dark one in, and the bright parts of the new shot came out darker for two or
+three pictures — seen in playback, not when stepping picture by picture. A seek resets DLSS; a
+cut did not. `--tsrcut` measures it on the cuts seen in playback, *La Firme* at 16:17 and
+*Cyrano* at 36:59, and one two seconds before the first: what the enlarged picture, brought
+back to the source's size, lacks on the pixels that brightened across the cut, against the
+level the new shot settles at, ×1000 on luma, on the first three pictures of the new shot:
+
+| | *La Firme*, 16:15 | *La Firme*, 16:17 | *Cyrano*, 36:59 |
+|---|---|---|---|
+| 2.1 | 62.9, 7.6, 3.6 | 85.3, 24.8, 9.8 | 114.6, 35.3, 12.3 |
+| **Now** | **0.1, 0.3, -0.1** | **0.6, 0.4, -0.3** | **0.5, 0.2, 0.5** |
+| DLSS reset on the cut | -0.1, 0.1, -0.4 | 0.2, -0.3, -0.7 | 0.0, -1.1, -0.3 |
+
+DLSS has a reset, but the CPU sets it before the GPU has seen the picture, several pictures
+ahead with render ahead, and waiting for the GPU is what render ahead exists not to do. A
+vector that leaves the picture makes DLSS drop that pixel's history, though, and the vectors are
+made on the GPU: on a cut every one of them now points out of the picture, which leaves DLSS as
+clean as the reset. The cut is told on the GPU too (`cs_dlss_scene_cut.hlsl`), from the two
+flow frames, the last moved by the global motion: the distance of their luma histograms, the
+median 16×16 group's difference, that difference against the eight pictures before, and the
+median group's normalized correlation, which a cut takes to nothing and a change of light leaves
+alone. A cut is a difference and a histogram that move, and either the light at once — the
+histogram past 0.25 and the difference thirty times the pictures before — or the picture's
+structure — the correlation under 0.25 and the difference three times.
+
+The light alone missed the cuts out of a shot that already changed a lot on every picture, a
+chase or a car under trees; the correlation alone missed the flashes, which DLSS dims with the
+pictures before them as it darkens a bright shot after a dark one: a flash of *Dances with
+Wolves* came out 41.9 thousandths of luma too dark over three quarters of the picture, and is
+right now (0.0). `--tcutscan` runs the detection alone over minutes of a film, beside ffmpeg's
+own scene score of each picture. Over 48 minutes of six films — *La Firme*, *Cyrano*, *Fight
+Club*, *Indiana Jones and the Last Crusade* in HDR, *Les assassins sont parmi nous* (1946) and
+the buffalo hunt of *Dances with Wolves* — it called 571 pictures, every one of the 296 where
+ffmpeg's score passes 0.3 among them. Of the other 275, 169 have a correlation of 0.1 at most,
+cuts ffmpeg scores lower; 45 are flashes and flickering lights; the rest are the splices of the
+1946 print and the dust of the hunt. What came closest without being called is dust and blur
+in a chase. A picture called a cut that is
+not one costs that picture its history: a little softer and grainier, once; in a battle full
+of flashes that is many pictures in a second. The detection costs 0.06 ms a picture at 1080p,
+timed frame by frame against 2.1's motion on the same frames, and the filter's passes match the
+same computed on the CPU (`--tsrport`).
+
+DLSS 5 NR, which has had the vectors since 2.1, leaves no such trail: within 5 thousandths of
+luma at the same cuts and at the flash, after the stabilizer and at the network's own output,
+with or without the detection (`--tsrcut --tsrcutnr`). Its vectors go without it.
+
 **Cost** on an RTX 3050 6 GB (`--tsr`, GPU time per frame):
 
 | Source → output | Mode, preset | Time |
@@ -1732,6 +1780,13 @@ dlssnr_harness.exe --tsrclip <dir> DLSS SR on a real film's frames: the shimmer 
                                   own motion is taken out, for each way of making the vectors and each preset
                                   (--tsrclipnr: through DLSS 5 NR first; --tsrclipwhich now,rob,...: those rows;
                                   --tsrcrops: a crop of every frame, to look at)
+dlssnr_harness.exe --tsrcut <dir> DLSS SR across a film's cuts: the dark trail a bright shot kept of a darker one,
+                                  with the cut detection, without it, and against a reset of DLSS on the cut, and
+                                  the pictures the detection called a cut against the clip's own
+                                  (--tsrcutnr: DLSS 5 NR and its stabilizer instead; --tsrcrops: the crops)
+dlssnr_harness.exe --tcutscan <film> the cut detection alone over minutes of a film, decoded by ffmpeg: its four
+                                  measures on every picture, with ffmpeg's own scene score beside them
+                                  (--cutfrom <s> --cutfor <s>: the stretch, 300 s by default)
 dlssnr_harness.exe --tupscale     the resize shaders and the mpv prescalers on film frames
 dlssnr_harness.exe --tupscalecost what EfRLFN costs at film sizes
 dlssnr_harness.exe --tchroma      the chroma upsamplers on 4:2:0 made from film frames
@@ -1757,6 +1812,10 @@ film's own motion from frame to frame, `motion.txt`, which `python clip_motion.p
 writes beside them: neither is in the repository. A film weaves, the whole picture moving by a
 fraction of a pixel from one frame to the next, and a still wall can only be judged once that
 motion is taken out.
+
+`--tsrcut` takes the same kind of folder, a few seconds around a cut, and finds the cuts in it
+itself. `--tcutscan` needs `ffmpeg` and `ffprobe` on the path, and writes `cutscan_<film>.csv`,
+a line a picture.
 
 A neural upscaler, EfRLFN, was measured too and not integrated: 922 ms per 1080p frame on the
 RTX 3050 with DirectML (`--tupscalecost`), and no better than Catmull-Rom or Lanczos on clean
@@ -1810,6 +1869,11 @@ sessions say of themselves changes. `pacing_report.py trace.csv --dlss` reads on
       0.0 s to     9.6 s, film at      0.0 s:   244 picture(s), NR on   239 (flow 239, detector 0, vectors 239), SR on     0, enlarged by the processor     0, not shown 5, longest wait 80 ms
             drawing 24.9 ms (median), 90.3 at most; of which DLSS 5 NR waited 3.4 ms for its input, recorded for 1.0 and waited 14.6 for the GPU
 ```
+
+`pacing_report.py trace.csv --cuts` lists the pictures DLSS SR's cut detection called a cut, at
+their time in the stream (from the last seek), and the ten that came closest without being
+called: the detection's measures are read back from the GPU a few pictures later, never waited
+for, and written on the line of the picture they belong to.
 
 A session that stops by itself shows there as pictures DLSS no longer ran on under a note
 that still asks for it, and nowhere else: the film goes on playing. To see what the renderer

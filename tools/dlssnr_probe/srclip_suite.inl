@@ -32,8 +32,9 @@
 // zero, finer flow, the engine's finer grid and slower search, and DLSS's presets. --tsrclipwhich
 // now,film,... runs only the rows of those tags. With --tsrcrops the crop of the most
 // textured still area is saved for a few rows, every measured frame, beside the folder
-// (<folder>_crops\<tag>\), to be looked at and played. Then what the refinement costs,
-// the filter's motion timed in turns with the median's (the tag "cost" runs that alone).
+// (<folder>_crops\<tag>\), to be looked at and played. Then what the refinement and the
+// cut detection cost, the filter's motion timed in turns with the median's and with 2.1's,
+// which had no cut detection (the tag "cost" runs that alone).
 //
 // --tsrclipnr runs the frames through DLSS 5 NR and its stabilizer first, as the
 // renderer does before DLSS SR, and DLSS SR's vectors are computed after DLSS 5 NR, as
@@ -681,41 +682,87 @@ static int RunSRClip(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t*
 		}
 		Out("  crop, output pixels: %d,%d to %d,%d\n", crop.x0, crop.y0, crop.x1, crop.y1);
 
-		// What the refinement costs. OF ms above moves by most of a millisecond between
-		// two rows that compute the same thing, with the GPU's clocks after each row's
-		// DLSS; here the filter's motion and the robust refinement's are timed in turns,
-		// on the clip's frames and nothing else, so that the clocks weigh on both alike.
+		// What the refinement and the cut detection cost. OF ms above moves by most of a
+		// millisecond between two rows that compute the same thing, with the GPU's clocks
+		// after each row's DLSS, and batches of each timed in turns still moved by a tenth
+		// of one. So here the median's motion, 2.1's and the filter's run one after the other
+		// on each frame, a timestamp around each, and what one costs over another is the
+		// median of their difference frame by frame, the clocks being the same for both.
 		if (!rc && (wanted.empty() || wanted.find(L",cost,") != std::wstring::npos)) {
-			CDlssStabilizer::FlowSettings settings[2] = { ClipGlobal(0.4f, 0, 0.0f), CDlssStabilizer::ForDlssSR() };
-			CDlssStabilizer motion[2];
+			CDlssStabilizer::FlowSettings settings[3] = { ClipGlobal(0.4f, 0, 0.0f), CDlssStabilizer::ForDlssSR(), CDlssStabilizer::ForDlssSR() };
+			settings[1].cutDetect = false;
+			CDlssStabilizer motion[3];
 			// A texture of its own: DLSS's input exists only once a row has run.
 			Tex2D_t input;
 			bool ok = SUCCEEDED(input.Create(dev, DXGI_FORMAT_R16G16B16A16_FLOAT, W, H, Tex2D_DefaultShader));
-			for (int k = 0; k < 2 && ok; k++) {
+			for (int k = 0; k < 3 && ok; k++) {
 				ok = SUCCEEDED(motion[k].Create(dev, ctx, W, H, stabPasses.InputLayout(), stabPasses.VertexShader(),
 					stabPasses.SamplerPoint(), stabPasses.SamplerLinear(), true, settings[k])) && motion[k].HasFlow();
 			}
+			// A batch of frames between two readbacks, four timestamps a frame.
+			constexpr int kBatch = 24, kBatches = 16;
+			CComPtr<ID3D11Query> disjoint;
+			std::vector<CComPtr<ID3D11Query>> stamps(4 * kBatch);
+			D3D11_QUERY_DESC qd = { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
+			ok = ok && SUCCEEDED(dev->CreateQuery(&qd, &disjoint));
+			qd.Query = D3D11_QUERY_TIMESTAMP;
+			for (auto& q : stamps) {
+				ok = ok && SUCCEEDED(dev->CreateQuery(&qd, &q));
+			}
 			if (ok) {
-				// A new frame each time, as in play; the upload alone is timed too and taken out.
-				std::vector<double> ms[3];
-				for (int round = 0; round < 8; round++) {
+				// A new frame each time, as in play, the three motions on each in turn.
+				std::vector<double> ms[3], over[2];
+				int t = 0;
+				for (int warm = 0; warm < 8; warm++, t++) {
+					ctx->UpdateSubresource(input.pTexture, 0, nullptr, frames[t % N].data(), 4 * sizeof(HALF) * W, 0);
 					for (int k = 0; k < 3; k++) {
-						int t = 0;
-						ms[k].push_back(GpuMs(dev, ctx, 24, [&] {
-							ctx->UpdateSubresource(input.pTexture, 0, nullptr, frames[t++ % N].data(), 4 * sizeof(HALF) * W, 0);
-							if (k < 2) {
-								motion[k].PrepareMotion(ctx, input.pShaderResource);
-							}
-						}));
+						motion[k].PrepareMotion(ctx, input.pShaderResource);
 					}
 				}
-				for (auto& v : ms) {
-					std::sort(v.begin(), v.end());
+				for (int batch = 0; ok && batch < kBatches; batch++) {
+					ctx->Begin(disjoint);
+					for (int f = 0; f < kBatch; f++, t++) {
+						ctx->UpdateSubresource(input.pTexture, 0, nullptr, frames[t % N].data(), 4 * sizeof(HALF) * W, 0);
+						ctx->End(stamps[4 * f]);
+						for (int k = 0; k < 3; k++) {
+							motion[k].PrepareMotion(ctx, input.pShaderResource);
+							ctx->End(stamps[4 * f + k + 1]);
+						}
+					}
+					ctx->End(disjoint);
+					D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj = {};
+					while (ctx->GetData(disjoint, &dj, sizeof(dj), 0) == S_FALSE) { Sleep(0); }
+					std::vector<UINT64> at(stamps.size());
+					for (size_t i = 0; i < stamps.size(); i++) {
+						while (ctx->GetData(stamps[i], &at[i], sizeof(UINT64), 0) == S_FALSE) { Sleep(0); }
+					}
+					if (dj.Disjoint || !dj.Frequency) {
+						continue;   // the clock changed during the batch: none of it counts
+					}
+					for (int f = 0; f < kBatch; f++) {
+						double one[3];
+						for (int k = 0; k < 3; k++) {
+							one[k] = double(at[4 * f + k + 1] - at[4 * f + k]) * 1000.0 / dj.Frequency;
+							ms[k].push_back(one[k]);
+						}
+						over[0].push_back(one[1] - one[0]);
+						over[1].push_back(one[2] - one[1]);
+					}
 				}
-				const double upload = ms[2][ms[2].size() / 2];
-				Out("  motion, GPU ms a frame, median of 8 batches of 24 in turns, the upload taken out: median (until 2.0)"
-				    " %.3f, filter now %.3f\n", ms[0][ms[0].size() / 2] - upload, ms[1][ms[1].size() / 2] - upload);
-			} else {
+				auto median = [](std::vector<double> v) {
+					if (v.empty()) {
+						return 0.0;
+					}
+					std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+					return v[v.size() / 2];
+				};
+				Out("  motion, GPU ms a frame, median of %zu frames, each motion in turn on each: median (until 2.0) %.3f,"
+				    " no cut detection (2.1) %.3f, filter now %.3f\n", ms[0].size(), median(ms[0]), median(ms[1]), median(ms[2]));
+				Out("  and frame by frame: the refinement %+.3f over the median, the cut detection %+.3f over 2.1\n",
+				    median(over[0]), median(over[1]));
+				ok = !ms[0].empty();
+			}
+			if (!ok) {
 				Out("  motion, GPU ms: could not start\n");
 				g_failures++;
 			}

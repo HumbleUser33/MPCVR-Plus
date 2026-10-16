@@ -51,6 +51,8 @@ fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_stab_blockmotion.cso "%SH%\ps_dlss_stabili
 fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_global_motion.cso "%SH%\cs_dlss_global_motion.hlsl" >NUL || EXIT /B 1
 fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_global_step.cso "%SH%\cs_dlss_global_refine.hlsl" /DPASS=1 >NUL || EXIT /B 1
 fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_global_solve.cso "%SH%\cs_dlss_global_refine.hlsl" /DPASS=2 >NUL || EXIT /B 1
+fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_scene_cut.cso "%SH%\cs_dlss_scene_cut.hlsl" /DPASS=2 >NUL || EXIT /B 1
+fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_scene_sums.cso "%SH%\cs_dlss_scene_cut.hlsl" /DPASS=1 >NUL || EXIT /B 1
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_diff.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=0 >NUL || EXIT /B 1
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_joint.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=1 >NUL || EXIT /B 1
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_sums.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=2 >NUL || EXIT /B 1

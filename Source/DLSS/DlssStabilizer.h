@@ -68,6 +68,8 @@ public:
 		                                                      // flow frames (cs_dlss_global_refine.hlsl); 0: none
 		float globalNear   = 1.0f;                            // and the flow pixels a block's own vector may lie from it to take part
 		float globalRobust = 0.0f;                            // and groups past this times the median residual left out; 0: none
+		bool  cutDetect    = false;                           // with snap: on a cut (cs_dlss_scene_cut.hlsl) every vector leaves the
+		                                                      // picture, so that DLSS drops the history of the shot before
 		// What keeps its own vector: the mean of the trusted blocks around it that move
 		// alike, then a blend with the same content one picture earlier (PASS 4).
 		int   vectorRadius   = 0;                             // blocks on each side; 0: none
@@ -142,6 +144,12 @@ public:
 	// measured it: RGBA32F 1x1, x and y and the median distance of the blocks to it in
 	// flow pixels, w the number of blocks. Null otherwise.
 	ID3D11Texture2D* GetGlobalMotion() const { return m_pGlobalMotion; }
+	// With FlowSettings::cutDetect, what cs_dlss_scene_cut.hlsl said of the last new
+	// picture: R32F, [0] 1 on a cut, [1] the histogram distance, [2] the residual, [3]
+	// its ratio to the pictures before, [14] the median correlation, [15] the share of
+	// groups it is over. Null otherwise.
+	ID3D11Buffer* GetCutState() const { return m_pCutState; }
+	bool CutMeasured() const { return m_bCutMeasured; }   // the last PrepareMotion wrote it
 	UINT GetFlowFactor() const { return m_flowFactor; }   // working pixels per flow pixel
 	// With FlowSettings::snap, PASS 4's blocks for the last new picture: RGBA32F, one
 	// pixel per vector block, xy the block's own vector in flow pixels, z how much of
@@ -191,6 +199,13 @@ private:
 	CComPtr<ID3D11Texture2D>           m_pRefinePartial[2];   // RGBA32F, a pixel per 16 x 16 group of the flow frame
 	CComPtr<ID3D11ShaderResourceView>  m_pRefinePartialView[2];
 	CComPtr<ID3D11UnorderedAccessView> m_pRefinePartialTarget[2];
+	CComPtr<ID3D11ComputeShader>       m_pCSSceneSums;        // FlowSettings::cutDetect: its two passes
+	CComPtr<ID3D11ComputeShader>       m_pCSSceneCut;
+	CComPtr<ID3D11Buffer>              m_pCutState;           // R32F x 16, see GetCutState
+	CComPtr<ID3D11ShaderResourceView>  m_pCutStateView;
+	CComPtr<ID3D11UnorderedAccessView> m_pCutStateTarget;
+	bool m_bCutStateStale = true;                             // to clear before the next picture: a reset, a new session
+	bool m_bCutMeasured = false;
 	CComPtr<ID3D11Buffer>      m_pConstants;
 	CComPtr<ID3D11Buffer>      m_pQuad;
 

@@ -27,6 +27,8 @@ IF NOT EXIST detector_shaders.res (
   fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_global_motion.cso "%SH%\cs_dlss_global_motion.hlsl" >NUL || EXIT /B 1
   fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_global_step.cso "%SH%\cs_dlss_global_refine.hlsl" /DPASS=1 >NUL || EXIT /B 1
   fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_global_solve.cso "%SH%\cs_dlss_global_refine.hlsl" /DPASS=2 >NUL || EXIT /B 1
+  fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_scene_cut.cso "%SH%\cs_dlss_scene_cut.hlsl" /DPASS=2 >NUL || EXIT /B 1
+  fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_scene_sums.cso "%SH%\cs_dlss_scene_cut.hlsl" /DPASS=1 >NUL || EXIT /B 1
   rc /nologo /fo detector_shaders.res detector_shaders.rc || EXIT /B 1
 )
 

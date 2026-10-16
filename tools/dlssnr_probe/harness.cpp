@@ -17,6 +17,7 @@
 #include <d3d11_4.h>
 #include <dxgi1_2.h>
 #include <DirectXPackedVector.h>
+#include <array>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -1009,6 +1010,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 #include "sr_suite.inl"
 #include "sr_still_suite.inl"
 #include "srclip_suite.inl"
+#include "cut_suite.inl"
 #include "pipeline_suite.inl"
 #include "nrscale_suite.inl"
 
@@ -1104,6 +1106,25 @@ int wmain(int argc, wchar_t** argv)
 		}
 	}
 	const bool temporalSRClip = !srClip.empty();
+	std::wstring srCut;    // --tsrcut <folder>: DLSS SR across a film's cuts
+	for (int i = 1; i + 1 < argc; i++) {
+		if (!wcscmp(argv[i], L"--tsrcut")) {
+			srCut = argv[i + 1];
+		}
+	}
+	const bool temporalSRCut = !srCut.empty();
+	std::wstring cutScan;   // --tcutscan <film> [--cutfrom s] [--cutfor s]: the cut detection over a stretch of a film
+	double cutFrom = 0, cutFor = 300;
+	for (int i = 1; i + 1 < argc; i++) {
+		if (!wcscmp(argv[i], L"--tcutscan")) {
+			cutScan = argv[i + 1];
+		} else if (!wcscmp(argv[i], L"--cutfrom")) {
+			cutFrom = _wtof(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--cutfor")) {
+			cutFor = _wtof(argv[i + 1]);
+		}
+	}
+	const bool temporalCutScan = !cutScan.empty();
 	std::wstring srClipWhich;   // --tsrclipwhich now,film,...: only those rows
 	for (int i = 1; i + 1 < argc; i++) {
 		if (!wcscmp(argv[i], L"--tsrclipwhich")) {
@@ -1134,7 +1155,7 @@ int wmain(int argc, wchar_t** argv)
 	const bool suites[] = { temporal, temporalOracle, temporalEffect, temporalFlow, temporalStab || temporalStabPort,
 		temporalStabBench, temporalUpscale, temporalUpscaleCost, temporalChroma, temporalSharpen, temporalMpvPort,
 		temporalDownPort, temporalDownscale, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
-		temporalPipeline, temporalNRScale, temporalSRClip };
+		temporalPipeline, temporalNRScale, temporalSRClip, temporalSRCut, temporalCutScan };
 	if (std::count(std::begin(suites), std::end(suites), true) > 1) {
 		Head("Result");
 		printf("  more than one suite named: the harness runs one a call, give each its own\n");
@@ -1144,14 +1165,17 @@ int wmain(int argc, wchar_t** argv)
 		return 4;
 	}
 	if (temporal || temporalOracle || temporalEffect || temporalFlow
-			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip) {
+			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
 			if (!wcscmp(argv[i], L"--srrefs")) {
 				srRefs = _wtoi(argv[i + 1]);
 			}
 		}
-		const int rc = temporalSRClip ? temporal::RunSRClip(dev, ctx, srClip.c_str(), srDllPath.c_str(), hasArg(L"--tsrcrops"), srClipWhich.c_str(),
+		const int rc = temporalCutScan ? temporal::RunCutScan(dev, ctx, cutScan.c_str(), cutFrom, cutFor)
+			: temporalSRCut ? temporal::RunSRCut(dev, ctx, srCut.c_str(), srDllPath.c_str(), hasArg(L"--tsrcrops"),
+				hasArg(L"--tsrcutnr") ? &dlss : nullptr)
+			: temporalSRClip ? temporal::RunSRClip(dev, ctx, srClip.c_str(), srDllPath.c_str(), hasArg(L"--tsrcrops"), srClipWhich.c_str(),
 				hasArg(L"--tsrclipnr") ? &dlss : nullptr)
 			: temporalNRScale ? temporal::RunNRScale(dev, ctx, dlss, temporalImage.c_str(), nrFlowFactor)
 			: temporalPipeline ? temporal::RunPipeline(dev, ctx, dlss, srDllPath.c_str(), temporalFrames)

@@ -317,6 +317,7 @@ public:
 		DlssSR      = 32768, // DLSS Super Resolution enlarged it
 		Skipped     = 65536, // left out before it was drawn, as the scheduler asked
 		VPAfterNR   = 131072, // the video processor enlarged what DLSS 5 NR left
+		SceneCut    = 262144, // cs_dlss_scene_cut.hlsl called it a cut: DLSS SR's history was dropped
 	};
 
 	// DXGI's account of the swap chain at one moment.
@@ -344,6 +345,11 @@ public:
 		// DLSS 5 NR's own account of the picture, microseconds: waiting for Direct3D 11
 		// to finish its input, recording the network's work, waiting for the GPU to run it.
 		int nrWaitUs = 0, nrRecordUs = 0, nrGpuUs = 0;
+		// What cs_dlss_scene_cut.hlsl measured on it for DLSS SR, read back later
+		// (CCutReadback): the histogram distance in thousandths, the residual's ratio to
+		// the pictures before in tenths, the residual in millionths, the median correlation
+		// in thousandths. -1: not measured.
+		int cutHist = -1, cutRatio = -1, cutResid = -1, cutCorr = -1;
 	};
 
 	CPacingTrace();
@@ -353,6 +359,8 @@ public:
 	// A line of text ahead of the pictures that follow: the display, the swap chain.
 	void Note(const std::wstring& text);
 	void Add(const Picture& picture);
+	// The cut measures of a picture already added, found by its time.
+	void SetCut(long long rtStart, const float* state);
 	void Write();
 
 private:
@@ -361,6 +369,54 @@ private:
 	std::vector<std::wstring> m_notes;
 	std::vector<Picture> m_pictures;
 	unsigned long long m_written = 0;
+};
+
+// CCutReadback
+//
+// What cs_dlss_scene_cut.hlsl said of each picture, for the pacing trace: its state
+// (CDlssStabilizer::GetCutState) copied once the picture's motion is measured and read
+// back a few pictures later, never waited for. A picture whose copy finds every slot
+// still with the GPU goes without.
+
+class CCutReadback
+{
+public:
+	void Release();
+	void Copy(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, ID3D11Buffer* pState, long long rtStart);
+
+	// What the GPU has finished, oldest first: found(rtStart, state), state as
+	// GetCutState describes it.
+	template<class F> void Collect(ID3D11DeviceContext* pContext, F&& found)
+	{
+		for (;;) {
+			Slot* pOldest = nullptr;
+			for (Slot& slot : m_slots) {
+				if (slot.bPending && (!pOldest || slot.order < pOldest->order)) {
+					pOldest = &slot;
+				}
+			}
+			D3D11_MAPPED_SUBRESOURCE mr = {};
+			if (!pOldest || pContext->Map(pOldest->pStaging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mr) != S_OK) {
+				return;
+			}
+			float state[16];
+			memcpy(state, mr.pData, sizeof(state));
+			pContext->Unmap(pOldest->pStaging, 0);
+			pOldest->bPending = false;
+			found(pOldest->rtStart, state);
+		}
+	}
+
+private:
+	static constexpr int kSlots = 8;
+	struct Slot {
+		CComPtr<ID3D11Buffer> pStaging;
+		long long rtStart = 0;
+		uint64_t order = 0;
+		bool bPending = false;
+	};
+	Slot m_slots[kSlots];
+	uint64_t m_copies = 0;
 };
 
 // CGpuStageTimes

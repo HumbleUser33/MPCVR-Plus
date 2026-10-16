@@ -33,6 +33,19 @@ constexpr float kCostLow      = 48.0f;   // matching cost where trust starts to 
 constexpr float kCostHigh     = 160.0f;  // and where it is gone
 constexpr float kTrustedShare = 0.05f;   // fewer trusted blocks than this share: no global motion (--tsrstill)
 
+// A cut, for cs_dlss_scene_cut.hlsl: a residual and a histogram that move, and either the
+// light at once or the picture's structure. Chosen on 48 minutes of six films (--tcutscan),
+// where ffmpeg's scene score passed 0.3 on 296 pictures: every one called, 571 in all. The light alone missed the cuts out of a chase or a
+// car under trees, whose residual was already high (ratio x4 to x29, correlation 0.1 at most);
+// the correlation alone missed the flashes, which DLSS dims as it darkens a bright shot after
+// a dark one. What came closest without being called: dust and blur in a chase.
+constexpr float kCutHistogram   = 0.20f; // L1 distance of the two flow frames' luma histograms
+constexpr float kCutResidual    = 0.001f;// the residual after the global motion, mean squared luma
+constexpr float kCutLightHist   = 0.25f; // the light at once: the histogram past this
+constexpr float kCutLightRatio  = 30.0f; // and the residual this many times the 8 pictures' before
+constexpr float kCutCorrelation = 0.25f; // or the picture: the median group's normalized correlation under this
+constexpr float kCutRatio       = 3.0f;  // and the residual this many times
+
 // The layout of the renderer's VERTEX.
 struct QuadVertex {
 	float x, y, z;
@@ -60,6 +73,7 @@ CDlssStabilizer::FlowSettings CDlssStabilizer::ForDlssSR()
 	flow.snapDeadZone      = 0.0f;
 	flow.globalRefine      = 2;
 	flow.globalRobust      = 2.5f;
+	flow.cutDetect         = true;
 	flow.vectorRadius      = 3;
 	flow.vectorSigma       = 1.0f;
 	flow.vectorShift       = 3;
@@ -78,6 +92,7 @@ CDlssStabilizer::FlowSettings CDlssStabilizer::ForDlssNR(UINT divider)
 	FlowSettings flow = ForDlssSR();
 	flow.flowFactor = divider;
 	flow.flowBlur   = 0;
+	flow.cutDetect  = false;   // the network leaves no trail at a cut (--tsrcut --tsrcutnr)
 	return flow;
 }
 
@@ -199,11 +214,44 @@ HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT
 			if (SUCCEEDED(hr)) {
 				hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSRefineStep);
 			}
-			if (SUCCEEDED(hr)) {
-				hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_SOLVE);
-			}
+		}
+		if (SUCCEEDED(hr) && flow.globalRefine > 0) {
+			hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_SOLVE);
 			if (SUCCEEDED(hr)) {
 				hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSRefineSolve);
+			}
+		}
+		if (SUCCEEDED(hr) && flow.cutDetect) {
+			hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_SCENE_SUMS);
+			if (SUCCEEDED(hr)) {
+				hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSSceneSums);
+			}
+			if (SUCCEEDED(hr)) {
+				hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_SCENE_CUT);
+			}
+			if (SUCCEEDED(hr)) {
+				hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSSceneCut);
+			}
+			if (SUCCEEDED(hr)) {
+				D3D11_BUFFER_DESC desc = {};
+				desc.ByteWidth = 16 * sizeof(float);
+				desc.Usage     = D3D11_USAGE_DEFAULT;
+				desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+				hr = pDevice->CreateBuffer(&desc, nullptr, &m_pCutState);
+			}
+			if (SUCCEEDED(hr)) {
+				D3D11_SHADER_RESOURCE_VIEW_DESC view = {};
+				view.Format              = DXGI_FORMAT_R32_FLOAT;
+				view.ViewDimension       = D3D11_SRV_DIMENSION_BUFFER;
+				view.Buffer.NumElements  = 16;
+				hr = pDevice->CreateShaderResourceView(m_pCutState, &view, &m_pCutStateView);
+			}
+			if (SUCCEEDED(hr)) {
+				D3D11_UNORDERED_ACCESS_VIEW_DESC target = {};
+				target.Format             = DXGI_FORMAT_R32_FLOAT;
+				target.ViewDimension      = D3D11_UAV_DIMENSION_BUFFER;
+				target.Buffer.NumElements = 16;
+				hr = pDevice->CreateUnorderedAccessView(m_pCutState, &target, &m_pCutStateTarget);
 			}
 		}
 		if (SUCCEEDED(hr) && !bMotionOnly) {
@@ -285,8 +333,9 @@ HRESULT CDlssStabilizer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pCon
 		for (int i = 0; i < 2 && SUCCEEDED(hr); i++) {
 			hr = CreateTarget(pDevice, m_Flow.OutputWidth(), m_Flow.OutputHeight(), DXGI_FORMAT_R32G32B32A32_FLOAT, m_BlockField[i]);
 		}
-		// The refinement's sums, a pixel per 16 x 16 group of the flow frame.
-		for (int i = 0; i < 2 && SUCCEEDED(hr) && m_pCSRefineStep; i++) {
+		// The refinement's sums, a pixel per 16 x 16 group of the flow frame, and the cut
+		// detection's after them.
+		for (int i = 0; i < 2 && SUCCEEDED(hr) && (m_pCSRefineStep || m_pCSSceneSums); i++) {
 			D3D11_TEXTURE2D_DESC desc = {};
 			desc.Width            = (m_Flow.Width() + 15) / 16;
 			desc.Height           = (m_Flow.Height() + 15) / 16;
@@ -347,6 +396,12 @@ void CDlssStabilizer::Release()
 	m_pCSGlobalMotion.Release();
 	m_pCSRefineStep.Release();
 	m_pCSRefineSolve.Release();
+	m_pCSSceneSums.Release();
+	m_pCSSceneCut.Release();
+	m_pCutStateTarget.Release();
+	m_pCutStateView.Release();
+	m_pCutState.Release();
+	m_bCutStateStale = true;
 	for (int i = 0; i < 2; i++) {
 		m_pRefinePartialTarget[i].Release();
 		m_pRefinePartialView[i].Release();
@@ -392,6 +447,7 @@ void CDlssStabilizer::Reset()
 {
 	m_Flow.Reset();
 	m_bBlockHistory = false;
+	m_bCutStateStale = true;   // no cut across a seek: the residuals before it are not this shot's
 	m_bHistoryValid = false;
 	m_bHaveMotion   = false;
 	m_bHaveResult   = false;
@@ -506,12 +562,48 @@ void CDlssStabilizer::MeasureGlobalMotion(ID3D11DeviceContext* pContext)
 			pContext->CSSetUnorderedAccessViews(0, (UINT)std::size(noTargets), noTargets, nullptr);
 		}
 	}
+	// Then whether this picture is a cut (cs_dlss_scene_cut.hlsl), from the two flow
+	// frames, the last moved by the final global motion: its sums over every pixel, the
+	// refinement's having left out those whose block vector strays from it, which on a
+	// cut is nearly all of them; then the decision.
+	if (m_pCSSceneCut && m_pCSSceneSums && m_pCutStateTarget && m_pRefinePartial[1]) {
+		if (m_bCutStateStale) {
+			const FLOAT zero[4] = { 0, 0, 0, 0 };
+			pContext->ClearUnorderedAccessViewFloat(m_pCutStateTarget, zero);
+			m_bCutStateStale = false;
+		}
+		ID3D11ShaderResourceView* sumViews[3] = { m_Flow.CurrentFrame(), m_Flow.PreviousFrame(), m_pGlobalMotionView };
+		ID3D11UnorderedAccessView* sumTargets[2] = { m_pRefinePartialTarget[0], m_pRefinePartialTarget[1] };
+		pContext->CSSetShader(m_pCSSceneSums, nullptr, 0);
+		pContext->CSSetShaderResources(0, (UINT)std::size(sumViews), sumViews);
+		pContext->CSSetUnorderedAccessViews(0, (UINT)std::size(sumTargets), sumTargets, nullptr);
+		pContext->Dispatch((m_Flow.Width() + 15) / 16, (m_Flow.Height() + 15) / 16, 1);
+		pContext->CSSetShaderResources(0, (UINT)std::size(noViews), noViews);
+		pContext->CSSetUnorderedAccessViews(0, (UINT)std::size(noTargets), noTargets, nullptr);
+
+		if (SUCCEEDED(pContext->Map(m_pConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr))) {
+			const float constants[32] = { kCutHistogram, kCutRatio, kCutResidual, kCutCorrelation, kCutLightHist, kCutLightRatio };
+			memcpy(mr.pData, constants, sizeof(constants));
+			pContext->Unmap(m_pConstants, 0);
+		}
+		ID3D11ShaderResourceView* cutViews[4] = { m_Flow.CurrentFrame(), m_Flow.PreviousFrame(), m_pRefinePartialView[0], m_pRefinePartialView[1] };
+		ID3D11UnorderedAccessView* cutTarget = m_pCutStateTarget;
+		pContext->CSSetShader(m_pCSSceneCut, nullptr, 0);
+		pContext->CSSetConstantBuffers(0, 1, &pConstants);
+		pContext->CSSetShaderResources(0, (UINT)std::size(cutViews), cutViews);
+		pContext->CSSetUnorderedAccessViews(0, 1, &cutTarget, nullptr);
+		pContext->Dispatch(1, 1, 1);
+		pContext->CSSetShaderResources(0, (UINT)std::size(noViews), noViews);
+		pContext->CSSetUnorderedAccessViews(0, (UINT)std::size(noTargets), noTargets, nullptr);
+		m_bCutMeasured = true;
+	}
 	pContext->CSSetConstantBuffers(0, 1, &noConstants);
 	pContext->CSSetShader(nullptr, nullptr, 0);
 }
 
 void CDlssStabilizer::PrepareMotion(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView* pInput)
 {
+	m_bCutMeasured = false;
 	if (!m_width || !pContext || !pInput) {
 		return;
 	}
@@ -552,11 +644,13 @@ void CDlssStabilizer::PrepareMotion(ID3D11DeviceContext* pContext, ID3D11ShaderR
 			};
 			Draw(pContext, m_pPSBlockMotion, { m_BlockField[write].pRenderTarget }, m_Flow.OutputWidth(), m_Flow.OutputHeight(),
 				{ m_Flow.ForwardFlow(), m_Flow.BackwardFlow(), m_Flow.ForwardCost(), m_pGlobalMotionView, m_BlockField[m_iBlockField].pShaderResource,
-				  m_Flow.CurrentFrame(), m_Flow.PreviousFrame() },
+				  m_Flow.CurrentFrame(), m_Flow.PreviousFrame(), m_pCutStateView },
 				blockConstants, std::size(blockConstants));
-			const float snapConstants[4] = { scaleX, scaleY, (float)m_Flow.GridSize(), m_FlowSettings.snapDeadZone };
+			// Out of the picture on a cut: twice its size away, wherever a pixel is.
+			const float snapConstants[8] = { scaleX, scaleY, (float)m_Flow.GridSize(), m_FlowSettings.snapDeadZone,
+				2.0f * m_width, 2.0f * m_height, 0, 0 };
 			Draw(pContext, m_pPSSnapMotion, { m_bMotionOnly ? m_pMotionTarget.p : m_pVectorsTarget.p }, m_width, m_height,
-				{ m_BlockField[write].pShaderResource, m_pGlobalMotionView }, snapConstants, std::size(snapConstants));
+				{ m_BlockField[write].pShaderResource, m_pGlobalMotionView, m_pCutStateView }, snapConstants, std::size(snapConstants));
 			m_iBlockField = write;
 			m_bBlockHistory = true;
 		}

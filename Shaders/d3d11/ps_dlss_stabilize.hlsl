@@ -173,6 +173,8 @@ MOTION_OUTPUT main(PS_INPUT input)
 //
 // Target: xy the block's own vector, cleaned, flow pixels; z how much of it it keeps,
 // the rest being the global motion. PASS 3 blends the blocks into the working size.
+// On a cut (cs_dlss_scene_cut.hlsl) no block keeps anything, so that the next picture
+// does not blend in vectors measured across it.
 
 Texture2D<int4>   flowForward  : register(t0);   // R16G16_SINT, 1/32 flow pixel, current -> previous
 Texture2D<int4>   flowBackward : register(t1);   // previous -> current
@@ -181,6 +183,7 @@ Texture2D<float4> globalMotion : register(t3);   // 1x1: flow pixels
 Texture2D<float4> lastField    : register(t4);   // this pass's target for the last picture
 Texture2D<float>  frameNow     : register(t5);   // the flow frame the engine just ran on
 Texture2D<float>  frameLast    : register(t6);   // and the one before it
+Buffer<float>     cutState     : register(t7);   // [0] 1 on a cut; unbound, 0
 
 cbuffer PS_DLSS_BLOCK_MOTION : register(b0)
 {
@@ -278,6 +281,9 @@ float Mismatch(int2 origin, int size, float2 v, int2 lastPixel)
 
 float4 main(PS_INPUT input) : SV_Target
 {
+	if (cutState.Load(0) > 0.5) {
+		return float4(0, 0, 0, 1);
+	}
 	uint gw, gh;
 	flowForward.GetDimensions(gw, gh);
 	const int2 last = int2(gw, gh) - 1;
@@ -418,20 +424,27 @@ float4 main(PS_INPUT input) : SV_Target
 
 // Motion for DLSS Super Resolution at the working size: a bilinear of PASS 4's four
 // blocks around each pixel, each its own vector for what it keeps and the global
-// motion for the rest, as PASS 1 blends the raw ones.
+// motion for the rest, as PASS 1 blends the raw ones. On a cut (cs_dlss_scene_cut.hlsl)
+// every vector leaves the picture instead, and DLSS drops the history of the shot before.
 
 Texture2D<float4> field        : register(t0);   // PASS 4
 Texture2D<float4> globalMotion : register(t1);   // 1x1: flow pixels
+Buffer<float>     cutState     : register(t2);   // [0] 1 on a cut; unbound, 0
 
 cbuffer PS_DLSS_SNAP_MOTION : register(b0)
 {
 	float2 flowScale;     // working pixels per flow pixel, x and y
 	float  grid;          // flow pixels per vector
 	float  deadZone;      // as PASS 4
+	float2 away;          // a vector that leaves the picture from anywhere in it, working pixels
+	float2 reserved;
 };
 
 float4 main(PS_INPUT input) : SV_Target
 {
+	if (cutState.Load(0) > 0.5) {
+		return float4(away, 0, 1);
+	}
 	uint gw, gh;
 	field.GetDimensions(gw, gh);
 	const int2 last = int2(gw, gh) - 1;

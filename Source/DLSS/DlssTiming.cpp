@@ -452,6 +452,25 @@ void CPacingTrace::Add(const Picture& picture)
 	}
 }
 
+void CPacingTrace::SetCut(long long rtStart, const float* state)
+{
+	// A few pictures back at most: those the GPU had not yet run when they were added.
+	const size_t n = m_pictures.size();
+	for (size_t i = 0; i < n && i < 32; i++) {
+		Picture& p = m_pictures[n - 1 - i];
+		if (p.rtStart == rtStart && p.cutHist < 0) {
+			p.cutHist  = (int)std::lround(std::clamp(state[1], 0.0f, 2.0f) * 1000.0f);
+			p.cutResid = (int)std::lround(std::clamp(state[2], 0.0f, 1.0f) * 1e6f);
+			p.cutRatio = (int)std::lround(std::clamp(state[3], 0.0f, 1e7f) * 10.0f);
+			p.cutCorr  = (int)std::lround(std::clamp(state[14], -1.0f, 1.0f) * 1000.0f);
+			if (state[0] > 0.5f) {
+				p.flags |= SceneCut;
+			}
+			return;
+		}
+	}
+}
+
 void CPacingTrace::Write()
 {
 	if (!m_bEnabled || (m_pictures.empty() && m_notes.empty())) {
@@ -472,22 +491,59 @@ void CPacingTrace::Write()
 			"tickPresentReturn,tickTarget,renderAhead,flags,"
 			"lastPresent0,presentCount0,presentRefresh0,syncRefresh0,syncQpc0,"
 			"lastPresent1,presentCount1,presentRefresh1,syncRefresh1,syncQpc1,"
-			"nrWaitUs,nrRecordUs,nrGpuUs\n");
+			"nrWaitUs,nrRecordUs,nrGpuUs,cutHist,cutRatio,cutResid,cutCorr\n");
 	}
 	for (const std::wstring& note : m_notes) {
 		fprintf(file, "# %ls\n", note.c_str());
 	}
 	for (const Picture& p : m_pictures) {
-		fprintf(file, "%llu,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%u,%u,%u,%u,%u,%lld,%u,%u,%u,%u,%lld,%d,%d,%d\n",
+		fprintf(file, "%llu,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%u,%u,%u,%u,%u,%lld,%u,%u,%u,%u,%lld,%d,%d,%d,%d,%d,%d,%d\n",
 			m_written++, p.rtStart, p.rtClockAtCall, p.rtClockAtReturn, p.tickSample, p.tickDrawn, p.tickAfterVBlank,
 			p.tickPresentCall, p.tickPresentReturn, p.tickTarget, p.renderAhead, p.flags,
 			p.before.lastPresent, p.before.presentCount, p.before.presentRefresh, p.before.syncRefresh, p.before.syncQpc,
 			p.after.lastPresent, p.after.presentCount, p.after.presentRefresh, p.after.syncRefresh, p.after.syncQpc,
-			p.nrWaitUs, p.nrRecordUs, p.nrGpuUs);
+			p.nrWaitUs, p.nrRecordUs, p.nrGpuUs, p.cutHist, p.cutRatio, p.cutResid, p.cutCorr);
 	}
 	fclose(file);
 	m_pictures.clear();
 	m_notes.clear();
+}
+
+// CCutReadback
+
+void CCutReadback::Release()
+{
+	for (Slot& slot : m_slots) {
+		slot = Slot{};
+	}
+}
+
+void CCutReadback::Copy(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, ID3D11Buffer* pState, long long rtStart)
+{
+	if (!pDevice || !pContext || !pState) {
+		return;
+	}
+	for (Slot& slot : m_slots) {
+		if (slot.bPending) {
+			continue;
+		}
+		if (!slot.pStaging) {
+			D3D11_BUFFER_DESC desc = {};
+			pState->GetDesc(&desc);
+			desc.Usage          = D3D11_USAGE_STAGING;
+			desc.BindFlags      = 0;
+			desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+			desc.MiscFlags      = 0;
+			if (FAILED(pDevice->CreateBuffer(&desc, nullptr, &slot.pStaging))) {
+				return;
+			}
+		}
+		pContext->CopyResource(slot.pStaging, pState);
+		slot.rtStart = rtStart;
+		slot.order = m_copies++;
+		slot.bPending = true;
+		return;
+	}
 }
 
 // CGpuStageTimes

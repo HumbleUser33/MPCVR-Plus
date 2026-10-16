@@ -760,6 +760,7 @@ void CDX11VideoProcessor::ReleaseVP()
 	ReleaseDlssNRTextures(true);
 	m_DlssSR.ReleaseFeature();
 	m_DlssSRMotion.Release();
+	m_SRCutReadback.Release();
 	m_RenderAhead.Reset();
 	m_DlssNRTimes.Reset();
 
@@ -3384,7 +3385,13 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	uint64_t tick3 = GetPreciseTick();
 	m_RenderStats.paintticks = tick3 - tick1;
 
-	// The trace of this picture, when one is asked for (CPacingTrace).
+	// The trace of this picture, when one is asked for (CPacingTrace), and what the
+	// GPU has finished measuring of those before it.
+	if (m_PacingTrace.Enabled()) {
+		m_SRCutReadback.Collect(m_pDeviceContext, [this](long long rtStart, const float* state) {
+			m_PacingTrace.SetCut(rtStart, state);
+		});
+	}
 	const bool bTrace = m_PacingTrace.Enabled() && field && frameStartTime != INVALID_TIME;
 	CPacingTrace::Picture traced;
 	if (bTrace) {
@@ -5269,6 +5276,9 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 			m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::SRMotion);
 			m_DlssSRMotion.PrepareMotion(m_pDeviceContext, pInput->pShaderResource);
 			m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::SRMotion);
+			if (m_PacingTrace.Enabled() && m_DlssSRMotion.CutMeasured()) {
+				m_SRCutReadback.Copy(m_pDevice, m_pDeviceContext, m_DlssSRMotion.GetCutState(), m_rtStart);
+			}
 			pMotion = m_DlssSRMotion.GetMotionVectors();
 			motion = pMotion ? std::wstring(L"OF, global motion") : m_DlssSRMotion.GetStatusLine();
 		}

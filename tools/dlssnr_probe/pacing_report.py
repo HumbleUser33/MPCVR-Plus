@@ -7,10 +7,16 @@ on, how long after its own time, and whether the one before it had left.
 
     python pacing_report.py trace.csv [--skip 3] [--rows N] [--plot]
     python pacing_report.py trace.csv --dlss
+    python pacing_report.py trace.csv --cuts [--near N]
 
 --dlss says instead what the DLSS passes did: for every stretch between two notes,
 how many of its pictures DLSS 5 NR and DLSS Super Resolution really ran on, and how
 many the video processor enlarged after DLSS 5 NR.
+
+--cuts lists the pictures DLSS SR's cut detection (cs_dlss_scene_cut.hlsl) called a
+cut, at its time in the stream (from the last seek), with its four measures, and the N
+pictures (10) that came closest to one without being called: closeness is how near its
+measures came to the detector's limits, 1 being a cut.
 
 DXGI numbers every Present call and says, of the last picture shown, which call it
 was and on which refresh. Read before and after every Present, that gives the
@@ -28,13 +34,20 @@ import sys
 COLUMNS = ("n rtStart rtClockAtCall rtClockAtReturn tickSample tickDrawn tickAfterVBlank tickPresentCall "
            "tickPresentReturn tickTarget renderAhead flags "
            "last0 count0 refresh0 sync0 qpc0 last1 count1 refresh1 sync1 qpc1").split()
-# What the trace gained later; a file written before has none of them, and reads as zeros.
-MORE = "nrWaitUs nrRecordUs nrGpuUs".split()
+# What the trace gained later; a file written before has none of them, and reads as zeros,
+# or for the cut measures as -1, not measured.
+MORE = "nrWaitUs nrRecordUs nrGpuUs cutHist cutRatio cutResid cutCorr".split()
+UNMEASURED = dict(cutHist=-1, cutRatio=-1, cutResid=-1, cutCorr=-1)
 
 HELD, VBLANK, FIELD2, NOT_PRESENTED, VP, RTX_HDR, HDR, EXCLUSIVE, SCHEDULED, REPEATED, DROPPED = (
     1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
 DLSS_NR, NR_FLOW, NR_DETECTOR, NR_VECTORS, DLSS_SR, SKIPPED = 2048, 4096, 8192, 16384, 32768, 65536
-VP_AFTER_NR = 131072
+VP_AFTER_NR, SCENE_CUT = 131072, 262144
+
+# The detector's limits (Source/DLSS/DlssStabilizer.cpp, kCut...), and the units the trace
+# writes its measures in.
+HIST, RESID, LIGHT_HIST, LIGHT_RATIO, CORR, RATIO = 0.20, 0.001, 0.25, 30.0, 0.25, 3.0
+CUT_UNITS = dict(cutHist=1000.0, cutRatio=10.0, cutResid=1e6, cutCorr=1000.0)
 
 
 def read(path):
@@ -60,6 +73,7 @@ def read(path):
         if not len(COLUMNS) <= len(values) <= len(COLUMNS) + len(MORE):
             continue
         row = dict.fromkeys(MORE, 0)
+        row.update(UNMEASURED)
         row.update(zip(COLUMNS + MORE, (int(v) for v in values)))
         rows.append(row)
     if rows:
@@ -356,9 +370,62 @@ def dlss_timeline(qpf, stretches):
     print("%d picture(s) in %d stretch(es): DLSS 5 NR ran on %d, DLSS SR on %d" % (total, len(stretches), on_nr, on_sr))
 
 
+def cut_measures(row):
+    return {k: row[k] / CUT_UNITS[k] for k in CUT_UNITS}
+
+
+def closeness(row):
+    m = cut_measures(row)
+    light = min(m["cutHist"] / LIGHT_HIST, m["cutRatio"] / LIGHT_RATIO)
+    picture = min(m["cutRatio"] / RATIO, (1.0 - m["cutCorr"]) / (1.0 - CORR))
+    return min(m["cutHist"] / HIST, m["cutResid"] / RESID, max(light, picture))
+
+
+def cut_report(stretches, near):
+    """The cuts DLSS SR's detector called, and what came closest otherwise."""
+    measured = cuts = 0
+    others = []
+    for notes, rows in stretches:
+        for r in rows:
+            if r["cutHist"] < 0:
+                continue
+            measured += 1
+            m = cut_measures(r)
+            text = "%9.3f s  picture %6d  correlation %5.2f  histogram %.3f  ratio x%.1f  residual %.5f" % (
+                r["rtStart"] / 1e7, r["n"], m["cutCorr"], m["cutHist"], m["cutRatio"], m["cutResid"])
+            if r["flags"] & SCENE_CUT:
+                cuts += 1
+                print("  cut   " + text)
+            else:
+                others.append((closeness(r), text))
+    if not measured:
+        print("no cut measures in this trace: DLSS SR did not run, or the trace is older than them")
+        return 1
+    others.sort(reverse=True)
+    print("%d picture(s) measured, %d called a cut. Closest otherwise:" % (measured, cuts))
+    for c, text in others[:near]:
+        print("  %.2f  %s" % (c, text))
+    return 0
+
+
 def main():
     args = sys.argv[1:]
     skip, max_rows, plot = 3.0, 0, False
+    if "--cuts" in args:
+        args.remove("--cuts")
+        near = 10
+        if "--near" in args:
+            at = args.index("--near")
+            near = int(args[at + 1])
+            del args[at:at + 2]
+        if len(args) != 1:
+            print(__doc__)
+            return 2
+        qpf, stretches = read(args[0])
+        if not stretches:
+            print("no picture in " + args[0])
+            return 1
+        return cut_report(stretches, near)
     if "--dlss" in args:
         args.remove("--dlss")
         if len(args) != 1:

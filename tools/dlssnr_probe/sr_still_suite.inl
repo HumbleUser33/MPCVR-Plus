@@ -1068,7 +1068,8 @@ static int RunSRStill(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t
 // from the engine's own output of the same frames: the median and its spread must
 // match exactly, the refined global motion to float precision, the vectors to the
 // precision of their RG16F texture. On a still, grained pair of frames, a panned one
-// and a zoomed one.
+// and a zoomed one. And what cs_dlss_scene_cut.hlsl says of each: the histogram
+// distance exactly, the residual and the correlation to a bin of their histograms, no cut.
 
 namespace {
 
@@ -1172,6 +1173,109 @@ void RefineGlobalCpu(const BYTE* now, const BYTE* last, int w, int h, const int1
 			g[1] += (float)sy;
 		}
 	}
+}
+
+// cs_dlss_scene_cut.hlsl on the CPU. The L1 distance of the two flow frames' 64-bin
+// histograms, every fourth pixel each way: integers both sides, exact.
+float CutHistogramCpu(const BYTE* now, const BYTE* last, int w, int h)
+{
+	int histNow[64] = {}, histLast[64] = {};
+	const int sw = w / 4, sh = h / 4;
+	for (int y = 0; y < sh; y++) {
+		for (int x = 0; x < sw; x++) {
+			histNow[std::min(now[(size_t)(4 * y) * w + 4 * x] * 64 / 255, 63)]++;
+			histLast[std::min(last[(size_t)(4 * y) * w + 4 * x] * 64 / 255, 63)]++;
+		}
+	}
+	unsigned distance = 0;
+	for (int k = 0; k < 64; k++) {
+		distance += (unsigned)std::abs(histNow[k] - histLast[k]);
+	}
+	return (float)distance / std::max((float)(sw * sh), 1.0f);
+}
+
+// And the residual: the median 16 x 16 group's mean squared difference at the global
+// motion g, every pixel taking part (PASS 1 of cs_dlss_scene_cut.hlsl), by the 256-bin
+// histogram, its bin in `bin`; and the median group's normalized correlation, by the
+// 128-bin one, in `corr`.
+float CutResidualCpu(const BYTE* now, const BYTE* last, int w, int h, const float g[2], int& bin, float& corr)
+{
+	const int gw = (w + 15) / 16, gh = (h + 15) / 16;
+	auto lastAt = [&](float x, float y) {
+		const float fx = x - 0.5f, fy = y - 0.5f;
+		const int ix = (int)std::floor(fx), iy = (int)std::floor(fy);
+		const float tx = fx - ix, ty = fy - iy;
+		auto at = [&](int xx, int yy) { return last[(size_t)std::clamp(yy, 0, h - 1) * w + std::clamp(xx, 0, w - 1)] / 255.0f; };
+		const float top = at(ix, iy) + (at(ix + 1, iy) - at(ix, iy)) * tx;
+		const float bottom = at(ix, iy + 1) + (at(ix + 1, iy + 1) - at(ix, iy + 1)) * tx;
+		return top + (bottom - top) * ty;
+	};
+	std::vector<double> tex(gw * (size_t)gh, 0.0), count(gw * (size_t)gh, 0.0), ee(gw * (size_t)gh, 0.0);
+	std::vector<double> sn(gw * (size_t)gh, 0.0), sl(gw * (size_t)gh, 0.0), snn(gw * (size_t)gh, 0.0),
+		sll(gw * (size_t)gh, 0.0), snl(gw * (size_t)gh, 0.0);
+	for (int y = 2; y <= h - 3; y++) {
+		for (int x = 2; x <= w - 3; x++) {
+			const float qx = x + 0.5f + g[0], qy = y + 0.5f + g[1];
+			if (qx < 2.0f || qy < 2.0f || qx > w - 2.0f || qy > h - 2.0f) {
+				continue;
+			}
+			const double gx = (lastAt(qx + 1, qy) - lastAt(qx - 1, qy)) * 0.5, gy = (lastAt(qx, qy + 1) - lastAt(qx, qy - 1)) * 0.5;
+			const double n = now[(size_t)y * w + x] / 255.0f, l = lastAt(qx, qy);
+			const double e = n - l;
+			const size_t k = (size_t)(y / 16) * gw + x / 16;
+			tex[k] += gx * gx + gy * gy;
+			count[k] += 1.0;
+			ee[k] += e * e;
+			sn[k] += n;
+			sl[k] += l;
+			snn[k] += n * n;
+			sll[k] += l * l;
+			snl[k] += n * l;
+		}
+	}
+	std::vector<int> corrHist(128, 0);
+	int correlated = 0;
+	for (size_t k = 0; k < tex.size(); k++) {
+		if (count[k] < 64.0) {
+			continue;
+		}
+		const double xx = snn[k] - sn[k] * sn[k] / count[k], yy = sll[k] - sl[k] * sl[k] / count[k];
+		const double xy = snl[k] - sn[k] * sl[k] / count[k];
+		if (xx > 1e-4 * count[k] && yy > 1e-4 * count[k]) {
+			corrHist[std::clamp((int)((xy / std::sqrt(xx * yy) + 1.0) * 0.5 * 128), 0, 127)]++;
+			correlated++;
+		}
+	}
+	corr = 0.0f;
+	if (correlated) {
+		const int rank = (correlated + 1) / 2;
+		int below = 0, b = 0;
+		while (b < 127 && below + corrHist[b] < rank) {
+			below += corrHist[b];
+			b++;
+		}
+		corr = (float)((b + 0.5) * 2.0 / 128 - 1.0);
+	}
+	std::vector<int> hist(256, 0);
+	int counted = 0;
+	for (size_t k = 0; k < tex.size(); k++) {
+		if (count[k] >= 64.0 && tex[k] > 1e-6 * count[k]) {
+			hist[std::clamp((int)((std::log2(std::max(ee[k] / count[k], 1e-12)) + 40.0) * 6.4), 0, 255)]++;
+			counted++;
+		}
+	}
+	bin = -1;
+	if (!counted) {
+		return 0.0f;
+	}
+	const int rank = (counted + 1) / 2;
+	int below = 0;
+	bin = 0;
+	while (bin < 255 && below + hist[bin] < rank) {
+		below += hist[bin];
+		bin++;
+	}
+	return (float)std::exp2((bin + 0.5) / 6.4 - 40.0);
 }
 
 } // namespace
@@ -1280,6 +1384,7 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 			for (const auto& c : cases) {
 				flow.Reset();
 				std::vector<float> lastField;   // the GPU's PASS 4 for the frame before
+				float lastResid = -1.0f;        // the CPU's residual for it, the cut detection's history
 				for (int t = 0; t < 3; t++) {
 					frame(c.dx * t, c.dy * t, std::pow(c.zoom, (float)t), 0x90470001u + (uint32_t)t);
 					if (t == 0) {
@@ -1375,6 +1480,46 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 						printf("    %-16s frame %d: global motion GPU (%+.5f, %+.5f) spread %.5f of %.0f trusted, CPU (%+.5f, %+.5f) spread %.5f of %zu, %zu blocks\n",
 						       c.name, t, gpu[0], gpu[1], gpu[2], gpu[3], g[0], g[1], spreadCpu, n, (size_t)fw * fh);
 						Check(gmSame, "the global motion, exactly");
+					}
+
+					// What the cut detection says (cs_dlss_scene_cut.hlsl), the residual from the
+					// GPU's own global motion as the filter computes it: none of these frames is
+					// a cut, and on the first two after a reset none can be called.
+					if (settings.cutDetect) {
+						float state[16];
+						std::fill(std::begin(state), std::end(state), -1.0f);
+						bool read = flow.CutMeasured() && flow.GetCutState();
+						if (read) {
+							CComPtr<ID3D11Buffer> staging;
+							D3D11_BUFFER_DESC desc = {};
+							desc.ByteWidth      = 16 * sizeof(float);
+							desc.Usage          = D3D11_USAGE_STAGING;
+							desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+							D3D11_MAPPED_SUBRESOURCE mr = {};
+							read = SUCCEEDED(dev->CreateBuffer(&desc, nullptr, &staging));
+							if (read) {
+								ctx->CopyResource(staging, flow.GetCutState());
+								read = SUCCEEDED(ctx->Map(staging, 0, D3D11_MAP_READ, 0, &mr));
+							}
+							if (read) {
+								memcpy(state, mr.pData, sizeof(state));
+								ctx->Unmap(staging, 0);
+							}
+						}
+						const float histCpu = CutHistogramCpu(nowRaw.data(), lastRaw.data(), pw, ph);
+						int binCpu = -1;
+						float corrCpu = 1.0f;
+						const float residCpu = CutResidualCpu(nowRaw.data(), lastRaw.data(), pw, ph, gpu, binCpu, corrCpu);
+						const float ratioCpu = residCpu / std::max(lastResid < 0 ? residCpu : lastResid, 1e-12f);
+						const int binGpu = state[2] > 0 ? (int)std::floor((std::log2(state[2]) + 40.0) * 6.4) : -1;
+						printf("    %-16s frame %d: cut %.0f, histogram GPU %.6f CPU %.6f, residual GPU %.6f (bin %d) CPU %.6f (bin %d),"
+						       " ratio GPU %.3f CPU %.3f, correlation GPU %.4f CPU %.4f\n", c.name, t, state[0], state[1], histCpu,
+						       state[2], binGpu, residCpu, binCpu, state[3], ratioCpu, state[14], corrCpu);
+						Check(read && state[0] == 0.0f, "the cut detection read back, and no cut");
+						Check(state[1] == histCpu, "the cut detection's histogram distance, exactly");
+						Check(binCpu >= 0 && std::abs(binGpu - binCpu) <= 1, "the cut detection's residual, to a bin");
+						Check(std::abs(state[14] - corrCpu) <= 2.0f / 128 + 1e-5f, "the cut detection's correlation, to a bin");
+						lastResid = residCpu;
 					}
 
 					// PASS 4: each block's own vector, cleaned, and how much of it it keeps.

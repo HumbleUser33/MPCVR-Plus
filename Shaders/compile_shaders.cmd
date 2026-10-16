@@ -126,6 +126,8 @@ SET fxc_cs5=%fxcexe% /nologo /O2 /T cs_5_0
 %fxc_cs5% /Fo "%workdir%\cs_dlss_global_motion.cso"      "d3d11\cs_dlss_global_motion.hlsl"
 %fxc_cs5% /Fo "%workdir%\cs_dlss_global_step.cso"        "d3d11\cs_dlss_global_refine.hlsl" /DPASS=1
 %fxc_cs5% /Fo "%workdir%\cs_dlss_global_solve.cso"       "d3d11\cs_dlss_global_refine.hlsl" /DPASS=2
+%fxc_cs5% /Fo "%workdir%\cs_dlss_scene_cut.cso"         "d3d11\cs_dlss_scene_cut.hlsl" /DPASS=2
+%fxc_cs5% /Fo "%workdir%\cs_dlss_scene_sums.cso"        "d3d11\cs_dlss_scene_cut.hlsl" /DPASS=1
 
 %fxc_ps4% /Fo "%workdir%\ps_mpv_luma.cso"                "d3d11\ps_mpv_prescale.hlsl" /DPASS=1
 %fxc_ps4% /Fo "%workdir%\ps_mpv_combine.cso"             "d3d11\ps_mpv_prescale.hlsl" /DPASS=2
