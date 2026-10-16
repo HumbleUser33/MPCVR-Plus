@@ -239,7 +239,6 @@ private:
 	Tex2D_t m_TexDlssPicture;           // the picture on its own, when it is a part of a larger texture
 	CSize m_DlssNRPictureSize;
 	int  m_iDlssNRFlowDivider = DLSSNR_FLOW_DEF;   // its Optical Flow on the working picture divided by this; 0: Auto
-	bool m_bDlssNRMotionVectors = false; // Optical Flow vectors to the network as well
 	bool m_bDlssNewPicture = false;     // the next DLSS pass sees a new picture, not a redraw
 	// A session whose evaluation failed is started again, a moment later and no more
 	// than this many times until the film is flushed or the setting changes.
@@ -403,9 +402,7 @@ private:
 
 	CDlssStabilizer::FlowSettings DlssNRFlow() const
 	{
-		CDlssStabilizer::FlowSettings flow;
-		flow.flowFactor = (UINT)m_iDlssNRFlowDivider;   // 0, Auto: the stabilizer's own FlowFactor
-		return flow;
+		return CDlssStabilizer::ForDlssNR((UINT)m_iDlssNRFlowDivider);   // 0, Auto: the stabilizer's own FlowFactor
 	}
 	D3D_FEATURE_LEVEL m_FeatureLevel = D3D_FEATURE_LEVEL_10_0;
 

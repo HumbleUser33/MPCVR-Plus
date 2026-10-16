@@ -26,14 +26,14 @@
 // pixels; gm err, the same for the global motion PASS 4 starts from, and dead, the share
 // of frames where it fell under the dead zone and counted as none.
 //
-// Rows: the filter's vectors, the dead zone lowered, the global motion refined on the
-// flow frames (FlowSettings::globalRefine), with what moves on its own left out or not
-// (globalRobust), the film's own global motion given everywhere, vectors at zero, finer
-// flow, the engine's finer grid and slower search, and DLSS's presets. --tsrclipwhich
+// Rows: the filter's vectors, the median global motion with the 0.4-pixel dead zone it
+// had until 2.0, then without it, refined with nothing left out, refined with no block
+// vector gate or three times, the film's own global motion given everywhere, vectors at
+// zero, finer flow, the engine's finer grid and slower search, and DLSS's presets. --tsrclipwhich
 // now,film,... runs only the rows of those tags. With --tsrcrops the crop of the most
 // textured still area is saved for a few rows, every measured frame, beside the folder
-// (<folder>_crops\<tag>\), to be looked at and played. Then what the robust refinement
-// costs, timed in turns with the filter's motion (the tag "cost" runs that alone).
+// (<folder>_crops\<tag>\), to be looked at and played. Then what the refinement costs,
+// the filter's motion timed in turns with the median's (the tag "cost" runs that alone).
 //
 // --tsrclipnr runs the frames through DLSS 5 NR and its stabilizer first, as the
 // renderer does before DLSS SR, and DLSS SR's vectors are computed after DLSS 5 NR, as
@@ -64,7 +64,10 @@ CDlssStabilizer::FlowSettings ClipFlow(UINT factor, UINT blur, UINT grid = 4, NV
 	return flow;
 }
 
-CDlssStabilizer::FlowSettings ClipDeadZone(float deadZone, int refine = 0, float robust = 0.0f, float ofGate = 1.0f)
+// The filter's vectors with another global motion: the dead zone under which it counts
+// as none, the Gauss-Newton steps refining it, the residual past which a group is left
+// out of them (0: none is), and how far a block's own vector may lie from it to take part.
+CDlssStabilizer::FlowSettings ClipGlobal(float deadZone, int refine, float robust, float ofGate = 1.0f)
 {
 	CDlssStabilizer::FlowSettings flow = CDlssStabilizer::ForDlssSR();
 	flow.snapDeadZone = deadZone;
@@ -455,25 +458,23 @@ static int RunSRClip(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t*
 		// are computed there, as today, or on the frame before DLSS 5 NR: what one Optical
 		// Flow shared by the two would see, since the stabilizer's runs on that frame.
 		std::vector<std::vector<HALF>> nrFrames;
-		// And DLSS 5 NR itself given vectors, "Send the motion vectors to DLSS": none, the
-		// default; the stabilizer's own, what that box sends; DLSS SR's, drawn to the robust
-		// global motion. Only the first run's frames go on to DLSS SR.
-		static const char* const nrVectors[3] = { "(after DLSS 5 NR)", "(NR given its vectors)", "(NR given SR's, robust)" };
+		// And what DLSS 5 NR itself is given: the cleaned vectors the filter gives it
+		// (CDlssStabilizer::ForDlssNR); none, as until 2.0 by default; the stabilizer's raw
+		// ones, what the box of that time sent. Only the first run's frames go on to DLSS SR.
+		static const char* const nrVectors[3] = { "(after DLSS 5 NR)", "(NR, no vectors)", "(NR, raw vectors)" };
 		for (int mode = 0; !rc && nr && mode < 3; mode++) {
 			Tex2D_t nrIn, nrOut, vectors;
 			CDlssNR::Params params;
 			params.bNoHistory = false;   // as DlssParamsFromSettings
-			CDlssStabilizer stabilizer, cleaned;
+			CDlssStabilizer stabilizer;
 			bool ok = MakeSharedPair(dev, nrIn, nrOut, W, H) && nr->CreateFeature(nrIn.pTexture, nrOut.pTexture, W, H, params)
 				&& SUCCEEDED(stabilizer.Create(dev, ctx, W, H, stabPasses.InputLayout(), stabPasses.VertexShader(),
-					stabPasses.SamplerPoint(), stabPasses.SamplerLinear()));
-			if (ok && mode > 0) {
+					stabPasses.SamplerPoint(), stabPasses.SamplerLinear(), false,
+					mode == 0 ? CDlssStabilizer::ForDlssNR(0) : CDlssStabilizer::FlowSettings()))
+				&& stabilizer.HasFlow();
+			if (ok && mode != 1) {
 				// The network takes its guides through a shared texture: the vectors are copied in.
 				ok = SUCCEEDED(vectors.Create(dev, DXGI_FORMAT_R16G16_FLOAT, W, H, Tex2D_DefaultShaderRTargetUAVShared));
-				if (ok && mode == 2) {
-					ok = SUCCEEDED(cleaned.Create(dev, ctx, W, H, stabPasses.InputLayout(), stabPasses.VertexShader(),
-						stabPasses.SamplerPoint(), stabPasses.SamplerLinear(), true, ClipDeadZone(0.0f, 2, 2.5f))) && cleaned.HasFlow();
-				}
 				if (ok) {
 					CDlssNR::Guides guides;
 					guides.pMVec = vectors.pTexture;
@@ -485,11 +486,8 @@ static int RunSRClip(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t*
 			for (int t = 0; ok && t < N; t++) {
 				ctx->UpdateSubresource(nrIn.pTexture, 0, nullptr, frames[t].data(), 4 * sizeof(HALF) * W, 0);
 				stabilizer.PrepareMotion(ctx, nrIn.pShaderResource);
-				if (mode == 2) {
-					cleaned.PrepareMotion(ctx, nrIn.pShaderResource);
-				}
-				if (mode > 0) {
-					ID3D11Texture2D* pSource = mode == 1 ? stabilizer.GetMotionVectors() : cleaned.GetMotionVectors();
+				if (mode != 1) {
+					ID3D11Texture2D* pSource = stabilizer.GetMotionVectors();
 					D3D11_TEXTURE2D_DESC desc = {};
 					if (pSource) {
 						pSource->GetDesc(&desc);
@@ -538,21 +536,16 @@ static int RunSRClip(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t*
 		const std::vector<ClipRow> nrRows = {
 			{ "NR, flow after it",          L"nrA",    1, CDlssStabilizer::ForDlssSR() },
 			{ "NR, flow before it",         L"nrB",    1, CDlssStabilizer::ForDlssSR(), NGX_DLSS_PRESET_Default, 1 },
-			{ "NR, flow after, robust",     L"nrAr",   1, ClipDeadZone(0.0f, 2, 2.5f) },
-			{ "NR, flow before, robust",    L"nrBr",   1, ClipDeadZone(0.0f, 2, 2.5f), NGX_DLSS_PRESET_Default, 1 },
+			{ "NR, median (until 2.0)",     L"nrM",    1, ClipGlobal(0.4f, 0, 0.0f) },
 			{ "NR, the film's global",      L"nrF",    2 },
 		};
 		const std::vector<ClipRow> srRows = {
 			{ "filter now",                 L"now",    1, CDlssStabilizer::ForDlssSR() },
-			{ "dead zone 0.2",              L"dz02",   1, ClipDeadZone(0.2f) },
-			{ "dead zone 0",                L"dz0",    1, ClipDeadZone(0.0f) },
-			{ "refined x2",                 L"ref",    1, ClipDeadZone(0.4f, 2) },
-			{ "refined x2, dead zone 0.1",  L"ref01",  1, ClipDeadZone(0.1f, 2) },
-			{ "refined x3, dead zone 0",    L"ref0",   1, ClipDeadZone(0.0f, 3) },
-			{ "robust x2, dead zone 0",     L"rob",    1, ClipDeadZone(0.0f, 2, 2.5f) },
-			{ "robust x2, dz 0, all px",   L"robA",   1, ClipDeadZone(0.0f, 2, 2.5f, 1e6f) },
-			{ "robust x2, dead zone 0.1",   L"rob01",  1, ClipDeadZone(0.1f, 2, 2.5f) },
-			{ "robust x3, dead zone 0",     L"rob3",   1, ClipDeadZone(0.0f, 3, 2.5f) },
+			{ "median (until 2.0)",         L"med",    1, ClipGlobal(0.4f, 0, 0.0f) },
+			{ "median, dead zone 0",        L"dz0",    1, ClipGlobal(0.0f, 0, 0.0f) },
+			{ "refined, nothing left out",  L"ref",    1, ClipGlobal(0.0f, 2, 0.0f) },
+			{ "refined, no vector gate",    L"robA",   1, ClipGlobal(0.0f, 2, 2.5f, 1e6f) },
+			{ "refined three times",        L"rob3",   1, ClipGlobal(0.0f, 3, 2.5f) },
 			{ "the film's global",          L"film",   2 },
 			{ "vectors at zero",            L"zero",   0 },
 			{ "flow /1, blur 1",            L"f1b1",   1, ClipFlow(1, 1) },
@@ -562,8 +555,7 @@ static int RunSRClip(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t*
 			{ "preset J",                   L"J",      1, CDlssStabilizer::ForDlssSR(), NGX_DLSS_PRESET_J },
 			{ "preset K",                   L"K",      1, CDlssStabilizer::ForDlssSR(), NGX_DLSS_PRESET_K },
 			{ "preset L",                   L"L",      1, CDlssStabilizer::ForDlssSR(), NGX_DLSS_PRESET_L },
-			{ "preset K, refined, dz 0.1",  L"Kref",   1, ClipDeadZone(0.1f, 2), NGX_DLSS_PRESET_K },
-			{ "preset K, robust x2, dz 0",  L"Krob",   1, ClipDeadZone(0.0f, 2, 2.5f), NGX_DLSS_PRESET_K },
+			{ "preset K, median (2.0)",     L"Kmed",   1, ClipGlobal(0.4f, 0, 0.0f), NGX_DLSS_PRESET_K },
 		};
 		const std::vector<ClipRow>& rows = nr ? nrRows : srRows;
 		const std::vector<std::vector<HALF>>& srFrames = nr ? nrFrames : frames;
@@ -573,7 +565,7 @@ static int RunSRClip(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t*
 		}
 		// The rows to run, by tag; and those whose crops are worth saving.
 		const std::wstring wanted = which && *which ? std::wstring(L",") + which + L"," : std::wstring();
-		static const wchar_t* const cropped[] = { L"now", L"rob", L"film", L"zero", L"K", L"Krob" };
+		static const wchar_t* const cropped[] = { L"now", L"med", L"film", L"zero", L"K", L"Kmed" };
 
 		for (const ClipRow& row : rows) {
 			if (rc) {
@@ -694,7 +686,7 @@ static int RunSRClip(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t*
 		// DLSS; here the filter's motion and the robust refinement's are timed in turns,
 		// on the clip's frames and nothing else, so that the clocks weigh on both alike.
 		if (!rc && (wanted.empty() || wanted.find(L",cost,") != std::wstring::npos)) {
-			CDlssStabilizer::FlowSettings settings[2] = { CDlssStabilizer::ForDlssSR(), ClipDeadZone(0.0f, 2, 2.5f) };
+			CDlssStabilizer::FlowSettings settings[2] = { ClipGlobal(0.4f, 0, 0.0f), CDlssStabilizer::ForDlssSR() };
 			CDlssStabilizer motion[2];
 			// A texture of its own: DLSS's input exists only once a row has run.
 			Tex2D_t input;
@@ -721,8 +713,8 @@ static int RunSRClip(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t*
 					std::sort(v.begin(), v.end());
 				}
 				const double upload = ms[2][ms[2].size() / 2];
-				Out("  motion, GPU ms a frame, median of 8 batches of 24 in turns, the upload taken out: filter now %.3f,"
-				    " robust x2 %.3f\n", ms[0][ms[0].size() / 2] - upload, ms[1][ms[1].size() / 2] - upload);
+				Out("  motion, GPU ms a frame, median of 8 batches of 24 in turns, the upload taken out: median (until 2.0)"
+				    " %.3f, filter now %.3f\n", ms[0][ms[0].size() / 2] - upload, ms[1][ms[1].size() / 2] - upload);
 			} else {
 				Out("  motion, GPU ms: could not start\n");
 				g_failures++;

@@ -3,9 +3,10 @@
 // The median of Optical Flow's trusted blocks is right to the engine's 1/32 of a flow
 // pixel on a picture that holds still, but on a film that weaves -- the whole picture
 // moving by 0.2 to 1 source pixel from one frame to the next, as Cyrano does -- it came
-// out short of the film's own motion, and fell under PASS 4's 0.4-pixel dead zone on most
-// frames (tools/dlssnr_probe --tsrclip). DLSS Super Resolution then resamples its history
-// to the wrong place, and a wall that only weaves shimmers.
+// out short of the film's own motion, and fell under the 0.4-pixel dead zone PASS 4 then
+// had on 77 % of the frames (tools/dlssnr_probe --tsrclip). DLSS Super Resolution
+// resampled its history to the wrong place, and a wall that only weaves shimmered more
+// than the source itself.
 //
 // So the two flow frames are registered directly: Gauss-Newton steps on the brightness
 // difference, from the median. What moves on its own must take no part, and Optical Flow's

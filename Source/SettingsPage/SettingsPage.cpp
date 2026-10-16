@@ -344,10 +344,12 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_SLIDER7,
 		L"Steadies the network's effect over time, after it runs, so the\n"
 		"video is never delayed. Removes most of the shimmer DLSS adds.\n"
-		"100 is the measured setting; 0 runs nothing." },
+		"Its Optical Flow also gives the network its motion vectors.\n"
+		"100 is the measured setting; 0 runs nothing, vectors included." },
 	{ IDC_SLIDER10,
 		L"What the picture the network works on is divided by before\n"
-		"NVIDIA Optical Flow measures the motion the stabilizer follows.\n"
+		"NVIDIA Optical Flow measures the motion the stabilizer follows\n"
+		"and the network is given.\n"
 		"4 is the coarsest and cheapest, Full the picture itself: on a\n"
 		"1080p film, 480x270, 640x360, 960x540 or 1920x1080.\n"
 		"Auto takes 1, 2 or 4 from the picture's height for about 540\n"
@@ -355,11 +357,6 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"On a 4K film frame, from 270 lines to Full the result moved by\n"
 		"half a decibel at most; Optical Flow took 0.6 to 6.8 ms.\n"
 		"Taken on Apply, from the next picture." },
-	{ IDC_CHECK24,
-		L"Also gives the Optical Flow vectors to the network itself.\n"
-		"Steadier, but the network renders differently around moving\n"
-		"objects.\n"
-		"Needs a stabilizer above 0." },
 	{ IDC_BUTTON3,
 		L"Back to the measured tuning. Whether DLSS is on, its key, the\n"
 		"DLL paths and the working size, which is the card's, are left\n"
@@ -796,7 +793,6 @@ void CVRSettingsPPage::SetControls()
 	SetCheck(IDC_CHECK20, m_SetsPP.bDlssNR);
 	SetCheck(IDC_CHECK21, m_SetsPP.bDlssNRAutoMask);
 	SetCheck(IDC_CHECK23, m_SetsPP.bDlssNRAfterUpscale);
-	SetCheck(IDC_CHECK24, m_SetsPP.bDlssNRMotionVectors);
 	Combo_SelectData(Item(IDC_COMBO11), m_SetsPP.iDlssNRStyle);
 	Combo_SelectData(Item(IDC_COMBO12), m_SetsPP.iDlssNRPreset);
 	Combo_SelectData(Item(IDC_COMBO13), m_SetsPP.iDlssNRToggleKey);
@@ -899,9 +895,9 @@ void CVRSettingsPPage::EnableControls()
 	for (const int id : { IDC_STATIC31, IDC_STATIC32, IDC_SLIDER7, IDC_EDIT8 }) {
 		Enable(id, bNROn);
 	}
-	// Optical Flow and its vectors run only while the stabilizer does.
+	// Optical Flow runs only while the stabilizer does, and the network's vectors with it.
 	const BOOL bStabOn = bNROn && m_SetsPP.iDlssNRStabilizer > 0;
-	for (const int id : { IDC_STATIC_FLOW_DIVIDER, IDC_SLIDER10, IDC_EDIT12, IDC_CHECK24 }) {
+	for (const int id : { IDC_STATIC_FLOW_DIVIDER, IDC_SLIDER10, IDC_EDIT12 }) {
 		Enable(id, bStabOn);
 	}
 
@@ -1151,7 +1147,6 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK20, &m_SetsPP.bDlssNR,              true  },
 				{ IDC_CHECK21, &m_SetsPP.bDlssNRAutoMask,      false },
 				{ IDC_CHECK23, &m_SetsPP.bDlssNRAfterUpscale,  false },
-				{ IDC_CHECK24, &m_SetsPP.bDlssNRMotionVectors, false },
 				{ IDC_CHECK25, &m_SetsPP.bDlssSR,              true  },
 				{ IDC_CHECK28, &m_SetsPP.bDlssSRDlaa,          false },
 				{ IDC_CHECK29, &m_SetsPP.bUpscalingSmall,      true  },

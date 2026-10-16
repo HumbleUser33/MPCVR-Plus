@@ -495,7 +495,6 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_bDlssNRAfterUpscale  = config.bDlssNRAfterUpscale;
 	m_iDlssNRStabilizer    = config.iDlssNRStabilizer;
 	m_iDlssNRFlowDivider   = config.iDlssNRFlowDivider;
-	m_bDlssNRMotionVectors = config.bDlssNRMotionVectors;
 	m_iDlssNRWorkingScale  = config.iDlssNRWorkingScale;
 	m_bDlssSR              = config.bDlssSR;
 	m_bDlssSRDlaa          = config.bDlssSRDlaa;
@@ -5100,8 +5099,10 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::NRMotion);
 	}
 
-	// The Optical Flow vectors reach the network as well when asked for.
-	ID3D11Texture2D* pVectors = (bStabilize && m_bDlssNRMotionVectors) ? m_DlssStabilizer.GetMotionVectors() : nullptr;
+	// The stabilizer's Optical Flow reaches the network as well, its vectors cleaned
+	// the way DLSS SR's are (CDlssStabilizer::ForDlssNR): steadier than without them,
+	// and nothing lost behind what moves (--tstab). It used to take a box on the page.
+	ID3D11Texture2D* pVectors = bStabilize ? m_DlssStabilizer.GetMotionVectors() : nullptr;
 	if ((pVectors != nullptr) != m_DlssNR.HasMotionVectors()) {
 		CDlssNR::Guides guides;
 		guides.pMVec = pVectors;
@@ -5248,11 +5249,12 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	// moved. Optical Flow of its own, about 540 lines, on the very picture DLSS
 	// enlarges -- after DLSS 5 NR when that runs, so on a cleaner one -- each block
 	// drawn to the picture's global motion where it lies within the noise of it
-	// (CDlssStabilizer::ForDlssSR): a still background gets exactly no motion, a pan
-	// the pan. DLSS 5 NR's raw vectors are no longer lent: they made still
-	// backgrounds shimmer and left the grain along the frame's edges (--tsrstill).
-	// Finer flow -- the source size, a vector per pixel, the slowest search --
-	// measured no better (--tsrq).
+	// (CDlssStabilizer::ForDlssSR): a still background gets the motion of the whole
+	// picture, none or the film's own weave, and a pan the pan. DLSS 5 NR's raw
+	// vectors are no longer lent: they made still backgrounds shimmer and left the
+	// grain along the frame's edges (--tsrstill). Finer flow -- the source size, a
+	// vector per pixel, the slowest search -- measured no better, on still pictures
+	// (--tsrq) as on films (--tsrclip), for 3 ms more.
 	std::wstring motion = L"no vectors";
 	ID3D11Texture2D* pMotion = nullptr;
 	const bool bNewPicture = m_bDlssSRNewPicture;
@@ -6007,7 +6009,6 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		// the next picture.
 		m_iDlssNRStabilizer    = config.iDlssNRStabilizer;
 		m_iDlssNRFlowDivider   = config.iDlssNRFlowDivider;
-		m_bDlssNRMotionVectors = config.bDlssNRMotionVectors;
 
 		// Only a different DLL justifies tearing the whole session down.
 		if (m_strDlssNRDllPath != config.szDlssNRDllPath) {
@@ -6620,7 +6621,7 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 			if (m_iDlssNRStabilizer > 0) {
 				m_strStatsVProc += std::format(L"\nStabilizer    : {}, {}{}", m_iDlssNRStabilizer,
 					m_DlssStabilizer.IsCreated() ? m_DlssStabilizer.GetStatusLine() : std::wstring(L"not started"),
-					(m_bDlssNRMotionVectors && m_DlssStabilizer.GetMotionVectors()) ? L", vectors to DLSS" : L"");
+					m_DlssStabilizer.GetMotionVectors() ? L", vectors to DLSS" : L"");
 			}
 		} else {
 			m_strStatsVProc += std::format(L"\nDLSS 5 NR     : {}", m_DlssNR.GetStatusLine());

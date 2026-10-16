@@ -133,10 +133,10 @@ question, and DLSS Super Resolution told it runs on Blackwell picks kernels an A
 card cannot run, writes nothing and removes the device.
 
 **Video has no motion vectors and no depth.** The network runs colour-only at
-`ScalingRatio 1.0`: `DLSSNR.Depth` is never set, and `DLSSNR.MVec` only when the stabilizer is
-asked to pass its Optical Flow vectors on. Left unset, the DLL's own log confirms it runs
-that way (`EvaluateFeature Color=... MVec=0000000000000000 Depth=0000000000000000`). Vectors
-alone do not buy temporal stability — see the next section.
+`ScalingRatio 1.0`: `DLSSNR.Depth` is never set, and `DLSSNR.MVec` only while the stabilizer
+runs, which gives the network its Optical Flow vectors. Left unset, the DLL's own log confirms
+it runs that way (`EvaluateFeature Color=... MVec=0000000000000000 Depth=0000000000000000`).
+What the vectors do, and what the stabilizer adds to them, is in the next section.
 
 Other findings worth knowing: the SDK version must be **0x13** (the driver core rejects
 anything newer with `FAIL_OutOfDate`), the driver's NGX core does not know feature 18 at all
@@ -331,14 +331,18 @@ So the divider is left to the viewer, and Auto keeps every film where it always 
 
 The network blends each frame with its own previous output (`CC_Control_History_Blend`,
 `dlssnr_prev_output`). A game keeps that history aligned with motion vectors; video has
-none, and the result is a luminance shimmer: on real pictures, plain DLSS shows about 1.5×
-the low-frequency flicker of its own input. The temporal suites of the harness (below)
+none, and the result is a luminance shimmer: on real pictures, plain DLSS shows 1.14 to 1.33
+times the low-frequency flicker of its own input, and a moving object up to twice its own. The temporal suites of the harness (below)
 measured what this DLL does with its inputs:
 
-- **Motion vectors do not realign the history.** Their convention could be found (pixels,
-  current to previous, scale 1), but once the history is in use, correct, inverted and absent
-  vectors measure the same. Given as `DLSSNR.MVec`, Optical Flow vectors cut the flicker only
-  part of the way and change the rendering around moving objects. Depth changes nothing.
+- **Motion vectors steady the network, and it reads their direction.** Their convention could
+  be found (pixels, current to previous, scale 1). Given as `DLSSNR.MVec`, they make it keep
+  more of its effect and shimmer less than its own input; on a still picture, where the motion
+  is zero, any zero vectors will do, but where something moves the same vectors inverted leave
+  a moving object shimmering 1.7 to 2.6 times its input's, against 0.7 to 0.8 the right way
+  round (`--tstab`, below).
+  An earlier note here said correct, inverted and absent vectors measured the same: they do
+  not. Depth changes nothing.
 - **Left alone, the history does nothing measurable**: it measures the same as no history.
 - **`DLSSNR.ControlMask` steadies, but it strips the effect.** It weighs the history per
   pixel, and with any mask bound only 10 % (mask at 1) to 36 % (mask at 0, a frozen picture)
@@ -370,53 +374,72 @@ So the stabilizer works **after** the network and never touches its inputs
    chosen instead: four passes at a quarter of the resolution, with a noise floor measured
    on the video, a dilation and an 8-picture hold. Without vectors it steadied only what
    stood still (its row below), and it was removed with its setting.
-4. **Optionally**, the Optical Flow vectors also go to the network as `DLSSNR.MVec`.
+4. **The vectors also go to the network** as `DLSSNR.MVec`, from the same Optical Flow and the
+   same picture, cleaned the way DLSS Super Resolution's are (`CDlssStabilizer::ForDlssNR`, and
+   *DLSS Super Resolution* below): each block drawn to the picture's global motion, refined on
+   the flow frames, unless it moves on its own, and then searched again on the frames. The
+   stabilizer itself still warps its history with the raw vectors it was measured with. Until
+   2.0 this was a box on the page, off by default, and it sent the raw vectors.
 
 Only a new picture moves the history on. A redraw — paused video, the OSD, a change that
 brings no new picture — is steadied again against the same history as its picture, so it
 shows what changed without taking a second step.
 
 Measured on a photo with grain and 8×8 block noise, 1920×1080 windows moving with known
-motion (`--tstab`, default network settings, RTX 3050). Flicker is the frame-to-frame change
-of blurred luma, compensated by the true motion, as a ratio to the input's; *effect* is how
-much of plain DLSS's change to the picture is left:
+motion (`--tstab`, default network settings, RTX 4060). Flicker is the frame-to-frame change
+of blurred luma, compensated by the true motion, as a ratio to the input's; on a moving object
+it is taken inside the object, compensated by the object's own motion. *Effect* is how much of
+plain DLSS's change to the picture is left, over the picture and on the object:
 
-| | Still | Slow pan | Pan | Moving object | Cut | Effect |
-|---|---|---|---|---|---|---|
-| Plain DLSS | 1.44× | 1.59× | 1.56× | 1.49× | 1.47× | 100 % |
-| **Stabilizer, Optical Flow** | 1.06× | 1.11× | 1.14× | 1.09× | 1.06× | 100 % |
-| Stabilizer, shader detector | 1.02× | 1.55× | 1.56× | 1.12× | 1.13× | 100 % |
-| Stabilizer, true motion (the ceiling) | 1.02× | 1.04× | 1.04× | 1.04× | 1.02× | 100 % |
-| Vectors to DLSS, no stabilizer | 1.22× | 1.29× | 1.29× | 1.22× | 1.23× | 97–100 % |
-| Vectors to DLSS + stabilizer | 1.00× | 1.03× | 1.05× | 1.02× | 1.01× | 96–100 % |
+| | Still | Slow pan | Pan | Around an object | The object | A fast object | Cut | Effect |
+|---|---|---|---|---|---|---|---|---|
+| Plain DLSS | 1.16× | 1.19× | 1.19× | 1.33× | 1.83× | 2.18× | 1.14× | 100 % |
+| Stabilizer, no vectors to the network (until 2.0) | 1.01× | 1.02× | 1.02× | 1.05× | 1.07× | 1.13× | 1.01× | 98–100 % |
+| Stabilizer, true motion, no vectors to the network | 1.01× | 1.01× | 1.01× | 1.02× | 1.06× | 1.10× | 1.01× | 98–100 % |
+| Raw vectors to the network + stabilizer (the box, until 2.0) | 0.97× | 0.98× | 0.98× | 0.99× | 0.93× | 0.97× | 0.97× | 114–129 % |
+| **Cleaned vectors + stabilizer (now)** | **0.93×** | **0.94×** | **0.93×** | **0.93×** | **0.92×** | **0.97×** | **0.93×** | **114–127 %** |
+| The same, stabilizer at 50 | 0.86× | 0.89× | 0.87× | 0.87× | 0.81× | 0.89× | 0.87× | 115–128 % |
+| Cleaned vectors, no stabilizer | 0.81× | 0.88× | 0.82× | 0.83× | 0.75× | 0.87× | 0.83× | 116–129 % |
+| True motion to the network, no stabilizer | 0.81× | 0.88× | 0.82× | 0.82× | 0.71× | 0.81× | 0.83× | 115–132 % |
+| The same, inverted | 0.81× | 0.99× | 1.21× | 0.84× | 1.68× | 2.59× | 0.83× | 99–120 % |
 
-With Optical Flow the stabilizer removes about 80 % of the flicker DLSS adds, moving content
-included, and stays within 0.0005 of plain DLSS on average (0.0013 on edges and where the
-object moved). Passing the vectors to the network as well steadies a little more, but the
-network then renders differently: 0.0032 away from plain DLSS where the object moved, 2.5
-times the stabilizer alone — which is why that box is off by default. A variant filtering the
-whole output, TAA-style, was measured too and dropped: it steadies more by also smoothing the
-video itself, its grain and its edges.
+The object moves 4 pixels a frame over the still picture, the fast one 12 over the slow pan.
+Without vectors the stabilizer removes nearly all the flicker DLSS adds, moving content
+included, and stays within 0.0005 of plain DLSS on average. With the vectors the network
+steadies itself: alone, it shimmers less than its own input, a moving object included, and
+keeps 14 to 27 % more of its effect. That is what the box used to warn of as rendering
+differently around moving objects — more of the effect, nothing broken: behind the object,
+where it was in the last eight frames and no longer is, the picture differs from the same run
+with no object at all by 3.4 to 3.9 thousandths of luma against 2.9 to 4.0 without vectors
+(×1000, at a quarter of the resolution), and exact vectors leave the same, 3.5 to 4.0: the
+larger effect building up again on what the object uncovers. The raw vectors the box sent
+steadied less, and least on a film that weaves: on the wall of *Cyrano*, DLSS 5 NR and the
+stabilizer shimmered 1.21 times the source without vectors, 1.12 with the raw ones, 1.04 with
+the cleaned ones (`--tsrclipnr`).
+
+The stabilizer, which steadies the effect and leaves the video's own flicker alone, gives
+back part of what the network, given vectors, takes out of the input: 0.93× at 100 against
+0.81× without it, 0.86× at 50. That is the slider's to decide, by eye; at 0 nothing runs,
+Optical Flow and the vectors included. A variant filtering the whole output, TAA-style, was
+measured too and dropped: it steadies more by also smoothing the video itself, its grain and
+its edges.
 
 Checked in the harness (`--tstabport`): the filter's own class, with its shaders embedded as
-in the filter, measures exactly what the reference passes measure — every sequence, every
-motion source, vectors to DLSS included — and each of 285 redraws shows, bit for bit, what
-its picture showed.
+in the filter, measures exactly what the reference passes measure — every sequence, alone and
+giving the network its cleaned vectors — and each of its redraws shows, bit for bit, what its
+picture showed.
 
-Cost on an RTX 3050 (`--tstabbench`, GPU time per picture), before the detector was removed:
-
-| Working size | Optical Flow | of which flow and vectors | Shader detector |
-|---|---|---|---|
-| 1920×1080 | 2.8 ms | 2.2 ms | 0.8 ms |
-| 3840×2160 | 5.5 ms | 3.0 ms | 2.9 ms |
-
-And on the RTX 4060 at each *Optical Flow Resolution Divider*, Optical Flow with its passes
-and the stabilizer together (`--tstabbench`, a moving picture, the flow's size in brackets):
+Cost on the RTX 4060 at each *Optical Flow Resolution Divider* (`--tstabbench`, GPU time per
+picture, a moving picture, the flow's size in brackets): Optical Flow with its passes and the
+stabilizer together, and in brackets the same without the network's cleaned vectors:
 
 | Working size | 4 | 3 | 2 | Full |
 |---|---|---|---|---|
-| 1920×1080 | 1.12 ms (480x270) | 1.24 ms (640x360) | 1.37 ms (960x540) | 2.73 ms (1920x1080) |
-| 3840×2160 | 2.88 ms (960x540) | 3.22 ms (1280x720) | 4.11 ms (1920x1080) | 9.68 ms (3840x2160) |
+| 1920×1080 | 1.18 ms (0.88), 480x270 | 1.32 ms (0.97), 640x360 | 1.75 ms (1.19), 960x540 | 3.87 ms (2.49), 1920x1080 |
+| 3840×2160 | 3.59 ms (2.66), 960x540 | 3.97 ms (3.03), 1280x720 | 5.58 ms (3.87), 1920x1080 | 13.41 ms (9.00), 3840x2160 |
+
+The cleaned vectors cost 0.3 to 0.6 ms at 1080p and 0.9 to 1.7 ms at 2160p below Full: the
+global motion, its refinement and the block passes, the same DLSS SR runs on its own picture.
 
 The CPU side stays under half a millisecond: nothing waits for the GPU. Memory: about 95 MB
 at 1080p — the history, two input copies and the result at the working size — and 375 MB at
@@ -486,40 +509,46 @@ and Optical Flow's raw vectors are wrong on a still, grained picture: most block
 of a pixel in every direction, some by several pixels, and worst along the frame's edges, where
 a block has no neighbours on one side. A still background shimmered like heat haze, and the
 grain stayed in a band along the edges, where vectors leaving the picture made DLSS drop its
-history. The vectors now go through two passes before DLSS
-(`Shaders/d3d11/cs_dlss_global_motion.hlsl`, then PASS 4 and PASS 3 of `ps_dlss_stabilize.hlsl`,
-`CDlssStabilizer::ForDlssSR`):
+history. The vectors now go through these passes before DLSS
+(`Shaders/d3d11/cs_dlss_global_motion.hlsl` and `cs_dlss_global_refine.hlsl`, then PASS 4 and
+PASS 3 of `ps_dlss_stabilize.hlsl`, `CDlssStabilizer::ForDlssSR`):
 
 - **the picture's global motion**: the median of the blocks that can be trusted — forward and
   backward flow agree, the match is good, the vector stays in the picture — exact to the
   engine's 1/32 of a pixel, measured on the GPU with nothing waiting for it. The median of all
   blocks is not enough: on heavy grain the flat areas, where only the grain changes, give a
-  coherent wrong motion that moved it 0.6 to 4 pixels on four film frames out of six. Under 0.4
-  pixels the global motion counts as none;
+  coherent wrong motion that moved it 0.6 to 4 pixels on four film frames out of six. The
+  median is then refined on the two flow frames themselves, and taken as it is however small
+  (*A film that weaves*, below);
 - **each block** keeps a motion of its own only if it lies more than 0.75 to 1.5 pixels from the
   global motion and the trusted blocks around it share it (see *Moving subjects* below);
   otherwise it takes the global motion. A block pointing out of the picture where the global
   motion does not is noise as well.
 
-A still background thus gets exactly no motion, a pan exactly the pan, and what moves on its
-own keeps its vector. `--tsrstill` measures it on six 4K film frames, each halved and grained
+A still background thus gets the motion of the whole picture — none, or the film's weave —, a
+pan the pan, and what moves on its own keeps its vector. `--tsrstill` measures it on six 4K film frames, each halved and grained
 anew on every frame, then enlarged twice: 40 still frames, an object crossing them, a slow pan
 (0.7 pixel a frame) and a pan (3.8 pixels a frame). *Shimmer* is how much the structures of a
 still picture move from one frame to the next, *grain flicker* how much the grain left does,
 both ×1000 on luma; PSNR in dB.
 
+Measured on the RTX 4060, averages over seven film frames:
+
 | | Light grain | | | | Old film grain | | | |
 |---|---|---|---|---|---|---|---|---|
 | Vectors | Shimmer | Grain flicker | Slow pan | Pan | Shimmer | Grain flicker | Slow pan | Pan |
-| Raw (up to 1.2) | 1.44 | 1.61 | 48.4 | 48.3 | 3.05 | 3.51 | 42.6 | 42.7 |
-| Snapping alone (first version) | 0.73 | 0.95 | 49.9 | 50.3 | 1.84 | 2.12 | 43.6 | 44.7 |
-| **Now** | **0.74** | **0.92** | **50.2** | **50.3** | **1.81** | **2.13** | **43.9** | **44.9** |
-| Exact (not available in playback) | 0.96 | 1.00 | 53.3 | 53.6 | 1.85 | 1.80 | 44.5 | 47.1 |
+| Raw (up to 1.2) | 0.69 | 1.12 | 48.2 | 48.3 | 1.88 | 2.92 | 42.9 | 42.9 |
+| Snapping alone (first version) | 0.76 | 0.95 | 48.3 | 48.6 | 1.68 | 1.97 | 43.2 | 43.5 |
+| The median global motion (until 2.0) | 0.76 | 0.91 | 48.6 | 48.7 | 1.62 | 1.96 | 43.6 | 43.8 |
+| **Now** | **0.73** | **0.89** | **50.9** | **50.7** | **1.62** | **1.97** | **44.8** | **45.2** |
+| Exact (not available in playback) | 0.84 | 0.87 | 52.1 | 52.2 | 1.84 | 1.80 | 45.2 | 46.5 |
 
-The shimmer falls to the level of exact vectors, or under it, and pans gain 1 to 2 dB. Along
-the edges, the raw vectors were off by 8.5 pixels on light grain and 21 pixels on old film grain
-in the outermost 4 pixels, and left 18 to 24 % more grain there than exact ones; now 0.3
-pixel, and 2 to 4 % more grain. With exact vectors DLSS keeps a slight edge effect of its
+The shimmer falls to the level of exact vectors, or under it, and the refined global motion
+gains the pans 1.2 to 2.3 dB over the median. The raw vectors' shimmer was low only where they
+held still in the middle of the picture: along the edges they were off by 8.6 pixels on light
+grain and 18 pixels on old film grain in the outermost 4 pixels, shimmered there 1.7 to 2.2 times as
+much and left 23 to 27 % more grain than exact ones; now 0.5 pixel, and 5 % more grain. With exact
+vectors DLSS keeps a slight edge effect of its
 own: on one film frame, a 32-pixel guard band — the picture mirrored on every side — took a
 further 7 to 10 % off the grain flicker in the outermost band and left the grain as it was; not
 worth 9 % more DLSS time, so there is none. The filter's passes match the same computed on the
@@ -547,25 +576,63 @@ one block at a time:
 | | Light grain | | | Old film grain | | |
 |---|---|---|---|---|---|---|
 | Vectors | Subject shimmer | Subject PSNR | Pan shimmer | Subject shimmer | Subject PSNR | Pan shimmer |
-| Raw (up to 1.2) | 1.72 | 45.0 | 1.46 | 3.14 | 41.5 | 3.10 |
-| Snapping alone (first version) | 1.78 | 44.8 | 0.73 | 3.20 | 41.7 | 1.35 |
-| **Now** | **0.75** | **46.2** | **0.66** | **2.30** | **42.3** | **1.19** |
-| Exact (not available in playback) | 0.29 | 45.7 | 0.14 | 0.93 | 42.3 | 0.49 |
+| Raw (up to 1.2) | 1.20 | 44.2 | 1.07 | 2.36 | 41.2 | 2.40 |
+| Snapping alone (first version) | 1.20 | 43.7 | 0.91 | 2.52 | 41.2 | 1.59 |
+| The median global motion (until 2.0) | 0.84 | 44.3 | 0.83 | 1.95 | 41.6 | 1.45 |
+| **Now** | **0.84** | **44.3** | **0.31** | **1.94** | **41.6** | **0.86** |
+| Exact (not available in playback) | 0.31 | 43.8 | 0.19 | 0.85 | 41.1 | 0.45 |
 
 *Shimmer* is the same measure taken on what moves, against the frame before at the place it
 came from: the subject inside its outline, the pan away from the edge it enters by. The subject
-shimmers 2.4 times less on light grain and 28 % less on old film grain than with the first
-version, its PSNR reaches that of exact vectors, and its vectors are off by 0.9 and 1.8 pixels;
-pans shimmer 10 % less and gain up to 0.3 dB. What it costs: on still pictures under old film
-grain, DLSS keeps 3 % more grain than with the snapping alone (5 % in the outermost 8 pixels)
-and the picture measures 0.3 dB lower; on light grain nothing changes, and the edges come out
-slightly cleaner. A few false motions still survive on flat areas of a still picture, where any
+shimmers 30 % less on light grain and 23 % less on old film grain than with the first version,
+its PSNR passes that of exact vectors, and its vectors are off by 0.6 and 1.2 pixels; pans,
+whose global motion is refined, shimmer 63 % and 41 % less than with the median. Still pictures
+lose nothing to any of it: against the snapping alone the grain left and the PSNR are the same
+or better. A few false motions still survive on flat areas of a still picture, where any
 offset matches. What was tried to take them out — weighing each block's say by its texture,
 checking each kept vector against the frames, requiring the same motion two pictures running,
 asking a larger share of the window — took moving subjects' motion away as well, or cost the
 slow pan under heavy grain, and was left out. Subjects still shimmer more than with exact
 motion, chiefly under heavy grain, where a block of low contrast cannot tell its own motion from
 the grain's: hence *Experimental* on the option.
+
+**A film that weaves.** On film a background that holds still is not still: the frame moves in
+the gate, and a scanned picture moves by a fraction of a pixel from one frame to the next. On
+*Cyrano* (2021), the wall behind the actors at 00:32:24, which shimmered under DLSS SR, moves
+0.48 source pixel a frame on average, and 62 % of the frames more than 0.4. The median of
+Optical Flow's blocks came out short of that motion, and under the 0.4-pixel dead zone PASS 4
+then had on 77 % of the frames: DLSS was told the wall had not moved, resampled its history to
+the wrong place, and the wall shimmered more than the source itself. Finer flow, at the
+source's size and with the median, brought it only to 0.77 of the source's shimmer, for 3 ms
+more.
+
+So the global motion is now refined on the two flow frames (`cs_dlss_global_refine.hlsl`): two
+Gauss-Newton steps on the brightness difference, from the median, leaving out the 16×16 groups
+whose difference passes 2.5 times the median group's. Those are what moves on its own: actors
+walking a pixel or two a frame lie within Optical Flow's noise of the weave, and taken in they
+left the estimate 0.34 pixel off; left out, 0.02. And the dead zone is gone: a small motion
+taken to zero measured worse, on films that hardly move, than the same motion followed.
+
+`--tsrclip` measures DLSS SR on a film's own frames, against the film's own motion, written by
+`clip_motion.py`, which registers each frame on the one before at the source's size, with what
+moves on its own left out. The figure is the shimmer of what holds still once that motion is
+taken out, against the source's own:
+
+| | *Cyrano*, the wall | *Boudu* (1932) | *Casimir* (1950) |
+|---|---|---|---|
+| The film's weave, pixel a frame | 0.48 | 0.03 | 0.01 |
+| The median global motion (until 2.0) | 1.14× | 0.47× | 0.79× |
+| **Refined (now)** | **0.38×** | **0.38×** | **0.66×** |
+| The film's own motion given everywhere | 0.36× | 0.40× | 0.74× |
+| Vectors at zero | 1.24× | 0.48× | 0.77× |
+| Preset K, refined | 0.21× | 0.26× | 0.48× |
+
+The refinement costs 0.1 to 0.3 ms a frame at 1080p, timed in turns with the median on the same
+frames. Preset K is steadier still, and softer: 8 % less detail on the wall of *Cyrano*. With
+DLSS 5 NR before DLSS SR, as the filter chains them, the wall went from 1.51 to 0.43 times the
+source's shimmer (`--tsrclipnr`); and DLSS SR's vectors computed on the picture before the
+network serve as well as those computed after it, 0.43 either way, which is what one Optical
+Flow shared by the two would see. DLSS SR keeps its own, on the picture it enlarges.
 
 **Cost** on an RTX 3050 6 GB (`--tsr`, GPU time per frame):
 
@@ -580,31 +647,39 @@ the grain's: hence *Experimental* on the option.
 Add the vectors, 3.0 ms at 1080p in playback, and up to about 3.6 ms on a zoom, where every
 block moves its own way and is searched again: Optical Flow both ways with the matching cost,
 then the passes described above. The snapping alone took 2.2 ms; up to 1.2 the raw vectors took
-1.3 ms, and nothing when DLSS 5 NR lent its own; DLSS SR now always makes its own.
+1.3 ms, and nothing when DLSS 5 NR lent its own; DLSS SR now always makes its own. On the RTX
+4060 the vectors take 1.3 ms on a still picture or a pan and 1.8 ms on a zoom (`--tsrport`, a
+1912x1072 source), the snapping alone 1.05 ms.
 
 **Quality — read this before turning it on.** `--tsrq` pans windows of six 4K film frames by
 half a source pixel per frame, reduces them to the source, grains or compresses them per
 frame, and measures every method against the reference it never saw. Averages over the six
 frames (PSNR in dB; *grain* is the fine detail left in flat areas, the source keeps about 2.4):
 
-| | Clean, still | Clean, moving | Grain left | Compressed, still | Compressed, moving |
-|---|---|---|---|---|---|
-| Catmull-Rom | **55.9** | **55.9** | 2.40 | **46.9** | **46.8** |
-| Lanczos3 | 54.7 | 54.7 | 2.55 | 46.5 | 46.4 |
-| **DLSS SR, Optical Flow vectors** | 51.8 | 52.7 | **0.68** | 46.5 | **48.3** |
-| DLSS SR, no vectors | 51.8 | 49.2 | 0.45 | 46.5 | 45.3 |
-| DLSS SR, exact motion (not available in playback) | 51.8 | 54.3 | 0.45 | 46.5 | 49.7 |
+Measured on the RTX 4060, averages over seven film frames, the grain row grained anew on every
+frame:
+
+| | Clean, still | Clean, moving | Grained, still | Grained, moving | Grain left | Compressed, still | Compressed, moving |
+|---|---|---|---|---|---|---|---|
+| Catmull-Rom | **54.3** | **54.3** | 45.1 | 45.1 | 2.28 | **45.9** | 45.8 |
+| Lanczos3 | 53.1 | 53.1 | 44.5 | 44.5 | 2.43 | 45.5 | 45.4 |
+| **DLSS SR, the filter's vectors** | 50.5 | 52.8 | **48.7** | **50.7** | **0.61** | 45.5 | **47.7** |
+| DLSS SR, the median global motion (until 2.0) | 50.5 | 51.5 | 48.7 | 48.7 | 0.61 | 45.5 | 46.7 |
+| DLSS SR, raw vectors (up to 1.2) | 50.1 | 51.4 | 48.1 | 48.3 | 1.08 | 45.3 | 46.3 |
+| DLSS SR, no vectors | 50.5 | 48.0 | 48.9 | 44.1 | 0.41 | 45.5 | 44.5 |
+| DLSS SR, exact motion (not available in playback) | 50.5 | 53.6 | 48.9 | 52.2 | 0.41 | 45.5 | 48.6 |
 
 With the vectors a player can compute, DLSS SR stays **less faithful than Catmull-Rom on
-clean film**, 3 to 4 dB below. On compressed film it is level with it on still pictures, 0.4 dB
-below, and **1.5 dB above on moving ones**: where the source carries compression noise, the
-reconstruction is worth more than the fidelity it costs. It also **takes about 70 % of the film
-grain out** over time, and the grain it leaves flickers 3.5 times less (0.68 against 2.40).
-That degraining and denoising is what DLSS 4.5 gives a film beyond the enlargement, and on a
-grainy source it is what you will notice first.
-The cleaned vectors gain 0.3 to 1.2 dB on still pictures and 2.7 to 3.0 dB on moving ones over
-the raw vectors of 1.2 (50.6, 49.7, 0.73, 46.2 and 45.5 on the row above), and remove a little
-more grain. Without jitter a still picture gives DLSS
+clean film**: 3.8 dB below on still pictures, 1.5 dB below on moving ones, where the refined
+global motion took 1.3 dB back. On compressed film it is level with it on still pictures, 0.4
+dB below, and **1.9 dB above on moving ones**; on grained film it is **3.6 dB above on still
+pictures and 5.7 dB above on moving ones**: where the source carries noise, the reconstruction
+is worth more than the fidelity it costs. It also **takes about 73 % of the film grain out**
+over time, and the grain it leaves flickers 6.3 times less (0.87 against 5.45 between two still
+frames, ×1000). That degraining and denoising is what DLSS 4.5 gives a film beyond the
+enlargement, and on a grainy source it is what you will notice first.
+The cleaned vectors gain 0.2 to 0.6 dB on still pictures and 1.3 to 2.4 dB on moving ones over
+the raw vectors of 1.2, and leave 44 % less grain. Without jitter a still picture gives DLSS
 nothing new, and Optical Flow is not precise enough for it to accumulate as much detail on a
 pan as exact motion does: finer flow — the source size, a vector per pixel, the slowest search —
 measured no better. The option is therefore off by default and marked experimental; your eyes
@@ -1494,9 +1569,8 @@ it serves the luma prescalers as much as DLSS, so it sits on the **Settings** pa
 | Local tone | 0.30 | Low on purpose: the local terms amplify frame-to-frame variation |
 | Local struct. | 0.50 | |
 | Skin struct. | 0.90 | |
-| Stabilizer | 100 | 0–100. Where the history is trusted, the current picture weighs from 1 down to 0.25 at 100, the measured setting. 0 runs nothing. Applies live |
+| Stabilizer | 100 | 0–100. Where the history is trusted, the current picture weighs from 1 down to 0.25 at 100, the measured setting. Its Optical Flow also gives the network its motion vectors, cleaned as DLSS SR's are, whatever the strength above 0. 0 runs nothing, vectors included. Applies live |
 | Optical Flow Resolution Divider | Auto | 4, 3, 2, Full or Auto: what the working picture is divided by before Optical Flow measures its motion. Auto takes 1, 2 or 4 from the working height for about 540 lines, as before the slider existed. See *A working size below the picture's* for what it changes. Applies on the next picture |
-| Send the motion vectors to DLSS | off | Needs the stabilizer. Steadier, but the network renders differently around moving objects |
 | Working size | 100 % | 50–100 %, in steps of 5. See *A working size below the picture's*: the network runs on the picture reduced, and its change is carried back onto the picture. Taken on Apply, which starts the network again. Registry `DlssNRWorkingScale` |
 | Use DLSS SR 4.5 for upscaling | off | See above: not perfect yet, which is why the box it sits in says so. Greys the Upscaling list while it is on |
 | Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p. Needs *Use DLSS SR* |
@@ -1642,9 +1716,11 @@ dlssnr_harness.exe --tmask        ControlMask values on still and moving content
 dlssnr_harness.exe --toracle      a perfect motion map as the mask
 dlssnr_harness.exe --teffect      how much of the effect each ControlMask value leaves
 dlssnr_harness.exe --tflow        NVIDIA Optical Flow: direction, units, accuracy, timings
-dlssnr_harness.exe --tstab        the post-DLSS stabilizer variants on real pictures
+dlssnr_harness.exe --tstab        the post-DLSS stabilizer variants on real pictures, and the vectors the network
+                                  is given: the shimmer, a moving object itself and the trail it leaves
 dlssnr_harness.exe --tstabport    the filter's stabilizer class against those passes, redraws included
-dlssnr_harness.exe --tstabbench   what the stabilizer costs at 1080p and 2160p, at each Optical Flow divider
+dlssnr_harness.exe --tstabbench   what the stabilizer costs at 1080p and 2160p, at each Optical Flow divider,
+                                  with the network's cleaned vectors and without
 dlssnr_harness.exe --tnrscale     DLSS 5 NR at a working size: each way of carrying its change back, and the cost
                                   (--nrflow N: the stabilizer's Optical Flow at N working pixels per flow pixel)
 dlssnr_harness.exe --tpipeline    the whole DLSS chain as the renderer runs it: CPU and GPU time per stage

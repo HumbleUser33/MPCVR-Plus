@@ -361,14 +361,13 @@ static int RunSRStill(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t
 		}
 
 		// Exact motion, the raw vectors of 1.2, the snapping to the global motion alone
-		// (the first version of this work), and what the filter runs. Then what --tsrclip
-		// found on films that weave: the global motion refined on the flow frames with the
-		// dead zone lowered, and finer flow, to see what they cost a still picture.
-		auto refined = [](int steps, float deadZone, float robust = 0.0f) {
+		// (the first version of this work), the median global motion with its 0.4-pixel
+		// dead zone (until 2.0), and what the filter runs: the median refined on the flow
+		// frames, which --tsrclip found a film's weave needs. Then finer flow.
+		auto median = []() {
 			CDlssStabilizer::FlowSettings flow = CDlssStabilizer::ForDlssSR();
-			flow.globalRefine = steps;
-			flow.snapDeadZone = deadZone;
-			flow.globalRobust = robust;
+			flow.globalRefine = 0;
+			flow.snapDeadZone = 0.4f;
 			return flow;
 		};
 		auto finer = []() {
@@ -381,11 +380,8 @@ static int RunSRStill(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t
 			{ "exact motion",               0 },
 			{ "raw vectors (1.2)",          1, StillFlow() },
 			{ "snapped only",               1, StillFlow(true, 1.0f, 2.0f, 2, true, true, 0, 0.4f) },
+			{ "median (until 2.0)",         1, median() },
 			{ "filter now",                 1, CDlssStabilizer::ForDlssSR() },
-			{ "dead zone 0",                1, refined(0, 0.0f) },
-			{ "refined x2, dead zone 0.1",  1, refined(2, 0.1f) },
-			{ "refined x3, dead zone 0",    1, refined(3, 0.0f) },
-			{ "robust x2, dead zone 0",     1, refined(2, 0.0f, 2.5f) },
 			{ "flow /1, blur 2",            1, finer() },
 		};
 
@@ -1066,12 +1062,13 @@ static int RunSRStill(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t
 	return (rc || g_failures) ? 1 : 0;
 }
 
-// --tsrport: the filter's vectors for DLSS SR -- cs_dlss_global_motion.hlsl, then
-// PASS 3 of ps_dlss_stabilize.hlsl, as CDlssStabilizer::ForDlssSR runs them --
-// against the same computed here, on the CPU, from the engine's own output of the
-// same frames: the global motion and its spread must match exactly, the vectors to
-// the precision of their RG16F texture. On a still, grained pair of frames (where
-// the dead zone takes the global motion to zero) and on a panned one.
+// --tsrport: the filter's vectors for DLSS SR -- cs_dlss_global_motion.hlsl and
+// cs_dlss_global_refine.hlsl, then PASS 4 and PASS 3 of ps_dlss_stabilize.hlsl, as
+// CDlssStabilizer::ForDlssSR runs them -- against the same computed here, on the CPU,
+// from the engine's own output of the same frames: the median and its spread must
+// match exactly, the refined global motion to float precision, the vectors to the
+// precision of their RG16F texture. On a still, grained pair of frames, a panned one
+// and a zoomed one.
 
 namespace {
 
@@ -1086,6 +1083,95 @@ int LowerMedian(std::vector<int> v)
 	const size_t k = (v.size() + 1) / 2 - 1;
 	std::nth_element(v.begin(), v.begin() + k, v.end());
 	return v[k];
+}
+
+// cs_dlss_global_refine.hlsl on the CPU, from the same flow frames (R8) and forward
+// flow (1/32 flow pixel): Gauss-Newton steps from g, flow pixels, each over the pixels
+// whose block vector lies within `near` of the estimate, the 16 x 16 groups whose mean
+// squared difference passes `robust` times the median group's left out. The sums are in
+// double where the GPU's are in float, so the two agree to a little more than float
+// precision, and a group that sits on the limit may fall on either side of it.
+void RefineGlobalCpu(const BYTE* now, const BYTE* last, int w, int h, const int16_t* fwd, int fw, int fh, int grid,
+                     int steps, float near_, float robust, float g[2])
+{
+	const int gw = (w + 15) / 16, gh = (h + 15) / 16;
+	auto lastAt = [&](float x, float y) {
+		const float fx = x - 0.5f, fy = y - 0.5f;
+		const int ix = (int)std::floor(fx), iy = (int)std::floor(fy);
+		const float tx = fx - ix, ty = fy - iy;
+		auto at = [&](int xx, int yy) { return last[(size_t)std::clamp(yy, 0, h - 1) * w + std::clamp(xx, 0, w - 1)] / 255.0f; };
+		const float top = at(ix, iy) + (at(ix + 1, iy) - at(ix, iy)) * tx;
+		const float bottom = at(ix, iy + 1) + (at(ix + 1, iy + 1) - at(ix, iy + 1)) * tx;
+		return top + (bottom - top) * ty;
+	};
+	for (int step = 0; step < steps; step++) {
+		std::vector<double> A(4 * (size_t)gw * gh, 0.0), B(3 * (size_t)gw * gh, 0.0);
+		for (int y = 2; y <= h - 3; y++) {
+			for (int x = 2; x <= w - 3; x++) {
+				const int bx = std::min(x / grid, fw - 1), by = std::min(y / grid, fh - 1);
+				const float ox = fwd[2 * ((size_t)by * fw + bx)] / 32.0f, oy = fwd[2 * ((size_t)by * fw + bx) + 1] / 32.0f;
+				const float qx = x + 0.5f + g[0], qy = y + 0.5f + g[1];
+				if (std::hypot(ox - g[0], oy - g[1]) > near_ || qx < 2.0f || qy < 2.0f || qx > w - 2.0f || qy > h - 2.0f) {
+					continue;
+				}
+				const double gx = (lastAt(qx + 1, qy) - lastAt(qx - 1, qy)) * 0.5, gy = (lastAt(qx, qy + 1) - lastAt(qx, qy - 1)) * 0.5;
+				const double e = now[(size_t)y * w + x] / 255.0f - lastAt(qx, qy);
+				const size_t k = (size_t)(y / 16) * gw + x / 16;
+				A[4 * k] += gx * gx;
+				A[4 * k + 1] += gx * gy;
+				A[4 * k + 2] += gy * gy;
+				A[4 * k + 3] += 1.0;
+				B[3 * k] += gx * e;
+				B[3 * k + 1] += gy * e;
+				B[3 * k + 2] += e * e;
+			}
+		}
+		// The median group, by the shader's histogram: 6.4 bins an octave from 2^-40.
+		double limit = 3.402823e38;
+		if (robust > 0.0f) {
+			std::vector<int> hist(256, 0);
+			int counted = 0;
+			for (size_t k = 0; k < (size_t)gw * gh; k++) {
+				if (A[4 * k + 3] >= 64.0 && A[4 * k] + A[4 * k + 2] > 1e-6 * A[4 * k + 3]) {
+					const double r = B[3 * k + 2] / A[4 * k + 3];
+					hist[std::clamp((int)((std::log2(std::max(r, 1e-12)) + 40.0) * 6.4), 0, 255)]++;
+					counted++;
+				}
+			}
+			if (counted) {
+				const int rank = (counted + 1) / 2;
+				int below = 0, bin = 0;
+				while (bin < 255 && below + hist[bin] < rank) {
+					below += hist[bin];
+					bin++;
+				}
+				limit = robust * std::exp2((bin + 0.5) / 6.4 - 40.0);
+			}
+		}
+		double a[4] = {}, b[2] = {};
+		for (size_t k = 0; k < (size_t)gw * gh; k++) {
+			if (A[4 * k + 3] > 0.0 && B[3 * k + 2] < limit * A[4 * k + 3]) {
+				for (int i = 0; i < 4; i++) {
+					a[i] += A[4 * k + i];
+				}
+				b[0] += B[3 * k];
+				b[1] += B[3 * k + 1];
+			}
+		}
+		const double det = a[0] * a[2] - a[1] * a[1];
+		const double tr = a[0] + a[2];
+		const double minEigen = 0.5 * (tr - std::sqrt(std::max(tr * tr - 4.0 * det, 0.0)));
+		if (a[3] >= 2000.0 && minEigen > 1e-6 * a[3]) {
+			double sx = (a[2] * b[0] - a[1] * b[1]) / det, sy = (a[0] * b[1] - a[1] * b[0]) / det;
+			const double len = std::hypot(sx, sy);
+			if (len > 0.5) {
+				sx *= 0.5 / len;
+				sy *= 0.5 / len;
+			}
+			g[0] += (float)sx;
+			g[1] += (float)sy;
+		}
+	}
 }
 
 } // namespace
@@ -1118,13 +1204,17 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 		std::sort(files.begin(), files.end());
 
 		// What the filter runs, and the same with both smoothings on, so that PASS 4 is
-		// checked whatever the settings.
+		// checked whatever the settings. The second keeps the median as it comes out, and
+		// the dead zone the filter had until 2.0, so that the median is checked exactly
+		// and a global motion taken to zero is checked too.
 		CDlssStabilizer::FlowSettings smoothed = CDlssStabilizer::ForDlssSR();
 		smoothed.vectorRadius = 2;
 		smoothed.vectorSigma = 0.75f;
 		smoothed.vectorTemporal = 0.5f;
 		smoothed.vectorShift = 0;
 		smoothed.vectorRefine = 0;
+		smoothed.globalRefine = 0;
+		smoothed.snapDeadZone = 0.4f;
 		const CDlssStabilizer::FlowSettings settingsList[] = { CDlssStabilizer::ForDlssSR(), smoothed };
 		int refsDone = 0;
 		for (size_t fi = 0; !rc && fi < files.size() && refsDone < (maxRefs > 0 ? maxRefs : 2); fi++) {
@@ -1138,8 +1228,9 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 			printf("  %S, %dx%d\n", files[fi].substr(files[fi].find_last_of(L'\\') + 1).c_str(), sw, sh);
 
 			for (const CDlssStabilizer::FlowSettings& settings : settingsList) {
-			printf("   settings: radius %d, sigma %.2f, temporal %.2f, shift %d, refine %d\n", settings.vectorRadius, settings.vectorSigma,
-			       settings.vectorTemporal, settings.vectorShift, settings.vectorRefine);
+			printf("   settings: radius %d, sigma %.2f, temporal %.2f, shift %d, refine %d; global motion refined %d, robust %.1f,"
+			       " dead zone %.1f\n", settings.vectorRadius, settings.vectorSigma, settings.vectorTemporal, settings.vectorShift,
+			       settings.vectorRefine, settings.globalRefine, settings.globalRobust, settings.snapDeadZone);
 			Tex2D_t input;
 			CDlssStabilizer flow;
 			const bool made = SUCCEEDED(input.Create(dev, DXGI_FORMAT_R16G16B16A16_FLOAT, sw, sh, Tex2D_DefaultShaderRTarget))
@@ -1264,12 +1355,27 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 						}
 						md = LowerMedian(ds);
 					}
-					const float g[2] = { enough ? mx / 32.0f : 0.0f, enough ? my / 32.0f : 0.0f };
+					float g[2] = { enough ? mx / 32.0f : 0.0f, enough ? my / 32.0f : 0.0f };
 					const float spreadCpu = enough ? md / 32.0f : 0.0f;
-					const bool gmSame = gpu[0] == g[0] && gpu[1] == g[1] && gpu[2] == spreadCpu && gpu[3] == (float)n;
-					printf("    %-16s frame %d: global motion GPU (%+.5f, %+.5f) spread %.5f of %.0f trusted, CPU (%+.5f, %+.5f) spread %.5f of %zu, %zu blocks\n",
-					       c.name, t, gpu[0], gpu[1], gpu[2], gpu[3], g[0], g[1], spreadCpu, n, (size_t)fw * fh);
-					Check(gmSame, "the global motion, exactly");
+					if (settings.globalRefine > 0) {
+						// Then refined (cs_dlss_global_refine.hlsl): to float precision, the median's
+						// spread and count exactly, which the refinement leaves alone.
+						const float median[2] = { g[0], g[1] };
+						RefineGlobalCpu(nowRaw.data(), lastRaw.data(), pw, ph, fwd, fw, fh, (int)grid, settings.globalRefine,
+						                settings.globalNear, settings.globalRobust, g);
+						const float apart = std::hypot(gpu[0] - g[0], gpu[1] - g[1]);
+						printf("    %-16s frame %d: global motion GPU (%+.5f, %+.5f) spread %.5f of %.0f trusted, CPU median (%+.5f, %+.5f)"
+						       " refined (%+.5f, %+.5f) spread %.5f of %zu, %.6f flow px apart\n",
+						       c.name, t, gpu[0], gpu[1], gpu[2], gpu[3], median[0], median[1], g[0], g[1], spreadCpu, n, apart);
+						Check(apart <= 1e-3f && gpu[2] == spreadCpu && gpu[3] == (float)n, "the global motion, refined, to float precision");
+						g[0] = gpu[0];   // PASS 4 from the GPU's own, so that a rare decision taken
+						g[1] = gpu[1];   // on the other side of a threshold stays local
+					} else {
+						const bool gmSame = gpu[0] == g[0] && gpu[1] == g[1] && gpu[2] == spreadCpu && gpu[3] == (float)n;
+						printf("    %-16s frame %d: global motion GPU (%+.5f, %+.5f) spread %.5f of %.0f trusted, CPU (%+.5f, %+.5f) spread %.5f of %zu, %zu blocks\n",
+						       c.name, t, gpu[0], gpu[1], gpu[2], gpu[3], g[0], g[1], spreadCpu, n, (size_t)fw * fh);
+						Check(gmSame, "the global motion, exactly");
+					}
 
 					// PASS 4: each block's own vector, cleaned, and how much of it it keeps.
 					float gs[2] = { g[0], g[1] };

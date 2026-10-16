@@ -6,8 +6,10 @@
 // (tools/dlssnr_probe --tflow) -- and that noise, smoothed between blocks and new
 // on every picture, makes a still background shimmer like heat haze. The median of
 // the blocks that can be trusted, on the other hand, is right: zero on a still
-// picture, the pan on a pan. This pass measures it; PASS 3 of ps_dlss_stabilize.hlsl
-// then draws each block to it where the block lies within the noise of it.
+// picture, the pan on a pan. This pass measures it; cs_dlss_global_refine.hlsl then
+// brings it to the fraction of a pixel a film's weave needs, which the engine's
+// sub-pixel vectors fall short of, and PASS 4 of ps_dlss_stabilize.hlsl draws each
+// block to it where the block lies within the noise of it.
 //
 // Only trusted blocks count: forward and backward flow agree, the match is good, and
 // the vector stays in the picture -- the same confidence PASS 1 builds. On a still,

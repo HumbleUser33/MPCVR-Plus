@@ -301,8 +301,9 @@ static int RunSR(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, con
 // compressed per frame. Every method sees the same frames.
 //
 // DLSS runs with the exact motion (what a perfect estimator would give), with the
-// renderer's Optical Flow vectors (CDlssStabilizer::ForDlssSR, and the raw vectors
-// the filter gave it up to 1.2), and with none.
+// renderer's Optical Flow vectors (CDlssStabilizer::ForDlssSR, the same with the median
+// global motion it had until 2.0, and the raw vectors the filter gave it up to 1.2), and
+// with none.
 
 namespace {
 
@@ -389,6 +390,13 @@ static int RunSRQuality(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar
 			}
 			rows.push_back({ "DLSS SR, exact motion",   -1, NGX_DLSS_PRESET_Default, 0 });
 			rows.push_back({ "DLSS SR, filter's vectors", -1, NGX_DLSS_PRESET_Default, 1, CDlssStabilizer::ForDlssSR() });
+			{
+				// The same until 2.0: the median global motion, none under 0.4 pixel.
+				CDlssStabilizer::FlowSettings median = CDlssStabilizer::ForDlssSR();
+				median.globalRefine = 0;
+				median.snapDeadZone = 0.4f;
+				rows.push_back({ "DLSS SR, median (2.0)", -1, NGX_DLSS_PRESET_Default, 1, median });
+			}
 			rows.push_back({ "DLSS SR, raw vectors (1.2)", -1, NGX_DLSS_PRESET_Default, 1, SRFlow(0, 4, NV_OF_PERF_LEVEL_MEDIUM) });
 			rows.push_back({ "DLSS SR, flow as stab.",  -1, NGX_DLSS_PRESET_Default, 1 });
 			rows.push_back({ "DLSS SR, flow 1:1 g4 med", -1, NGX_DLSS_PRESET_Default, 1, SRFlow(1, 4, NV_OF_PERF_LEVEL_MEDIUM) });

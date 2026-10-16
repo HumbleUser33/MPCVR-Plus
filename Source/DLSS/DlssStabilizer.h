@@ -39,8 +39,9 @@
 // detector that used to stand in, and steadied only what stood still, is gone.
 //
 // Measured in tools/dlssnr_probe --tstab on real pictures with known motion: plain
-// DLSS shows 1.44x to 1.59x the low-frequency flicker of its input; with Optical
-// Flow 1.06x to 1.14x, with the whole effect kept.
+// DLSS shows 1.14x to 1.33x the low-frequency flicker of its input, a moving object
+// up to 2.18x its own; with Optical Flow 1.01x to 1.05x and 1.13x, with the whole
+// effect kept (RTX 4060).
 
 class CDlssStabilizer
 {
@@ -89,8 +90,22 @@ public:
 	// trusted blocks around it share, keeps it if enough of them do and it lies more
 	// than 0.75 to 1.5 pixels from the global motion, has it searched again on the
 	// frames themselves, and blends with where the same content was one picture
-	// earlier; everything else takes the global motion, which under 0.4 pixels is none.
+	// earlier; everything else takes the global motion. That is the median of the
+	// trusted blocks, refined on the flow frames with what moves on its own left out,
+	// and taken as it is however small: a film weaves, and a wall that moves half a
+	// pixel and is told it did not shimmered more than the source itself (--tsrclip).
 	static FlowSettings ForDlssSR();
+
+	// What DLSS 5 NR's stabilizer runs with: Optical Flow on the working picture
+	// divided by divider (0: about 540 lines), its flow frame unblurred as the
+	// stabilizer was measured with, and the vectors the network is given cleaned the
+	// way DLSS SR's are. With them the network keeps 14 to 27 % more of its effect and
+	// shimmers less than the source itself, a moving object included, leaving behind
+	// one what exact vectors leave; the raw vectors steadied less, most on a film that
+	// weaves (--tstab, --tsrclipnr).
+	// The stabilizer itself still warps its history with PASS 1's raw motion, as it
+	// was measured with.
+	static FlowSettings ForDlssNR(UINT divider);
 
 	// Everything for a working size and these settings; nothing if they already
 	// match. Optical Flow that cannot start leaves the object made, steadying
@@ -117,9 +132,10 @@ public:
 	// vectors can reach the network as well.
 	void PrepareMotion(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView* pInput);
 
-	// DLSSNR.MVec: RG16F, working-size pixels, current -> previous, shared with the
-	// DLSS device. Null while Optical Flow is not running. Zero where no flow exists
-	// yet.
+	// The vectors DLSS is given, DLSSNR.MVec or DLSS SR's: RG16F, working-size pixels,
+	// current -> previous, shared with the DLSS device. With FlowSettings::snap, the
+	// blocks drawn to the global motion (PASS 4 and PASS 3); without, PASS 1's raw
+	// motion. Null while Optical Flow is not running. Zero where no flow exists yet.
 	ID3D11Texture2D* GetMotionVectors() const;
 
 	// With FlowSettings::snap, the picture's global motion as the last new picture
@@ -180,6 +196,8 @@ private:
 
 	Tex2D_t m_TexMotion;                       // RG16F, shared with the DLSS device
 	CComPtr<ID3D11RenderTargetView> m_pMotionTarget;
+	Tex2D_t m_TexVectors;                      // RG16F, shared: with snap, outside motion-only, the cleaned vectors
+	CComPtr<ID3D11RenderTargetView> m_pVectorsTarget;   // for the network, m_TexMotion staying PASS 1's
 	Target  m_Confidence;                      // R8
 	Target  m_BlockField[2];                   // RGBA32F, a pixel per vector block: PASS 4, this picture and the last
 	Target  m_History[2];                      // RGBA16F: the steadied effect

@@ -3,12 +3,16 @@
 // Included by harness.cpp after flow_suite.inl. Runs DLSS 5 NR plainly, then the
 // stabilizer of Shaders/d3d11/ps_dlss_stabilize.hlsl in its two variants -- EFFECT
 // filters only out - in, OUTPUT filters the output -- with two sources of motion:
-// NVIDIA Optical Flow and the true motion. Also Optical Flow vectors given to the
-// network as DLSSNR.MVec. The shader detector measured here as a third source until
-// it left the filter. Measures the shimmer
-// (low-frequency frame-to-frame change, compensated by the true motion), how much
-// of the network's effect survives, grain, and the deviation from plain DLSS
-// overall, on edges and where a moving object was.
+// NVIDIA Optical Flow and the true motion. Also vectors given to the network as
+// DLSSNR.MVec: Optical Flow's own, as the stabilizer turns them out, the cleaned ones
+// DLSS Super Resolution gets (CDlssStabilizer::ForDlssSR), and the true motion. The
+// shader detector measured here as a third source until it left the filter. Measures
+// the shimmer (low-frequency frame-to-frame change, compensated by the true motion), how
+// much of the network's effect survives, grain, and the deviation from plain DLSS
+// overall, on edges and where a moving object was. Where an object moves, it also
+// measures the object itself -- its shimmer, compensated by its own motion, and how
+// much of the effect it keeps -- and the trail it leaves: what differs, where it was in
+// the last eight frames, from the same run with no object at all.
 //
 // --tstabport runs the renderer's CDlssStabilizer, shaders embedded the way the
 // filter embeds them, next to these passes on the same pictures and the same
@@ -206,23 +210,49 @@ void CStabilizerPasses::Stabilize(ID3D11DeviceContext* ctx, ID3D11ShaderResource
 
 struct StabSequence {
 	const char* name;
-	float vx, vy;   // background content motion, pixels per frame
-	bool  object;   // a window of another picture moving over it
-	float ux, uy;   // object motion
-	int   cutAt;    // frame where the view jumps to another part of the picture, or -1
+	float vx, vy;      // background content motion, pixels per frame
+	bool  object;      // a window of another picture moving over it
+	float ux, uy;      // object motion
+	int   cutAt;       // frame where the view jumps to another part of the picture, or -1
+	int   reference;   // the sequence that is this one without the object, for the trail; -1: none
+	bool  measureOnly; // left out of --tstabport
 };
 
-enum StabMotion { MotionNone, MotionFlow, MotionTruth };
+enum StabMotion { MotionNone, MotionFlow, MotionTruth, MotionTruthInverted };   // the last: does the network use the direction?
+
+// What the network is given as DLSSNR.MVec.
+enum StabVectors {
+	VectorsNone,
+	VectorsOwn,        // this row's motion: Optical Flow's as PASS 1 turns it out, or the true motion
+	VectorsCleaned,    // DLSS Super Resolution's, from a motion-only CDlssStabilizer::ForDlssSR
+	VectorsCleaned0,   // the same from a flow frame left unblurred, as the stabilizer's own is:
+	                   // what the filter gives the network (CDlssStabilizer::ForDlssNR)
+};
 
 struct StabConfig {
 	const char* name;
 	int   motion;       // StabMotion
 	bool  stabilize;
 	bool  outputMode;
-	bool  mvecToDlss;   // Optical Flow vectors given to the network
+	int   vectors;      // StabVectors
 	float minCurrent;
 	bool  renderer;     // motion and stabilizing by the renderer's CDlssStabilizer
 };
+
+// Mean |cur - prev taken where the content came from| inside a rectangle.
+static double RectWarpDiff(const std::vector<float>& cur, const std::vector<float>& prev, int w, int h,
+                           const Rect& r, float dx, float dy)
+{
+	double sum = 0;
+	long long n = 0;
+	for (int y = std::max(r.y0, 0); y < std::min(r.y1, h); y++) {
+		for (int x = std::max(r.x0, 0); x < std::min(r.x1, w); x++) {
+			sum += std::abs(cur[(size_t)y * w + x] - SampleClamp(prev, w, h, x - dx, y - dy));
+			n++;
+		}
+	}
+	return n ? sum / n : 0;
+}
 
 // Bilinear RGBA window of a larger picture.
 static void WindowRgba(const std::vector<float>& big, int BW, int BH, float ox, float oy, int W, int H, std::vector<float>& out)
@@ -278,27 +308,38 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 	const float cutX = 60, cutY = 30;
 	frames = std::max(frames, warm + 24);
 
+	// T4 and T6 are T1 and T2 with an object over them: the same background, the same
+	// noise, so that what differs behind the object is its trail.
 	static const StabSequence seqs[] = {
-		{ "T1 still picture, grain and 8x8 block noise",           0.0f, 0.0f, false, 0.0f, 0.0f, -1 },
-		{ "T2 slow pan (0.5, 0.2) px/frame",                        0.5f, 0.2f, false, 0.0f, 0.0f, -1 },
-		{ "T3 pan (3, 1) px/frame",                                 3.0f, 1.0f, false, 0.0f, 0.0f, -1 },
-		{ "T4 object moving (4, 1) px/frame over a still picture",  0.0f, 0.0f, true,  4.0f, 1.0f, -1 },
-		{ "T5 cut to another part of the picture at frame 40",      0.0f, 0.0f, false, 0.0f, 0.0f, 40 },
+		{ "T1 still picture, grain and 8x8 block noise",           0.0f, 0.0f, false,  0.0f, 0.0f, -1, -1, false },
+		{ "T2 slow pan (0.5, 0.2) px/frame",                        0.5f, 0.2f, false,  0.0f, 0.0f, -1, -1, false },
+		{ "T3 pan (3, 1) px/frame",                                 3.0f, 1.0f, false,  0.0f, 0.0f, -1, -1, false },
+		{ "T4 object moving (4, 1) px/frame over a still picture",  0.0f, 0.0f, true,   4.0f, 1.0f, -1,  0, false },
+		{ "T5 cut to another part of the picture at frame 40",      0.0f, 0.0f, false,  0.0f, 0.0f, 40, -1, false },
+		{ "T6 object moving (12, 4) px/frame over the slow pan",    0.5f, 0.2f, true,  12.0f, 4.0f, -1,  1, true  },
 	};
 	static const StabConfig measureCfgs[] = {
-		{ "plain",                  MotionNone,     false, false, false, 1.0f,  false },
-		{ "effect, optical flow",   MotionFlow,     true,  false, false, 0.25f, false },
-		{ "effect, true motion",    MotionTruth,    true,  false, false, 0.25f, false },
-		{ "output, optical flow",   MotionFlow,     true,  true,  false, 0.25f, false },
-		{ "MVec from flow",         MotionFlow,     false, false, true,  1.0f,  false },
-		{ "MVec + effect, flow",    MotionFlow,     true,  false, true,  0.25f, false },
+		{ "plain",                  MotionNone,     false, false, VectorsNone,     1.0f,  false },
+		{ "effect, optical flow",   MotionFlow,     true,  false, VectorsNone,     0.25f, false },
+		{ "effect, true motion",    MotionTruth,    true,  false, VectorsNone,     0.25f, false },
+		{ "output, optical flow",   MotionFlow,     true,  true,  VectorsNone,     0.25f, false },
+		{ "MVec from flow",         MotionFlow,     false, false, VectorsOwn,      1.0f,  false },
+		{ "MVec + effect, flow",    MotionFlow,     true,  false, VectorsOwn,      0.25f, false },
+		{ "MVec cleaned",           MotionNone,     false, false, VectorsCleaned,  1.0f,  false },
+		{ "MVec cleaned + effect",  MotionFlow,     true,  false, VectorsCleaned,  0.25f, false },
+		{ "filter now",             MotionFlow,     true,  false, VectorsCleaned0, 0.25f, false },
+		{ "filter, stabilizer 50",  MotionFlow,     true,  false, VectorsCleaned0, 0.625f, false },
+		{ "MVec true motion",       MotionTruth,    false, false, VectorsOwn,      1.0f,  false },
+		{ "MVec true, inverted",    MotionTruthInverted, false, false, VectorsOwn, 1.0f,  false },
 	};
+	// The renderer's class against these passes: alone, as with no vectors, and as the
+	// filter runs it, giving the network its cleaned vectors.
 	static const StabConfig portCfgs[] = {
-		{ "plain",                  MotionNone,     false, false, false, 1.0f,  false },
-		{ "effect, optical flow",   MotionFlow,     true,  false, false, 0.25f, false },
-		{ "  renderer class",       MotionFlow,     true,  false, false, 0.25f, true  },
-		{ "MVec + effect, flow",    MotionFlow,     true,  false, true,  0.25f, false },
-		{ "  renderer class",       MotionFlow,     true,  false, true,  0.25f, true  },
+		{ "plain",                  MotionNone,     false, false, VectorsNone,     1.0f,  false },
+		{ "effect, optical flow",   MotionFlow,     true,  false, VectorsNone,     0.25f, false },
+		{ "  renderer class",       MotionFlow,     true,  false, VectorsNone,     0.25f, true  },
+		{ "filter now",             MotionFlow,     true,  false, VectorsCleaned0, 0.25f, false },
+		{ "  renderer class",       MotionFlow,     true,  false, VectorsOwn,      0.25f, true  },
 	};
 	const StabConfig* const cfgs = port ? portCfgs : measureCfgs;
 	const size_t cfgCount = port ? std::size(portCfgs) : std::size(measureCfgs);
@@ -329,6 +370,7 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 		CStabilizerPasses passes;
 		CDlssOpticalFlow flow;
 		CDlssStabilizer stabilizer;
+		CDlssStabilizer cleaned;   // DLSS Super Resolution's vectors, given to the network
 		std::vector<BYTE> shownBytes, redrawBytes;
 		Tex2D_t texIn, texOut, motionTex;
 		Target confTex, history[2], finalTex, prevInput;
@@ -397,6 +439,12 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 			Out("sweep and the cut are left out. effect = mean |Y - Y(input)|, of plain = its share of plain DLSS. grain = mean\n");
 			Out("|Y - blurred Y|. dev = mean |Y - Y(plain)| at 1/4 resolution: overall, weighted by local contrast, and in the\n");
 			Out("band the moving object sweeps.\n");
+			if (!port) {
+				Out("On the object, its inside 24 px in from its edges: obj flick = the LF flick there, compensated by the\n");
+				Out("object's own motion, against the input's; obj effect = mean |Y - Y(input)| there, against plain DLSS's. trail =\n");
+				Out("mean |Y - Y(the same row, no object)| at 1/4 resolution where the object was in the last 8 frames and is no\n");
+				Out("longer, x1000.\n");
+			}
 
 			std::vector<float> rgba(4 * (size_t)W * H), window, yIn, yOut, bIn, bOut, bInPrev, bOutPrev;
 			std::vector<HALF> half(rgba.size());
@@ -405,10 +453,29 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 			std::vector<uint8_t> confBytes((size_t)W * H);
 			std::vector<float> lowres((size_t)w4 * h4);
 
-			for (const StabSequence& s : seqs) {
+			// Each row's output at 1/4 resolution, per measured frame, of the sequences
+			// another is measured against, in 1/65535 of luma.
+			std::vector<std::vector<std::vector<std::vector<uint16_t>>>> noObject(std::size(seqs));
+			for (size_t si = 0; si < std::size(seqs); si++) {
+				const StabSequence& s = seqs[si];
+				if (port && s.measureOnly) {
+					continue;
+				}
+				const bool referenced = !port && std::any_of(std::begin(seqs), std::end(seqs),
+					[si](const StabSequence& o) { return o.reference == (int)si; });
+				if (referenced) {
+					noObject[si].resize(cfgCount);
+				}
 				std::vector<float> reference;   // plain DLSS at 1/4 resolution, per measured frame
-				double inputFlicker = 0, plainEffect = 0;
-				int inputCount = 0;
+				double inputFlicker = 0, plainEffect = 0, inputObjFlick = 0, plainObjEffect = 0;
+				int inputCount = 0, inputObjCount = 0;
+				struct ObjectRow { const char* name; double flick, effect, trail; };
+				std::vector<ObjectRow> objectRows;
+				// Where the object is at a frame, source pixels.
+				const auto objectAt = [&](int tt) {
+					const float px = 300 + s.ux * std::max(tt, 0), py = 300 + s.uy * std::max(tt, 0);
+					return Rect{ (int)std::floor(px), (int)std::floor(py), (int)std::ceil(px) + OW, (int)std::ceil(py) + OH };
+				};
 
 				Out("\n%s\n", s.name);
 				Out("  %-22s %9s %7s %9s %8s %8s %9s %9s %9s\n",
@@ -420,18 +487,33 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 					dlss.ReleaseFeature();
 					dlss.SetGuides(CDlssNR::Guides{});   // before the class's vectors go away
 					stabilizer.Release();
+					cleaned.Release();
 					if (c.renderer) {
+						// As the filter makes it: the network's vectors cleaned, its own motion raw.
 						if (FAILED(stabilizer.Create(dev, ctx, W, H, passes.InputLayout(), passes.VertexShader(),
-						                             passes.SamplerPoint(), passes.SamplerLinear()))
+						                             passes.SamplerPoint(), passes.SamplerLinear(), false, CDlssStabilizer::ForDlssNR(0)))
 						    || !stabilizer.HasFlow()) {
 							Out("  %-22s could not start the renderer class: %S\n", c.name, stabilizer.GetStatusLine().c_str());
 							g_failures++;
 							continue;
 						}
 					}
+					if (c.vectors == VectorsCleaned || c.vectors == VectorsCleaned0) {
+						const CDlssStabilizer::FlowSettings settings = (c.vectors == VectorsCleaned0)
+							? CDlssStabilizer::ForDlssNR(0) : CDlssStabilizer::ForDlssSR();
+						if (FAILED(cleaned.Create(dev, ctx, W, H, passes.InputLayout(), passes.VertexShader(),
+						                          passes.SamplerPoint(), passes.SamplerLinear(), true, settings))
+						    || !cleaned.HasFlow()) {
+							Out("  %-22s could not start the cleaned vectors: %S\n", c.name, cleaned.GetStatusLine().c_str());
+							g_failures++;
+							continue;
+						}
+					}
 					CDlssNR::Guides g;
-					if (c.mvecToDlss) {
+					if (c.vectors == VectorsOwn) {
 						g.pMVec = c.renderer ? stabilizer.GetMotionVectors() : motionTex.pTexture.p;
+					} else if (c.vectors == VectorsCleaned || c.vectors == VectorsCleaned0) {
+						g.pMVec = cleaned.GetMotionVectors();   // made shareable, as the network's guides must be
 					}
 					if (!dlss.SetGuides(g) || !dlss.CreateFeature(texIn.pTexture, texOut.pTexture, W, H, params)) {
 						Out("  %-22s could not set up: %S\n", c.name, dlss.GetStatusLine().c_str());
@@ -442,7 +524,9 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 					flow.Reset();
 
 					double flick = 0, effect = 0, grain = 0, devAll = 0, devEdge = 0, devBand = 0;
+					double objFlick = 0, objEffect = 0, trail = 0;
 					int count = 0, flickCount = 0, bandCount = 0, failed = 0, redraws = 0, redrawsDiffering = 0;
+					int objFlickCount = 0, objCount = 0, trailCount = 0;
 					int historyIndex = 0;
 					bool historyValid = false;
 
@@ -507,15 +591,16 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 							if (haveMotion) {
 								passes.FlowMotion(ctx, flow, motionTarget, confTex.rtv, W, H);
 							}
-						} else if (c.motion == MotionTruth) {
+						} else if (c.motion == MotionTruth || c.motion == MotionTruthInverted) {
+							const float sign = (c.motion == MotionTruthInverted) ? -1.0f : 1.0f;
 							const bool cutNow = s.cutAt >= 0 && t == s.cutAt;
 							const Rect band = Expand(Union(objPrev, objNow), 2, W, H);
 							for (int y = 0; y < H; y++) {
 								for (int x = 0; x < W; x++) {
 									const size_t i = (size_t)y * W + x;
 									const bool inObject = s.object && Inside(objNow, x, y);
-									motionFloat[2 * i]     = inObject ? -s.ux : -s.vx;
-									motionFloat[2 * i + 1] = inObject ? -s.uy : -s.vy;
+									motionFloat[2 * i]     = sign * (inObject ? -s.ux : -s.vx);
+									motionFloat[2 * i + 1] = sign * (inObject ? -s.uy : -s.vy);
 									bool trusted = !cutNow && t > 0;
 									if (s.object && Inside(band, x, y)) {
 										// Uncovered background, and the object's own edges.
@@ -530,9 +615,12 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 							ctx->UpdateSubresource(confTex.tex, 0, nullptr, confBytes.data(), W, 0);
 							haveMotion = true;
 						}
-						if (c.mvecToDlss && !c.renderer && !haveMotion) {
+						if (c.vectors == VectorsOwn && !c.renderer && !haveMotion) {
 							const FLOAT zero[4] = { 0, 0, 0, 0 };
 							ctx->ClearRenderTargetView(motionTarget, zero);
+						}
+						if (c.vectors == VectorsCleaned || c.vectors == VectorsCleaned0) {
+							cleaned.PrepareMotion(ctx, texIn.pShaderResource);
 						}
 
 						if (!dlss.Evaluate(params)) {
@@ -611,6 +699,63 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 									lowres[(size_t)y * w4 + x] = (yOut[a] + yOut[a + 1] + yOut[a + w2] + yOut[a + w2 + 1]) / 4;
 								}
 							}
+							if (referenced) {
+								std::vector<uint16_t> kept(lowres.size());
+								for (size_t i = 0; i < lowres.size(); i++) {
+									kept[i] = (uint16_t)std::lround(std::clamp(lowres[i], 0.0f, 1.0f) * 65535.0f);
+								}
+								noObject[si][ci].push_back(std::move(kept));
+							}
+							if (s.object) {
+								// The object's inside, at half resolution: its shimmer, compensated by
+								// its own motion, and how much of the effect it keeps.
+								const Rect inside = { objNow.x0 / 2 + 12, objNow.y0 / 2 + 12, objNow.x1 / 2 - 12, objNow.y1 / 2 - 12 };
+								if (!bOutPrev.empty()) {
+									objFlick += RectWarpDiff(bOut, bOutPrev, w2, h2, inside, s.ux / 2, s.uy / 2);
+									objFlickCount++;
+									if (isPlain && !bInPrev.empty()) {
+										inputObjFlick += RectWarpDiff(bIn, bInPrev, w2, h2, inside, s.ux / 2, s.uy / 2);
+										inputObjCount++;
+									}
+								}
+								double oe = 0;
+								long long on = 0;
+								for (int y = std::max(inside.y0, 0); y < std::min(inside.y1, h2); y++) {
+									for (int x = std::max(inside.x0, 0); x < std::min(inside.x1, w2); x++) {
+										oe += std::abs(yOut[(size_t)y * w2 + x] - yIn[(size_t)y * w2 + x]);
+										on++;
+									}
+								}
+								if (on) {
+									objEffect += oe / on;
+									objCount++;
+								}
+								// The trail: where the object was in the last eight frames and no longer
+								// is, against the same row's output with no object.
+								const auto& without = s.reference >= 0 ? noObject[s.reference] : noObject[si];
+								if (s.reference >= 0 && ci < without.size() && (size_t)count < without[ci].size()) {
+									const std::vector<uint16_t>& ref = without[ci][count];
+									const Rect now4 = Expand(Scale(objNow, 4), 2, w4, h4);
+									Rect before4 = Scale(objectAt(t - 1), 4);
+									for (int k = 2; k <= 8; k++) {
+										before4 = Union(before4, Scale(objectAt(t - k), 4));
+									}
+									double tr = 0;
+									long long tn = 0;
+									for (int y = std::max(before4.y0, 1); y < std::min(before4.y1, h4 - 1); y++) {
+										for (int x = std::max(before4.x0, 1); x < std::min(before4.x1, w4 - 1); x++) {
+											if (!Inside(now4, x, y)) {
+												tr += std::abs(lowres[(size_t)y * w4 + x] - ref[(size_t)y * w4 + x] / 65535.0f);
+												tn++;
+											}
+										}
+									}
+									if (tn) {
+										trail += tr / tn;
+										trailCount++;
+									}
+								}
+							}
 							if (isPlain) {
 								reference.insert(reference.end(), lowres.begin(), lowres.end());
 							} else if (reference.size() >= (size_t)(count + 1) * w4 * h4) {
@@ -686,11 +831,35 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 					if (isPlain) {
 						Out("  %-22s %9.5f\n", "(input)", inL);
 					}
+					if (s.object && !port) {
+						const double oe = objCount ? objEffect / objCount : 0;
+						if (isPlain) {
+							plainObjEffect = oe;
+						}
+						objectRows.push_back({ c.name, objFlickCount ? objFlick / objFlickCount : 0, oe,
+						                       trailCount ? trail / trailCount : -1 });
+					}
+				}
+				if (!objectRows.empty()) {
+					const double inObj = inputObjCount ? inputObjFlick / inputObjCount : 0;
+					Out("  on the object, moving (%g, %g) px/frame, and behind it\n", s.ux, s.uy);
+					Out("  %-22s %9s %7s %10s %8s %9s\n", "config", "obj flick", "ratio", "obj effect", "of plain", "trail");
+					for (const ObjectRow& r : objectRows) {
+						Out("  %-22s %9.5f %6.2fx %10.5f %7.0f%% ", r.name, r.flick, inObj > 0 ? r.flick / inObj : 0.0, r.effect,
+						    plainObjEffect > 0 ? 100.0 * r.effect / plainObjEffect : 0.0);
+						if (r.trail >= 0) {
+							Out("%9.3f\n", 1000.0 * r.trail);
+						} else {
+							Out("%9s\n", "-");
+						}
+					}
+					Out("  %-22s %9.5f\n", "(input)", inObj);
 				}
 			}
 
 			dlss.SetGuides(CDlssNR::Guides{});
 			stabilizer.Release();
+			cleaned.Release();
 			fclose(g_report);
 			g_report = nullptr;
 			printf("\n  written to %s\n", reportName);
@@ -703,7 +872,8 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 }
 
 // --tstabbench: what the renderer's CDlssStabilizer costs per picture, run the way
-// DlssNRPass runs it, with Optical Flow at each divider the page offers.
+// DlssNRPass runs it, with Optical Flow at each divider the page offers: as the filter
+// makes it (CDlssStabilizer::ForDlssNR), and without the network's cleaned vectors.
 static int RunStabBench(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 {
 	Head("Temporal suite: stabilizer cost");
@@ -729,13 +899,15 @@ static int RunStabBench(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 		return 1;
 	}
 
-	const int kWarm = 8, kFrames = 64, kDistinct = 4;
+	// Long enough a warm-up for the GPU's clocks: with 8 the first 4K rows came out up to
+	// twice as slow and their p95 three times, from one run to the next.
+	const int kWarm = 32, kFrames = 64, kDistinct = 4;
 	g_report = fopen("temporal_results_stabbench.txt", "w");
 	Out("\nCDlssStabilizer cost -- GPU time from timestamp queries around PrepareMotion (motion) and Stabilize (the\n");
 	Out("stabilize pass and the input copy), and the CPU time of both calls together. NVIDIA Optical Flow's own work\n");
 	Out("lands in the motion column. Each picture waits for the previous one to finish, so no stall is counted.\n");
 	Out("Moving pictures, %d warm-up frames, then %d measured.\n\n", kWarm, kFrames);
-	Out("  %-10s %-28s %10s %10s %10s %10s %10s %10s\n", "size", "motion", "motion GPU", "stab GPU", "GPU total", "GPU p95", "CPU mean", "CPU p95");
+	Out("  %-10s %-38s %10s %10s %10s %10s %10s %10s\n", "size", "motion", "motion GPU", "stab GPU", "GPU total", "GPU p95", "CPU mean", "CPU p95");
 
 	struct Size { UINT w, h; const char* name; };
 	static const Size sizes[] = { { 1920, 1080, "1920x1080" }, { 3840, 2160, "3840x2160" } };
@@ -777,10 +949,14 @@ static int RunStabBench(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 			continue;
 		}
 
-		for (const UINT divider : { 4u, 3u, 2u, 1u }) {
+		for (const UINT divider : { 4u, 3u, 2u, 1u })
+		for (const bool vectors : { true, false }) {
 			CDlssStabilizer stabilizer;
 			CDlssStabilizer::FlowSettings flow;
 			flow.flowFactor = divider;
+			if (vectors) {
+				flow = CDlssStabilizer::ForDlssNR(divider);
+			}
 			if (FAILED(stabilizer.Create(dev, ctx, sz.w, sz.h, passes.InputLayout(), passes.VertexShader(),
 			                             passes.SamplerPoint(), passes.SamplerLinear(), false, flow))) {
 				Out("  %-10s could not create the stabilizer\n", sz.name);
@@ -830,8 +1006,8 @@ static int RunStabBench(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 			summarise(stabGpu, sm, sp);
 			summarise(totalGpu, tm, tp);
 			summarise(cpu, cm, cp);
-			Out("  %-10s %-28S %7.3f ms %7.3f ms %7.3f ms %7.3f ms %7.3f ms %7.3f ms   (%zu frames)\n",
-			    sz.name, stabilizer.GetStatusLine().c_str(), mm, sm, tm, tp, cm, cp, cpu.size());
+			Out("  %-10s %-38S %7.3f ms %7.3f ms %7.3f ms %7.3f ms %7.3f ms %7.3f ms   (%zu frames)\n", sz.name,
+			    (stabilizer.GetStatusLine() + (vectors ? L", vectors cleaned" : L", raw only")).c_str(), mm, sm, tm, tp, cm, cp, cpu.size());
 		}
 	}
 

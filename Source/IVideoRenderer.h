@@ -236,7 +236,9 @@ struct Settings_t {
 	// Retired the same way: the stabilizer's motion source, when a shader detector
 	// could stand in for NVIDIA Optical Flow. Optical Flow is the only one left.
 	int  iDlssNRMotion;
-	// Optical Flow vectors given to the network as DLSSNR.MVec as well.
+	// Retired the same way: whether the stabilizer's Optical Flow vectors also went to
+	// the network. They always do now, cleaned the way DLSS SR's are, while the
+	// stabilizer runs.
 	bool bDlssNRMotionVectors;
 	// Run the pass at display resolution, after scaling, instead of at source
 	// resolution before it. Much heavier at 4K.
@@ -389,7 +391,6 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 	dst.iDlssNRSkinStructure  = src.iDlssNRSkinStructure;
 	dst.bDlssNRAutoMask       = src.bDlssNRAutoMask;
 	dst.iDlssNRStabilizer     = src.iDlssNRStabilizer;
-	dst.bDlssNRMotionVectors  = src.bDlssNRMotionVectors;
 	dst.bDlssNRAfterUpscale   = src.bDlssNRAfterUpscale;
 	dst.iDlssNRWorkingScale   = src.iDlssNRWorkingScale;
 	dst.iDlssNRFlowDivider    = src.iDlssNRFlowDivider;

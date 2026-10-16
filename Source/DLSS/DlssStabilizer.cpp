@@ -57,7 +57,9 @@ CDlssStabilizer::FlowSettings CDlssStabilizer::ForDlssSR()
 	flow.snapLow           = 0.75f;
 	flow.snapHigh          = 1.5f;
 	flow.snapGate          = 2;
-	flow.snapDeadZone      = 0.4f;
+	flow.snapDeadZone      = 0.0f;
+	flow.globalRefine      = 2;
+	flow.globalRobust      = 2.5f;
 	flow.vectorRadius      = 3;
 	flow.vectorSigma       = 1.0f;
 	flow.vectorShift       = 3;
@@ -68,6 +70,14 @@ CDlssStabilizer::FlowSettings CDlssStabilizer::ForDlssSR()
 	flow.vectorRefine      = 3;
 	flow.vectorReach       = 4.0f;
 	flow.vectorTexture     = 0.02f;
+	return flow;
+}
+
+CDlssStabilizer::FlowSettings CDlssStabilizer::ForDlssNR(UINT divider)
+{
+	FlowSettings flow = ForDlssSR();
+	flow.flowFactor = divider;
+	flow.flowBlur   = 0;
 	return flow;
 }
 
@@ -146,59 +156,67 @@ HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT
 	if (SUCCEEDED(hr)) {
 		hr = CreateTarget(pDevice, width, height, DXGI_FORMAT_R8_UNORM, m_Confidence);
 	}
-	if (bMotionOnly) {
-		if (SUCCEEDED(hr) && flow.snap) {
-			// The global motion, measured on the GPU and read there: nothing waits for it.
-			LPVOID data = nullptr;
-			DWORD size = 0;
-			hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_MOTION);
-			if (SUCCEEDED(hr)) {
-				hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSGlobalMotion);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = GetDataFromResource(data, size, IDF_PS_11_DLSS_STAB_SNAPMOTION);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = pDevice->CreatePixelShader(data, size, nullptr, &m_pPSSnapMotion);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = GetDataFromResource(data, size, IDF_PS_11_DLSS_STAB_BLOCKMOTION);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = pDevice->CreatePixelShader(data, size, nullptr, &m_pPSBlockMotion);
-			}
-			if (SUCCEEDED(hr)) {
-				D3D11_TEXTURE2D_DESC desc = {};
-				desc.Width            = 1;
-				desc.Height           = 1;
-				desc.MipLevels        = 1;
-				desc.ArraySize        = 1;
-				desc.Format           = DXGI_FORMAT_R32G32B32A32_FLOAT;
-				desc.SampleDesc.Count = 1;
-				desc.Usage            = D3D11_USAGE_DEFAULT;
-				desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
-				hr = pDevice->CreateTexture2D(&desc, nullptr, &m_pGlobalMotion);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = pDevice->CreateShaderResourceView(m_pGlobalMotion, nullptr, &m_pGlobalMotionView);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = pDevice->CreateUnorderedAccessView(m_pGlobalMotion, nullptr, &m_pGlobalMotionTarget);
-			}
-			if (SUCCEEDED(hr) && flow.globalRefine > 0) {
-				hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_STEP);
-				if (SUCCEEDED(hr)) {
-					hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSRefineStep);
-				}
-				if (SUCCEEDED(hr)) {
-					hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_SOLVE);
-				}
-				if (SUCCEEDED(hr)) {
-					hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSRefineSolve);
-				}
-			}
-			DLogIf(FAILED(hr), L"CDlssStabilizer::Create() : the global motion failed with error {}", HR2Str(hr));
+	if (SUCCEEDED(hr) && flow.snap) {
+		// The global motion, measured on the GPU and read there: nothing waits for it.
+		LPVOID data = nullptr;
+		DWORD size = 0;
+		hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_MOTION);
+		if (SUCCEEDED(hr)) {
+			hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSGlobalMotion);
 		}
+		if (SUCCEEDED(hr)) {
+			hr = GetDataFromResource(data, size, IDF_PS_11_DLSS_STAB_SNAPMOTION);
+		}
+		if (SUCCEEDED(hr)) {
+			hr = pDevice->CreatePixelShader(data, size, nullptr, &m_pPSSnapMotion);
+		}
+		if (SUCCEEDED(hr)) {
+			hr = GetDataFromResource(data, size, IDF_PS_11_DLSS_STAB_BLOCKMOTION);
+		}
+		if (SUCCEEDED(hr)) {
+			hr = pDevice->CreatePixelShader(data, size, nullptr, &m_pPSBlockMotion);
+		}
+		if (SUCCEEDED(hr)) {
+			D3D11_TEXTURE2D_DESC desc = {};
+			desc.Width            = 1;
+			desc.Height           = 1;
+			desc.MipLevels        = 1;
+			desc.ArraySize        = 1;
+			desc.Format           = DXGI_FORMAT_R32G32B32A32_FLOAT;
+			desc.SampleDesc.Count = 1;
+			desc.Usage            = D3D11_USAGE_DEFAULT;
+			desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+			hr = pDevice->CreateTexture2D(&desc, nullptr, &m_pGlobalMotion);
+		}
+		if (SUCCEEDED(hr)) {
+			hr = pDevice->CreateShaderResourceView(m_pGlobalMotion, nullptr, &m_pGlobalMotionView);
+		}
+		if (SUCCEEDED(hr)) {
+			hr = pDevice->CreateUnorderedAccessView(m_pGlobalMotion, nullptr, &m_pGlobalMotionTarget);
+		}
+		if (SUCCEEDED(hr) && flow.globalRefine > 0) {
+			hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_STEP);
+			if (SUCCEEDED(hr)) {
+				hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSRefineStep);
+			}
+			if (SUCCEEDED(hr)) {
+				hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_SOLVE);
+			}
+			if (SUCCEEDED(hr)) {
+				hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSRefineSolve);
+			}
+		}
+		if (SUCCEEDED(hr) && !bMotionOnly) {
+			// The network's vectors, beside PASS 1's raw motion, which the stabilizer
+			// keeps warping its history with.
+			hr = m_TexVectors.CheckCreate(pDevice, DXGI_FORMAT_R16G16_FLOAT, width, height, Tex2D_DefaultShaderRTargetUAVShared);
+			if (SUCCEEDED(hr)) {
+				hr = pDevice->CreateRenderTargetView(m_TexVectors.pTexture, nullptr, &m_pVectorsTarget);
+			}
+		}
+		DLogIf(FAILED(hr), L"CDlssStabilizer::Create() : the global motion failed with error {}", HR2Str(hr));
+	}
+	if (bMotionOnly) {
 		return hr;
 	}
 	for (int i = 0; i < 2 && SUCCEEDED(hr); i++) {
@@ -306,6 +324,9 @@ HRESULT CDlssStabilizer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pCon
 	const FLOAT zero[4] = { 0, 0, 0, 0 };
 	pContext->ClearRenderTargetView(m_pMotionTarget, zero);
 	pContext->ClearRenderTargetView(m_Confidence.pRenderTarget, zero);
+	if (m_pVectorsTarget) {
+		pContext->ClearRenderTargetView(m_pVectorsTarget, zero);
+	}
 	Reset();
 	return S_OK;
 }
@@ -338,6 +359,8 @@ void CDlssStabilizer::Release()
 	m_pQuad.Release();
 	m_pMotionTarget.Release();
 	m_TexMotion.Release();
+	m_pVectorsTarget.Release();
+	m_TexVectors.Release();
 	m_Confidence = Target{};
 	m_History[0] = Target{};
 	m_History[1] = Target{};
@@ -376,7 +399,10 @@ void CDlssStabilizer::Reset()
 
 ID3D11Texture2D* CDlssStabilizer::GetMotionVectors() const
 {
-	return (m_width && m_bFlow) ? m_TexMotion.pTexture.p : nullptr;
+	if (!m_width || !m_bFlow) {
+		return nullptr;
+	}
+	return m_pVectorsTarget ? m_TexVectors.pTexture.p : m_TexMotion.pTexture.p;
 }
 
 void CDlssStabilizer::Draw(ID3D11DeviceContext* pContext, ID3D11PixelShader* pShader,
@@ -496,9 +522,22 @@ void CDlssStabilizer::PrepareMotion(ID3D11DeviceContext* pContext, ID3D11ShaderR
 			{ pInput }, frameConstants, std::size(frameConstants));
 
 		m_bHaveMotion = m_Flow.Execute();
-		if (m_bHaveMotion && m_bMotionOnly && m_pPSSnapMotion && m_BlockField[0].pTexture) {
-			// DLSS Super Resolution: the global motion, the blocks drawn to it and
-			// steadied (PASS 4), then blended into the working size (PASS 3).
+		const bool bSnap = m_pPSSnapMotion && m_BlockField[0].pTexture;
+		if (m_bHaveMotion && (!m_bMotionOnly || !bSnap)) {
+			// The stabilizer's own motion and the trust in it (PASS 1); motion only
+			// and not drawn to the global motion, the raw vectors DLSS is given.
+			const float motionConstants[12] = {
+				(float)m_width / m_Flow.Width(), (float)m_height / m_Flow.Height(), (float)m_Flow.GridSize(), kConsistency,
+				(float)m_Flow.Width(), (float)m_Flow.Height(), kCostLow, kCostHigh,
+				m_Flow.Bidirectional() ? 1.0f : 0.0f, m_Flow.HasCost() ? 1.0f : 0.0f, 0, 0
+			};
+			Draw(pContext, m_pPSFlowMotion, { m_pMotionTarget, m_Confidence.pRenderTarget }, m_width, m_height,
+				{ m_Flow.ForwardFlow(), m_Flow.BackwardFlow(), m_Flow.ForwardCost() }, motionConstants, std::size(motionConstants));
+		}
+		if (m_bHaveMotion && bSnap) {
+			// The vectors DLSS is given, DLSS Super Resolution's or the network's: the
+			// global motion, the blocks drawn to it and steadied (PASS 4), then blended
+			// into the working size (PASS 3).
 			MeasureGlobalMotion(pContext);
 			const float scaleX = (float)m_width / m_Flow.Width(), scaleY = (float)m_height / m_Flow.Height();
 			const int write = 1 - m_iBlockField;
@@ -516,20 +555,12 @@ void CDlssStabilizer::PrepareMotion(ID3D11DeviceContext* pContext, ID3D11ShaderR
 				  m_Flow.CurrentFrame(), m_Flow.PreviousFrame() },
 				blockConstants, std::size(blockConstants));
 			const float snapConstants[4] = { scaleX, scaleY, (float)m_Flow.GridSize(), m_FlowSettings.snapDeadZone };
-			Draw(pContext, m_pPSSnapMotion, { m_pMotionTarget }, m_width, m_height,
+			Draw(pContext, m_pPSSnapMotion, { m_bMotionOnly ? m_pMotionTarget.p : m_pVectorsTarget.p }, m_width, m_height,
 				{ m_BlockField[write].pShaderResource, m_pGlobalMotionView }, snapConstants, std::size(snapConstants));
 			m_iBlockField = write;
 			m_bBlockHistory = true;
-			return;
 		}
 		if (m_bHaveMotion) {
-			const float motionConstants[12] = {
-				(float)m_width / m_Flow.Width(), (float)m_height / m_Flow.Height(), (float)m_Flow.GridSize(), kConsistency,
-				(float)m_Flow.Width(), (float)m_Flow.Height(), kCostLow, kCostHigh,
-				m_Flow.Bidirectional() ? 1.0f : 0.0f, m_Flow.HasCost() ? 1.0f : 0.0f, 0, 0
-			};
-			Draw(pContext, m_pPSFlowMotion, { m_pMotionTarget, m_Confidence.pRenderTarget }, m_width, m_height,
-				{ m_Flow.ForwardFlow(), m_Flow.BackwardFlow(), m_Flow.ForwardCost() }, motionConstants, std::size(motionConstants));
 			return;
 		}
 
@@ -538,6 +569,9 @@ void CDlssStabilizer::PrepareMotion(ID3D11DeviceContext* pContext, ID3D11ShaderR
 		const FLOAT zero[4] = { 0, 0, 0, 0 };
 		pContext->ClearRenderTargetView(m_pMotionTarget, zero);
 		pContext->ClearRenderTargetView(m_Confidence.pRenderTarget, zero);
+		if (m_pVectorsTarget) {
+			pContext->ClearRenderTargetView(m_pVectorsTarget, zero);
+		}
 	}
 	// Without Optical Flow there is no motion at all, and Stabilize starts the
 	// history over on every picture: what the network left goes through as it is.
