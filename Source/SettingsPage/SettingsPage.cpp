@@ -1550,7 +1550,7 @@ bool CVRSettingsPPage::OnPresetCommand(int nID, int action)
 			if (HWND h = Item(IDC_EDIT_DISPLAYMAX)) {
 				::GetWindowTextW(h, text, (int)std::size(text));
 				const int nits = _wtoi(text);
-				if (nits > HDR_NITS_MIN && nits <= HDR_NITS_MAX) {
+				if (nits >= HDR_NITS_MIN && nits <= HDR_NITS_MAX) {
 					sets.iHdrDisplayMaxNits = nits;
 				}
 			}
@@ -1612,7 +1612,8 @@ HRESULT CVRSettingsPPage::OnApplyChanges()
 		translated = (text[0] != L'\0');
 		displayMaxNits = _wtoi(text);
 	}
-	if (!translated || displayMaxNits <= HDR_NITS_MIN || displayMaxNits > HDR_NITS_MAX) {
+	// Both ends are allowed, as the message says and as the registry reads it back.
+	if (!translated || displayMaxNits < HDR_NITS_MIN || displayMaxNits > HDR_NITS_MAX) {
 		MessageBoxW(L"Invalid HDR Brightness. Please enter a valid number from 100 to 10000.", L"Error", MB_OK | MB_ICONERROR);
 	}
 	else {
