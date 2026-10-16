@@ -259,7 +259,12 @@ static int RunSRCut(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t* 
 			Tex2D_t nrIn, nrOut, vectors, away;
 			CComPtr<ID3D11RenderTargetView> awayTarget;
 			CDlssNR::Params params;
-			params.bNoHistory = false;   // as DlssParamsFromSettings
+			// The filter's defaults, as DlssParamsFromSettings makes them of a fresh Settings_t.
+			params.fIntensity = 1.50f;
+			params.fLocalTone = 0.30f;
+			params.fLocalStructure = 0.50f;
+			params.fSkinStructure = 0.90f;
+			params.bNoHistory = false;
 			CDlssStabilizer stabilizer;
 			CDlssStabilizer::FlowSettings settings = CDlssStabilizer::ForDlssNR(0);
 			settings.cutDetect = row.detect;

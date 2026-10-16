@@ -678,9 +678,10 @@ of flashes that is many pictures in a second. The detection costs 0.06 ms a pict
 timed frame by frame against 2.1's motion on the same frames, and the filter's passes match the
 same computed on the CPU (`--tsrport`).
 
-DLSS 5 NR, which has had the vectors since 2.1, leaves no such trail: within 5 thousandths of
-luma at the same cuts and at the flash, after the stabilizer and at the network's own output,
-with or without the detection (`--tsrcut --tsrcutnr`). Its vectors go without it.
+DLSS 5 NR, which has had the vectors since 2.1, leaves no such trail: within 2.5 thousandths of
+luma at the same cuts and at the flash, with the filter's own tuning, after the stabilizer and
+at the network's own output, with or without the detection (`--tsrcut --tsrcutnr`). Its vectors
+go without it.
 
 **Cost** on an RTX 3050 6 GB (`--tsr`, GPU time per frame):
 
@@ -1784,6 +1785,8 @@ dlssnr_harness.exe --tsrcut <dir> DLSS SR across a film's cuts: the dark trail a
                                   with the cut detection, without it, and against a reset of DLSS on the cut, and
                                   the pictures the detection called a cut against the clip's own
                                   (--tsrcutnr: DLSS 5 NR and its stabilizer instead; --tsrcrops: the crops)
+dlssnr_harness.exe --tautomask <dir> DLSS 5 NR with and without its auto mask on a film's frames: where the two
+                                  differ, by kind of pixel, with maps of the difference (--skin N: skin detail x100)
 dlssnr_harness.exe --tcutscan <film> the cut detection alone over minutes of a film, decoded by ffmpeg: its four
                                   measures on every picture, with ffmpeg's own scene score beside them
                                   (--cutfrom <s> --cutfor <s>: the stretch, 300 s by default)
