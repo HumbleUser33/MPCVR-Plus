@@ -7016,9 +7016,15 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 					}
 				}
 				// On its first turn the processor resizes in the call that converts, and
-				// the Processor step's time is the resizing's too.
+				// the Processor step's time is the resizing's too. It writes the picture
+				// at its size into a texture of its own, and the resize shader then only
+				// copies it to its place in the window -- a film with black bars, or one
+				// in a window -- which is the time this step shows: 0.5 ms for a 4K
+				// picture, read as Super Resolution's until the line said so.
 				if (bSecondTurn) {
 					extra = Ms(CGpuStageTimes::VPScale);
+				} else if (Ms(CGpuStageTimes::Resize) >= 0) {
+					text.append(L", placed by the shaders");
 				}
 			} else if (bDlssSR) {
 				// Its quality mode and preset, DLAA among them: the last word of its own line.
