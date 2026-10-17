@@ -199,7 +199,7 @@ out of fullscreen as well, where the processor reduces instead:
 |---|---|---|---|
 | RTX Video HDR, no Super Resolution (Y410) | 1 504 | 1 345 | 1 345 |
 | RTX Video HDR, Super Resolution (P010) | 1 499 | 1 314 | 1 314 |
-| the same with *Replace VP chroma upsampling* (Y410) | 1 504 | 1 342 | 1 342 |
+| the same with the chroma replacement (Y410) | 1 504 | 1 342 | 1 342 |
 | SDR, no Super Resolution | 1 485 | 1 320 | 1 320 |
 | SDR, Super Resolution | 1 493 | 1 226 | 1 226 |
 | an interlaced clip, 1080i, no Super Resolution | 2 137 | 1 883 | 1 883 |
@@ -308,8 +308,8 @@ says how much room is left. A new working size is taken on Apply, and the networ
 again at it: seven pictures went undrawn in the bench while it did
 (`playback_test --nrscale 100 --nrscaleto 70`).
 
-The stabilizer's Optical Flow works on the working picture divided by *Optical Flow
-Resolution Divider*, so its size follows the working size too: at 2, on a 3840x2160 film,
+The stabilizer's Optical Flow works on a fraction of the working picture, *Optical Flow
+resolution*, so its size follows the working size too: at 1/2, on a 3840x2160 film,
 1920x1080 at 100 % and 1056x594 at 55 %. At Auto, the default, `FlowFactor` chooses 1, 2 or 4
 from the working height to stay near 540 lines, as the stabilizer always did and DLSS Super
 Resolution does for its own flow, and the flow's size jumps as the working size moves: 960x540
@@ -738,7 +738,7 @@ decide whether its cleaner look is worth it on your films.
 
 ## Upscaling: FSRCNNX, RAVU-zoom and ArtCNN
 
-The main page's **Upscaling** and **Chroma upsampling** lists are ordered by what they measured,
+The **Upscaling** and **Chroma upsampling** lists are ordered by what they measured,
 best first, on 1080p film brought to 4K. Six of the entries enlarge one plane with a small
 network instead of a filter kernel, the way mpv's prescalers do:
 
@@ -979,7 +979,7 @@ reading, since it says why the option is greyed.
 It reads those from the settings and from nothing else, with one exception given below. The
 renderer can also say what it is doing with the picture at hand, and the page used to listen;
 that read well and worked badly. A 4K film on a 4K screen leaves the processor nothing to
-resize, so the page moved under you as the film changed -- and it put *Request Super
+resize, so the page moved under you as the film changed -- and it put *Video Super
 Resolution* out of reach, because it greyed whatever the pre-pass box said, and that box is
 the one it is supposed to answer. These are settings for every film there will ever be, so the
 film playing now does not get a vote.
@@ -1006,7 +1006,7 @@ it. Profile 5 carries no base layer, so there the Dolby Vision path is the only 
 choice does not arise.
 
 *Use for resizing* decides the resizing and nothing else -- the chroma is the business of the
-format boxes and of *Replace VP chroma upsampling*. What it also decides is whether
+format boxes and of the chroma replacement. What it also decides is whether
 **Video Super Resolution** can do anything at all: that extension lives inside the video
 processor and is part of its resizing, so it greys without the box, greys while DLSS SR
 enlarges in the processor's place, and greys while the chroma pre-pass is on, because the
@@ -1050,7 +1050,7 @@ back. In which format is decided by what Super Resolution needs, since the drive
 
 | The second turn takes | When | What the trip costs a film frame | GPU, 1080p to 4K, RTX 4060 |
 |---|---|---|---|
-| Y410, 4:4:4 | no Super Resolution, or *Replace VP chroma upsampling* ticked | under 0.5 dB, and levels within 0.16 of 255 in SDR, 0.29 in PQ | 0.9 ms |
+| Y410, 4:4:4 | no Super Resolution, or the chroma replacement on | under 0.5 dB, and levels within 0.16 of 255 in SDR, 0.29 in PQ | 0.9 ms |
 | P010, 4:2:0 | Super Resolution requested, and the driver takes it on a picture that size | 2.2 to 3.1 dB, and 2.3 to 4.0 dB of chroma where the luma has an edge | 13.7 ms, Super Resolution included |
 
 The tooltip of *Video Super Resolution* says so, since that is where the choice is made.
@@ -1099,7 +1099,8 @@ On a 10-bit film, 1920x800 into 2880x1200, as an SDR picture and as a PQ one:
 The second row is the driver's sharpening, which is the point of it. A matrix or a range
 read wrongly would be several levels in both columns.
 
-**Replace VP chroma upsampling**, under the list, moves that one job to the shaders without
+**Use this method instead of the video processor's chroma upsampling**, under the list, the
+chroma replacement, moves that one job to the shaders without
 taking the picture away from the processor. A compute shader reads the planes of a progressive
 4:2:0 or 4:2:2 frame, rebuilds Cb and Cr with the method above, and writes the result back in
 4:4:4 — AYUV on an 8-bit source, Y410 on a 10-bit one — which the processor then converts and
@@ -1261,7 +1262,7 @@ DLSS 5 NR and DLSS SR — and DLSS SR's GPU time comes on top, since the GPU run
 Present has returned. The delay also varied by several ms from picture to picture, enough to
 move some pictures to the next refresh of a 60 Hz screen.
 
-**Render ahead to keep audio sync** (Settings page, on by default) measures each picture from
+**Render ahead to keep audio sync** (Presentation tab, on by default) measures each picture from
 the start of its processing to the GPU being done with it, and starts the next pictures earlier
 by the slowest of the last 32 plus 3 ms. Each picture then waits, while the GPU finishes it,
 for the moment the renderer presents at without DLSS: half a refresh before its time, on the
@@ -1509,8 +1510,8 @@ did; *Wait for VBlank before Present* and *Adjust the frame presentation time* o
 All of the above puts the picture where the reference clock says, and the clock is the sound
 card's: it says when the sound leaves the computer, not when it is heard. An amplifier that
 decodes Dolby Atmos behind the television takes its time over it, and nothing in a player sees
-that. The picture is all a renderer can move, so **Video delay** (Settings page, *Presentation*,
-the *Sound* box) shows every picture that many milliseconds after its time: later for a sound
+that. The picture is all a renderer can move, so **Video delay** (Presentation tab, *Audio sync*
+box) shows every picture that many milliseconds after its time: later for a sound
 that arrives after the picture, from −200 to +500 ms. A negative value shows the picture
 earlier, for a television that takes longer over the picture than the sound does to arrive.
 
@@ -1600,69 +1601,119 @@ and was not the fault: the pointer stayed exactly as before.
 
 ## Settings
 
-Everything lives on the **DLSS** page of the renderer's properties (x64 builds only) and is
-stored under `HKCU\Software\MPC-BE Filters\MPC Video Renderer`. Render ahead is the exception:
-it serves the luma prescalers as much as DLSS, so it sits on the **Settings** page, where the
-32-bit builds reach it too. Its registry key, `DlssRenderAhead`, did not change.
+All the settings are on one page of the renderer's properties, in eight tabs, and are stored
+under `HKCU\Software\MPC-BE Filters\MPC Video Renderer`. Each tab opens on a line saying what it
+is for, and each control has a tooltip saying what it does, when it applies and what it needs.
+The tables below say the same, with the measurements the tooltips leave out. DLSS needs the
+64-bit filter: in the 32-bit one the **DLSS 5 NR** tab is not there.
 
-| Setting | Default | Notes |
-|---|---|---|
-| Enable DLSS 5 NR | off | Forces 16-bit float internal textures |
-| Apply after upscaling | off | Runs at display resolution instead of source. Much heavier at 4K |
-| Toggle key | F12 | Toggles during playback. The filter swallows this key |
-| DLL | empty | Empty means search the locations listed above |
-| Style | Default | Default / Natural / Cinematic. Applies live |
-| Preset | 0 | **No effect with the DLL builds seen so far** — they ship a single network and every preset falls back to it |
-| Auto mask | on | The network finds skin (faces, hands) by itself and gives it *Skin detail* rather than *Detail*. Off, the whole picture is treated alike and *Skin detail* does nothing: on a 1950 film, the output without it measured the same with Skin detail at 0, 0.50, 0.90 and 2.00, and with it the network changed a face by 19 thousandths of luma more at the defaults (`--tautomask`) |
-| Intensity | 1.50 | |
-| Local tone | 0.30 | Low on purpose: the local terms amplify frame-to-frame variation |
-| Detail | 0.50 | |
-| Skin detail | 0.90 | On the skin Auto mask finds; nothing while it is off |
-| Temporal stabilizer strength | 100 | 0–100. Where the history is trusted, the current picture weighs from 1 down to 0.25 at 100, the measured setting. Its Optical Flow also gives the network its motion vectors, cleaned as DLSS SR's are, whatever the strength above 0. 0 runs nothing, vectors included. Applies live |
-| Optical Flow resolution | Auto | 1/4, 1/3, 1/2, Full or Auto: the fraction of the working picture before Optical Flow measures its motion. Auto takes 1, 2 or 4 from the working height for about 540 lines, as before the slider existed. See *A working size below the picture's* for what it changes. Applies on the next picture |
-| Working size | 100 % | 50–100 %, in steps of 5. See *A working size below the picture's*: the network runs on the picture reduced, and its change is carried back onto the picture. Taken on Apply, which starts the network again. Registry `DlssNRWorkingScale` |
-| Use DLSS Super Resolution for upscaling | off | See above: not perfect yet, which is why the box it sits in says so. Greys the Upscaling list while it is on |
-| Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p. Needs *Use DLSS Super Resolution* |
-| Preset (DLSS SR) | Automatic | Or J, K, L, M. Applies on the next picture |
-| DLL (DLSS SR) | empty | `nvngx_dlss.dll` or its folder. Empty means search next to the filter and up |
+**Default**, at the bottom of the page, puts every tab back to its defaults, the video delay
+included, except the DLSS settings, which have their own button on the DLSS 5 NR tab, and the
+presets.
 
-On the **Settings** page, bottom right:
-
-| Setting | Default | Notes |
-|---|---|---|
-| Render ahead to keep audio sync | on | See above. Gives every picture a refresh chosen in advance, and starts each early enough for it. Needs Direct3D 11, and the flip model for the first of the two |
-| Video delay | 0 ms | See *A video delay, for a sound that arrives late*. Every picture shown that long after its time, −200 to +500 ms, to the nearest refresh. Applies as the slider is dragged; kept out of the presets |
-
-In the **Shader video processor** box, the two lists are ordered best first (see *Upscaling*
-above) and each entry keeps its own number, so a setting already saved still means what it did:
+### Source
 
 | Setting | Default | What it does |
 |---|---|---|
-| Upscaling | Jinc2m | ArtCNN C4F16 DS, RAVU-zoom and the four FSRCNNX entries enlarge the luma with a network; AR holds what it invented to the range the source covers. Needs Direct3D 11; Catmull-Rom stands in elsewhere and while DLSS SR is enlarging |
-| Chroma upsampling | Catmull-Rom | Jinc (EWA) is the best of them on film and stays inside the conversion shader; RAVU-zoom and FSRCNNX 8 AR put Cb and Cr through an mpv prescaler, FSRCNNX being the one for drawn lines. All three need Direct3D 11 and 4:2:0 in planes |
+| Use Direct3D 11 (recommended) | on (Windows 8 and later) | Renders with Direct3D 11 instead of Direct3D 9. Everything this fork adds needs it: DLSS, the neural upscalers, the chroma replacement, sharpening, HDR output and render ahead. On Windows 7 the video processor is not available with it |
+| Bit depth | Auto (8 or 10-bit) | The textures the renderer works in. Auto takes 10-bit for a source above 8 bits and with RTX Video HDR, 8-bit otherwise. DLSS 5 NR works in 16-bit float whatever this says; RTX Video HDR does not run in 8-bit |
+| GPU video processor: NV12, P010/P016, YUY2, Other supported formats | all ticked | The formats the hardware video processor converts. Hardware deinterlacing, RTX Video Super Resolution and RTX Video HDR work on these only. A format left unticked is converted and resized by the shaders, with the methods of the Chroma and Scaling tabs |
+| Deinterlacing: Hardware | On | The video processor's deinterlacing, for an interlaced source in a format it converts. *On, with future frames* is a workaround for drivers on which interlaced video judders |
+| Double the frame rate when deinterlacing | on | One picture a field: 50i plays as 50p, with twice the pictures to process. Needs hardware deinterlacing |
+| Blend fields when the shaders convert (4:2:0) | off | An interlaced 4:2:0 source the shaders convert (its format unticked, or Dolby Vision) has its two fields blended rather than combed. Progressive video is untouched |
 
-And under the Chroma upsampling list:
+### Chroma
 
-| Setting | Default | Notes |
+| Setting | Default | What it does |
 |---|---|---|
-| Sharpening | Off | *Adaptive-Sharpen* or *Unsharp + Clamp*, run after the resize, so it also reaches a film already at the screen's size. See above for what each is worth. Needs Direct3D 11 |
-| Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Off |
-| Use this method instead of the video processor's chroma upsampling | off | See above. The shaders rebuild the chroma of a progressive YUV 4:2:0/4:2:2 picture with the Chroma upsampling method and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Video Super Resolution* greys while this is ticked, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
+| Chroma upsampling: Method | Catmull-Rom | Rebuilds the colour of 4:2:0 and 4:2:2 video at full resolution when the shaders convert the picture, or for the replacement below; greyed while the video processor converts every format. Ordered best first, as they measured (see *Upscaling* above), and each entry keeps its own number, so a setting already saved still means what it did. Jinc (EWA) is the best of them on film and stays inside the conversion shader; RAVU-zoom and FSRCNNX 8 AR put Cb and Cr through an mpv prescaler, FSRCNNX being the one for drawn lines. Those two need Direct3D 11 and 4:2:0 in planes; Catmull-Rom stands in elsewhere |
+| Use this method instead of the video processor's chroma upsampling | off | The chroma replacement (see *Who resizes while DLSS runs*). The shaders rebuild the chroma of a progressive 4:2:0 or 4:2:2 picture with the method above and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced video keeps the processor's chroma. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Video Super Resolution* greys while this is ticked, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
 
-**Default** on the **DLSS 5 NR** tab resets the tuning, from Style to the stabilizer, its Optical
-Flow divider and the vectors, and the DLSS SR preset and DLAA; it leaves Enable, Use DLSS SR, the key, both DLL paths, the
-working size, which is what the card can carry, and render ahead, which belongs to the Settings
-page, alone. Applying the page sends only what was changed on it, so it never undoes the
-toggle key or the main page, and the main page leaves these settings alone.
+### Scaling
+
+One thing resizes the picture: DLSS Super Resolution if it is ticked, the video processor if
+*Use the video processor for resizing* is, the Upscaling and Downscaling lists otherwise (see
+*Who resizes while DLSS runs*). The lists grey when they have nothing to do.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Use the video processor for resizing | on | The video processor resizes instead of the shaders: fast, and below the Upscaling and Downscaling methods, which grey. With DLSS 5 NR on it enlarges what the network leaves. Greyed while a Dolby Vision film plays, which the shaders process whole |
+| Video Super Resolution | Off | The driver's Super Resolution (NVIDIA RTX, or Intel UHD 610 and later) while the video processor enlarges, for sources up to the size chosen. Needs the processor resizing, every format ticked on the Source tab, Windows 10, Direct3D 11 and the 64-bit filter. Greyed while DLSS SR or the chroma replacement is on. With DLSS 5 NR it runs after the network on a 4:2:0 picture, halving the colour resolution again |
+| Upscaling | Jinc2m | Enlarges when the shaders resize. ArtCNN C4F16 DS, RAVU-zoom and the four FSRCNNX entries enlarge the luma with a network; AR holds what it invented to the range the source covers. Ordered best first, each entry keeping its own number. The networks need Direct3D 11; Catmull-Rom stands in elsewhere and while DLSS SR is enlarging |
+| Use a lighter filter for small enlargements | off, Jinc2m | Under 5 % on both sides, a slightly cropped 4K film on a 4K screen for instance, the method in the list beside it is used instead: a network costs as much there as for a large enlargement, for nothing visible. The statistics name the method really in use |
+| Downscaling | Hamming | Reduces when the shaders resize. Ordered best first (`--tdownscale`, see *Spline36, and what a downscaler is for*): Lanczos, Bicubic sharp and Spline36 are close |
+| Use DLSS Super Resolution for upscaling | off | Enlarges with DLSS Super Resolution, in place of the video processor and of the Upscaling method, which greys; it cleans grain and compression noise too. Up to 4 times; the Upscaling method finishes a larger enlargement. Works with or without DLSS 5 NR. Experimental (see *DLSS Super Resolution*): moving subjects can still shimmer on grainy film |
+| Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p. Needs *Use DLSS Super Resolution* |
+| Preset | Automatic | The DLSS model: J and K are DLSS 4's, L and M DLSS 4.5's; Automatic lets DLSS choose for the ratio. Applies on the next picture |
+| DLL | empty | `nvngx_dlss.dll` or its folder. Empty means search next to the filter and up |
+
+### Detail
+
+| Setting | Default | What it does |
+|---|---|---|
+| Sharpening: Method | Off | *Adaptive-Sharpen* or *Unsharp + Clamp*, run after the resize, so it also reaches a film already at the screen's size. See *Sharpening* for what each is worth. Needs Direct3D 11 |
+| Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Off |
+| Use dithering | on | A very fine noise before output, so that skies and fades to black show no banding |
+
+### DLSS 5 NR
+
+| Setting | Default | What it does |
+|---|---|---|
+| Enable DLSS 5 NR | off | The network on every picture, at the source's size; the resizing is unchanged and comes after it. Forces 16-bit float internal textures. Needs an NVIDIA RTX card, Direct3D 11 and `nvngx_dlssnr.dll` |
+| Apply after upscaling | off | Runs at display resolution instead of the source's. Much heavier at 4K: four times the pixels of a 1080p film |
+| Toggle key | F12 | Switches DLSS 5 NR on and off during playback. The filter swallows this key; *None* gives no shortcut |
+| DLL | empty | Empty means search the locations listed above |
+| Temporal stabilizer: Strength | 100 | 0–100. Where the history is trusted, the current picture weighs from 1 down to 0.25 at 100, the measured setting. Its Optical Flow also gives the network its motion vectors, cleaned as DLSS SR's are, whatever the strength above 0. 0 runs nothing, vectors included. Applies live |
+| Optical Flow resolution | Auto | 1/4, 1/3, 1/2, Full or Auto: the fraction of the working picture Optical Flow measures its motion on. Auto takes 1, 2 or 4 from the working height for about 540 lines, as before the slider existed. See *A working size below the picture's* for what it changes. Applies on the next picture |
+| Style | Default | Default / Natural / Cinematic. Applies live |
+| Preset | 0 | **No effect with the DLL builds seen so far** — they ship a single network and every preset falls back to it |
+| Auto mask | on | The network finds skin (faces, hands) by itself and gives it *Skin detail* rather than *Detail*. Off, the whole picture is treated alike and *Skin detail* does nothing: on a 1950 film, the output without it measured the same with Skin detail at 0, 0.50, 0.90 and 2.00, and with it the network changed a face by 19 thousandths of luma more at the defaults (`--tautomask`) |
+| Intensity | 1.50 | 0 to 2.00. 1.00 is the network's own result; above it, its changes are amplified |
+| Local tone | 0.30 | Low on purpose: the local terms amplify frame-to-frame variation |
+| Detail | 0.50 | Fine detail added by the network |
+| Skin detail | 0.90 | −1.00 to 2.00. On the skin Auto mask finds; nothing while it is off |
+| Working size | 100 % | 50–100 %, in steps of 5. See *A working size below the picture's*: the network runs on the picture reduced, and its change is carried back onto the picture. Taken on Apply, which starts the network again. Registry `DlssNRWorkingScale` |
+
+**Default** on this tab resets the tuning: Style, Preset, Auto mask, the four sliders under them,
+the stabilizer and its Optical Flow resolution, *Apply after upscaling*, and on the Scaling tab
+the DLSS SR preset and DLAA. It leaves alone whether DLSS 5 NR and DLSS SR are on, the toggle
+key, both DLL paths, and the working size, which is what the card can carry.
+
+### HDR
+
+| Setting | Default | What it does |
+|---|---|---|
+| Prefer Dolby Vision over PQ and HLG | off | For a file that carries Dolby Vision and an HDR10 or HLG layer: the Dolby Vision layer is played, adapted to the output. Dolby Vision is processed whole by the shaders, without the video processor (see *The exception: Dolby Vision*). Off, the HDR10 or HLG layer is played |
+| HDR output | Passthrough (Windows 10 and later) | *Passthrough* sends HDR video unchanged and the display tone maps it. *Tone map* adapts it to the peak in *Nits* and outputs HDR; BT.2390 uses Dolby Vision's dynamic metadata when the film has it. *Off (SDR)* outputs SDR. Needs Windows 10, Direct3D 11 and an HDR display with Windows HDR on, or allowed to turn on below. RTX Video HDR needs Passthrough |
+| Nits | 1000 | The display's real peak, 100 to 10000, for the tone mapping methods |
+| Windows HDR | Don't change | Whether the filter may turn Windows HDR on by itself when HDR video, or RTX Video HDR, starts: in fullscreen only, or always. *On/off* turns it back off afterwards |
+| Subtitle and OSD brightness | the leftmost | How bright subtitles, the player's messages and the statistics are drawn over an HDR picture |
+| RTX Video HDR | off | The NVIDIA driver turns SDR video into HDR. Needs HDR output on Passthrough, an HDR display with Windows HDR on, an RTX card, the 64-bit filter, a bit depth other than 8-bit and a format the video processor converts. The statistics star it (`RTX Video HDR*`) while it runs |
+| Convert to SDR | on | HDR video not output in HDR is converted to SDR, so that it does not look washed out |
+| SDR brightness | 125 nits | The target of that conversion, 25 to 400. Applies as the slider is dragged |
+
+### Presentation
+
+| Setting | Default | What it does |
+|---|---|---|
+| Swap effect | Flip (recommended) | How pictures are handed to Windows. Render ahead needs Flip to give each picture a refresh. *Discard* is the older mode, for drivers that misbehave with Flip. HDR output always uses Flip |
+| Use exclusive fullscreen | off | In fullscreen the filter takes the display directly instead of going through the desktop: less latency, but menus drawn over the film may not show and Alt+Tab is slower |
+| Wait for VBlank before Present | off | Waits for the next refresh before each picture. Not used while render ahead schedules the pictures |
+| Adjust the frame presentation time | on | Holds each picture until its time on the audio clock. Not used while render ahead schedules the pictures |
+| Reinitialize device when changing display | off | Creates the Direct3D device again when the window moves to another screen |
+| Render ahead to keep audio sync | on | See *Render ahead*. Gives every picture a refresh chosen in advance, and starts each early enough for it. Needs Direct3D 11, and the flip model for the first of the two. Registry `DlssRenderAhead` |
+| Show statistics | off | The statistics over the picture; Ctrl+J in MPC-HC |
+| Size | Fixed size | Whether the statistics keep their size or grow with the window |
+| Video delay | 0 ms | See *A video delay, for a sound that arrives late*. Every picture shown that long after its time, −200 to +500 ms, to the nearest refresh. Applies as the slider is dragged; kept out of the presets |
 
 ### Presets
 
 The **Presets** tab holds ten sets of settings. Each line has a name, a key, *Save* and
 *Load*:
 
-- *Save* keeps everything the pages show at that moment, applied or not, and writes it at
+- *Save* keeps everything the page shows at that moment, applied or not, and writes it at
   once, without waiting for Apply.
-- *Load* brings a preset back into the pages and lights Apply; nothing is in force until
+- *Load* brings a preset back into the page and lights Apply; nothing is in force until
   Apply is pressed, so what was loaded can be read first. *Load* is greyed on a line nothing
   was saved in.
 - The **key** recalls the preset while a film plays, without opening the options: the
@@ -1827,8 +1878,8 @@ film frames (`--tupscale`).
 **`vp_rebuild_test.exe`** — checks that rebuilding the hardware video processor keeps the
 picture, which is what used to show a green frame when DLSS was toggled while paused.
 
-**`shader444_test.exe`** — compiles the chroma pass the filter generates for *Replace VP chroma
-upsampling*, for each source format and each chroma method, since a compute shader has rules a
+**`shader444_test.exe`** — compiles the chroma pass the filter generates for the chroma
+replacement, for each source format and each chroma method, since a compute shader has rules a
 pixel shader has not. One that does not compile leaves the picture to the video processor
 without a word, so nothing on screen says it happened.
 
@@ -1915,7 +1966,7 @@ entry with the number it carries and which one is selected: a picture says nothi
 and the order of those lists is the point of them. `--chroma` plays one picture, a 4K film
 frame halved, as 4:2:0 and as 4:4:4 at its own size, and measures what each chroma upsampler
 rebuilds against the 4:4:4 one — every method the list offers, and each of them again through
-the video processor with *Replace VP chroma upsampling* on, which is where a chroma pass that
+the video processor with the chroma replacement on, which is where a chroma pass that
 leaves a render target behind shows up as a colour cast. The hardware processor's own chroma
 comes out between Nearest and Bilinear, 1.7 dB under Catmull-Rom along luma edges.
 
