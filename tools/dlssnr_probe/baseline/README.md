@@ -1,8 +1,8 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 13 October 2026, on an
-RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all twenty-three steps green.
-The filter is `c9da620`, build 2690, and filter and tools are built by MSVC 14.44. It is the thing
+`run_all_report.txt` here is what the whole battery measured on 17 October 2026, on an
+RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all twenty-four steps green.
+The filter is `4a348c2`, build 2711, and filter and tools are built by MSVC 14.44. It is the thing
 a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
@@ -151,3 +151,33 @@ harness" keeps its 51 rows, as they were. Measured on the two steps alone in the
 both at 0 failures: the stabilizer's class against the reference passes on five sequences,
 every redraw identical. The battery itself has not been run with it yet; the report that
 replaces this one will hold the step.
+
+## 17 October 2026: the statistics laid out as the pipeline
+
+The report of 13 October, at `c9da620`, is in the history. Since then DLSS SR's global motion
+is refined and its history dropped at a cut, the stabilizer's port check has its own step
+(above), the settings page and the manual say what each option does, and the statistics are
+laid out as the pipeline, each step with its time. `playback_test` reads those steps by name
+and puts its report's old rows back together from them.
+
+It was taken with the filter's settings of the day: Upscaling FSRCNNX 16 AR, Adaptive-Sharpen
+at 4, the DLSS 5 NR style cinematic. The presentation steps' times follow them -- "DLSS off"
+in the two playback steps reads ready in 17.6 and 19.0 ms where the report before read 6.3
+and 6.2 -- and those rows are times, which the comparison leaves out.
+
+Of the 2615 rows the two reports share, 12 moved by more than 0.1, none of them a measurement
+of the code:
+
+- three *On screen* lines' counts of late pictures, as in the comparisons above;
+- three rows of "the DLSS passes against the harness", its table of GPU times, printed bare,
+  and of blocks keeping their own vector, one point fewer since the refined global motion
+  (`f9ed450`): 1.23 ms and 11 % to 1.12 ms and 10 % for "pan 3.5 x 1.5". The run of 16 October,
+  at `f9ed450`, already had the 10 %;
+- two of "the pipeline", its times printed bare. The battery's run of the step had DLSS SR at
+  12.5 ms of GPU, the step run alone twice afterwards at 8.8, against 9.3 on 16 October;
+- four `processor` rows of the two chroma steps, whose shape changed: the conversion is now
+  read from the statistics' steps, and the chroma replacement's step says
+  "4:2:0 -> 4:4:4", whose digits count as numbers. The same wording makes eight rows of those
+  steps new; the measured rows beside them are the same to 0.01.
+
+The other 31 new rows are the stabilizer's step. None is gone.
