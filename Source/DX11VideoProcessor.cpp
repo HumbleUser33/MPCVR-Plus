@@ -2413,6 +2413,8 @@ void CDX11VideoProcessor::ConvertTo444Pass(ID3D11UnorderedAccessView* pUav)
 	if (!m_pCSConvertTo444 || !pUav) {
 		return;
 	}
+	// Timed whole, the prescaler with it: the statistics give the step one figure.
+	m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::Prepass);
 	if (m_bMpvChromaActive && FAILED(MpvChromaPass())) {
 		// The prescaler brings Cb and Cr to the luma size first; latched off if it
 		// cannot, and the conversion shader goes back to reading the planes.
@@ -2445,6 +2447,7 @@ void CDX11VideoProcessor::ConvertTo444Pass(ID3D11UnorderedAccessView* pUav)
 	m_pDeviceContext->CSSetShaderResources(0, 3, none);
 	m_pDeviceContext->CSSetUnorderedAccessViews(0, 1, noUav, nullptr);
 	m_pDeviceContext->CSSetShader(nullptr, nullptr, 0);
+	m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Prepass);
 }
 
 HRESULT CDX11VideoProcessor::InitializeTexVP(const FmtConvParams_t& params, const UINT width, const UINT height)
@@ -2604,8 +2607,16 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 		}
 	}
 
+	// The picture's GPU steps are timed from here, so that the chroma pre-pass, which
+	// runs as the sample is copied, is timed with the rest (Render closes the set).
+	if (m_bShowStats) {
+		m_DlssStageTimes.Collect(m_pDeviceContext);
+		m_DlssStageTimes.BeginFrame(m_pDevice, m_pDeviceContext);
+	}
+
 	HRESULT hr = CopySample(pSample);
 	if (FAILED(hr)) {
+		m_DlssStageTimes.EndFrame(m_pDeviceContext);
 		m_RenderStats.failed++;
 		return hr;
 	}
@@ -3307,10 +3318,10 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 
 	RecoverDlssNR();
 
-	// GPU time of each DLSS stage and of the mpv prescalers, only while the
-	// statistics show it.
-	const bool bTimeDlss = m_bShowStats && (m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded() || m_bMpvChromaActive);
-	if (bTimeDlss) {
+	// GPU time of each step, only while the statistics show it. A new sample has had
+	// its set opened before it was copied, where the chroma pre-pass runs
+	// (ProcessSample); a redraw, or a second field, opens its own here.
+	if (m_bShowStats && !m_DlssStageTimes.IsRecording()) {
 		m_DlssStageTimes.Collect(m_pDeviceContext);
 		m_DlssStageTimes.BeginFrame(m_pDevice, m_pDeviceContext);
 	}
@@ -3321,9 +3332,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		hr = Process(pBackBuffer, m_srcRect, m_videoRect, m_FieldDrawn == 2);
 	}
 
-	if (bTimeDlss) {
-		m_DlssStageTimes.EndFrame(m_pDeviceContext);
-	}
+	m_DlssStageTimes.EndFrame(m_pDeviceContext);   // nothing to do when no set is open
 
 	if (!m_pPSHalfOUtoInterlace) {
 		DrawSubtitles(pBackBuffer);
@@ -3529,6 +3538,9 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	DLogIf(FAILED(hr), L"CDX11VideoProcessor::Render() : Present() failed with error {}", HR2Str(hr));
 
 	m_RenderStats.presentticks = GetPreciseTick() - tick3;
+	// Most of that is the wait for the moment to call Present -- a refresh chosen, a
+	// vertical blank, the picture's time -- which the statistics show apart.
+	m_presentWaitTicks = m_tickPresentCall - tick3;
 	MeasurePresentQueue();
 	if (plan.bValid) {
 		UINT presentId = 0;
@@ -5280,7 +5292,7 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 				m_SRCutReadback.Copy(m_pDevice, m_pDeviceContext, m_DlssSRMotion.GetCutState(), m_rtStart);
 			}
 			pMotion = m_DlssSRMotion.GetMotionVectors();
-			motion = pMotion ? std::wstring(L"OF, global motion") : m_DlssSRMotion.GetStatusLine();
+			motion = pMotion ? std::wstring(L"Optical Flow, global motion") : m_DlssSRMotion.GetStatusLine();
 		}
 		if (motion != m_strDlssSRMotion) {
 			m_strDlssSRMotion = motion;
@@ -5331,20 +5343,27 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 				|| ((m_bDlssNRActive || m_bDlssSRActive) && bAllowDlss); // the DLSS passes need the intermediate texture
 			if (!bNeedShaderTransform && !numSteps) {
 				m_bVPScalingUseShaders = false;
+				m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::VP);
 				hr = D3D11VPPass(pRenderTarget, rSrc, dstRect, second);
+				m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::VP);
 
 				return hr;
 			}
 		}
 
 		CRect rect(0, 0, m_TexConvertOutput.desc.Width, m_TexConvertOutput.desc.Height);
+		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::VP);
 		hr = D3D11VPPass(m_TexConvertOutput.pTexture, rSrc, rect, second);
+		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::VP);
 		pInputTexture = &m_TexConvertOutput;
 		rSrc = rect;
 		rotation = 0;
 	}
 	else if (m_PSConvColorData.bEnable) {
+		// An mpv prescaler's chroma included: the statistics give the step one figure.
+		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::ShaderConvert);
 		ConvertColorPass(m_TexConvertOutput.pTexture);
+		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::ShaderConvert);
 		pInputTexture = &m_TexConvertOutput;
 		rSrc.SetRect(0, 0, m_TexConvertOutput.desc.Width, m_TexConvertOutput.desc.Height);
 	}
@@ -5436,7 +5455,9 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 		}
 
 		if (rSrc != dstRect || rotation != 0) {
+			m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::Resize);
 			hr = ResizeShaderPass(*pInputTexture, pRT, rSrc, dstRect, rotation);
+			m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Resize);
 		} else {
 			pTex = pInputTexture; // Hmm
 		}
@@ -5459,6 +5480,9 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 				hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPS_Simple, nullptr, 0, false);
 			}
 		}
+
+		// The finishing steps, as one figure in the statistics.
+		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::Finish);
 
 		if (m_pPSCorrection) {
 			StepSetting();
@@ -5547,9 +5571,12 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 			hr = FinalPass(*pTex, pRT, rect, rect);
 			m_bDitherUsed = true;
 		}
+		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Finish);
 	}
 	else {
+		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::Resize);
 		hr = ResizeShaderPass(*pInputTexture, pRenderTarget, rSrc, dstRect, rotation);
+		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Resize);
 	}
 
 	DLogIf(FAILED(hr), L"CDX11VideoProcessor::Process() : failed with error {}", HR2Str(hr));
@@ -6522,7 +6549,7 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 {
 	DXGI_SWAP_CHAIN_DESC1 swapchain_desc;
 	if (m_pDXGISwapChain1 && S_OK == m_pDXGISwapChain1->GetDesc1(&swapchain_desc)) {
-		m_strStatsPresent.assign(L"\nPresentation  : ");
+		m_strStatsPresent.assign(L"\nSwap chain    : ");
 		if (m_nSwapChainResizeFailed) {
 			m_strStatsPresent.append(std::format(L"rebuilt after {} refused resize(s), ", m_nSwapChainResizeFailed));
 		}
@@ -6542,6 +6569,9 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 		}
 		m_strStatsPresent.append(L", ");
 		m_strStatsPresent.append(DXGIFormatToString(swapchain_desc.Format));
+		// How many pictures it can hold decides whether a heavy chain waits a refresh
+		// before it can draw the next (InitSwapChain, MPCVR_SWAPCHAIN_BUFFERS).
+		m_strStatsPresent += std::format(L", {} buffers", swapchain_desc.BufferCount);
 
 		// With render ahead and a flip model the two settings below are not what times
 		// a Present: each picture is given a refresh, and the line says that instead.
@@ -6589,63 +6619,13 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 
 		UpdateStatsInputFmt();
 
-		m_strStatsVProc.assign(L"\nVideoProcessor: ");
-		if (m_D3D11VP.IsReady()) {
-			m_strStatsVProc += std::format(L"D3D11 VP, output to {}", DXGIFormatToString(m_D3D11OutputFmt));
-			// It converts the picture itself, so the chroma upsampling is its own and
-			// the Chroma upsampling list has nothing to do here.
-			if (m_srcParams.Subsampling == 420 || m_srcParams.Subsampling == 422) {
-				if (m_bChromaReplacedVP) {
-					// It reads the picture in 4:4:4 and has no chroma left to rebuild.
-					m_strStatsVProc.append(L", chroma by shaders: ");
-					m_strStatsVProc.append(ChromaScalingName());
-				} else {
-					m_strStatsVProc.append(L", converts chroma");
-					if (m_bVPReplaceChroma) {
-						m_strStatsVProc.append(L" (interlaced)");
-					}
-				}
-			}
-		} else {
-			m_strStatsVProc.append(L"Shaders");
-			if (m_srcParams.Subsampling == 420 || m_srcParams.Subsampling == 422) {
-				m_strStatsVProc.append(L", Chroma scaling: ");
-				m_strStatsVProc.append(ChromaScalingName());
-			}
-		}
-		m_strStatsVProc += std::format(L"\nInternalFormat: {}", DXGIFormatToString(m_InternalTexFmt));
+		// The conversion, DLSS and the resizing are steps of the pipeline, which
+		// GetStatsText lays out in their order with what each costs.
+		m_strStatsVProc.clear();
 
-	if (m_bDlssNR) {
-		static const wchar_t* const styles[] = { L"default", L"natural", L"cinematic" };
-		const wchar_t* style = (m_DlssParams.iStyle >= 0 && m_DlssParams.iStyle < (int)std::size(styles))
-			? styles[m_DlssParams.iStyle] : L"?";
-		if (m_bDlssNRActive) {
-			m_strStatsVProc += std::format(L"\nDLSS 5 NR     : {}/P{} i{:.2f} t{:.2f} s{:.2f} k{:.2f}{}",
-				style, m_DlssParams.iPreset, m_DlssParams.fIntensity, m_DlssParams.fLocalTone,
-				m_DlssParams.fLocalStructure, m_DlssParams.fSkinStructure,
-				m_DlssParams.bUseAutoMask ? L" auto" : L"");
-			if (m_DlssCompose.IsCreated()) {
-				m_strStatsVProc += std::format(L", at {}% ({}x{})", m_iDlssNRWorkingScale,
-					m_DlssCompose.WorkWidth(), m_DlssCompose.WorkHeight());
-			}
-			if (m_iDlssNRStabilizer > 0) {
-				m_strStatsVProc += std::format(L"\nStabilizer    : {}, {}{}", m_iDlssNRStabilizer,
-					m_DlssStabilizer.IsCreated() ? m_DlssStabilizer.GetStatusLine() : std::wstring(L"not started"),
-					m_DlssStabilizer.GetMotionVectors() ? L", vectors to DLSS" : L"");
-			}
-		} else {
-			m_strStatsVProc += std::format(L"\nDLSS 5 NR     : {}", m_DlssNR.GetStatusLine());
-		}
-	}
-	if (m_bDlssSR) {
-		m_strStatsVProc += L"\nDLSS SR       : " + m_DlssSR.GetStatsLine();
-		if (m_bDlssSRActive && m_DlssSR.IsFeatureReady() && !m_strDlssSRMotion.empty()) {
-			m_strStatsVProc += L", " + m_strDlssSRMotion;
-		}
-	}
-
+		// The HDR step's text, which GetStatsText gives its label.
 		if (SourceIsHDR() || m_bVPUseRTXVideoHDR) {
-			m_strStatsHDR.assign(L"\nHDR processing: ");
+			m_strStatsHDR.clear();
 			if (m_bHdrPassthroughSupport && (m_bHdrPassthrough || m_bHdrLocalToneMapping)) {
 				if (m_bHdrPassthrough) {
 					m_strStatsHDR.append(L"Passthrough");
@@ -6769,98 +6749,264 @@ void CDX11VideoProcessor::UpdateStatsPostProc()
 }
 */
 
+// The statistics follow a picture: what comes in, each step it goes through in the
+// order Process() takes them, with what each step costs on its own line, and then how
+// it reaches the screen. The costs used to sit in lines of their own at the bottom,
+// grouped by where their code came from -- DLSS SR's under "DLSS", FSRCNNX's under
+// "Prescale" -- and a step was described in one place and timed in another.
 std::wstring CDX11VideoProcessor::GetStatsText()
 {
+	// A label, then the text, then the time in a column of its own, right-aligned to
+	// the end of the rules that head the blocks.
+	constexpr size_t kLabel = 14;
+	constexpr size_t kTimeEnd = 72;
+	constexpr size_t kTime = 6;
+
 	std::wstring str;
-	str.reserve(800);
+	str.reserve(1600);
 	str.assign(m_strStatsHeader);
 	str.append(m_strStatsDispInfo);
 	str += std::format(L"\nGraph. Adapter: {}", m_strAdapterDescription);
 
-	wchar_t frametype = (m_SampleFormat != D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE) ? 'i' : 'p';
-	str += std::format(
-		L"\nFrame rate    : {:7.3f}{},{:7.3f}",
-		m_pFilter->m_FrameStats.GetAverageFps(),
-		frametype,
-		m_pFilter->m_DrawStats.GetAverageFps()
-	);
+	const auto Rule = [&](const std::wstring& title, const wchar_t* right) {
+		std::wstring line = L"-- " + title + L' ';
+		const size_t tail = right ? wcslen(right) + 1 : 0;
+		line.append(line.size() + tail + 2 <= kTimeEnd ? kTimeEnd - line.size() - tail : 2, L'-');
+		if (right) {
+			line += L' ';
+			line += right;
+		}
+		str += L'\n';
+		str += line;
+	};
 
+	// The pipeline's lines. ms < 0: no time to show. A time is counted in the total
+	// unless it is the total.
+	int step = 0;
+	int vpStep = 0;   // the processor's, which its first turn's resizing refers to
+	double total = 0;
+	bool bTimed = false;
+	const auto Line = [&](const std::wstring& label, const std::wstring& text, double ms, bool bCount) {
+		std::wstring line = label;
+		line.resize(std::max(line.size(), kLabel), L' ');
+		line += L": ";
+		line += text;
+		if (ms >= 0) {
+			line.append(line.size() + kTime < kTimeEnd ? kTimeEnd - kTime - line.size() : 1, L' ');
+			line += std::format(L"{:6.1f}", ms);
+			if (bCount) {
+				total += ms;
+				bTimed = true;
+			}
+		}
+		str += L'\n';
+		str += line;
+	};
+	const auto Step = [&](const wchar_t* name, const std::wstring& text, double ms) {
+		Line(std::format(L"{} {}", ++step, name), text, ms, true);
+	};
+	const auto SubStep = [&](const wchar_t* name, const std::wstring& text, double ms) {
+		Line(std::format(L"    {}", name), text, ms, true);
+	};
+	const auto Ms = [&](CGpuStageTimes::Stage stage) { return m_DlssStageTimes.MeanMs(stage); };
+	// Two stages shown as one figure; negative when neither ran lately.
+	const auto Sum = [](double a, double b) { return (a < 0 && b < 0) ? -1.0 : std::max(a, 0.0) + std::max(b, 0.0); };
+
+	// -- What comes in.
+	Rule(L"Source", nullptr);
 	str.append(m_strStatsInputFmt);
 	if (m_Dovi.bValid && m_Dovi.bHasMMR) {
 		str.append(L", MMR");
 	}
-	str.append(m_strStatsVProc);
+	const wchar_t frametype = (m_SampleFormat != D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE) ? 'i' : 'p';
+	str += std::format(L"\nFrame rate    : {:7.3f}{} in, {:7.3f} drawn",
+		m_pFilter->m_FrameStats.GetAverageFps(), frametype, m_pFilter->m_DrawStats.GetAverageFps());
 
-	const UINT dstW = m_videoRect.Width();
-	const UINT dstH = m_videoRect.Height();
-	if (m_iRotation) {
-		str += std::format(L"\nScaling       : {}x{} r{}\u00B0> {}x{}", m_srcRectWidth, m_srcRectHeight, m_iRotation, dstW, dstH);
-	} else {
-		str += std::format(L"\nScaling       : {}x{} -> {}x{}", m_srcRectWidth, m_srcRectHeight, dstW, dstH);
+	// -- Each step, in the order the picture goes through them.
+	Rule(std::format(L"Pipeline, in {}", DXGIFormatToString(m_InternalTexFmt)), L"GPU ms");
+	const bool bSubsampled = m_srcParams.Subsampling == 420 || m_srcParams.Subsampling == 422;
+
+	// The chroma rebuilt by the shaders and handed to the processor in 4:4:4, as the
+	// sample is copied.
+	if (m_D3D11VP.IsReady() && m_bChromaReplacedVP && bSubsampled) {
+		Step(L"Chroma", std::format(L"{} -> 4:4:4 {}, for the processor",
+			m_srcParams.Subsampling == 420 ? L"4:2:0" : L"4:2:2", ChromaScalingName()), Ms(CGpuStageTimes::Prepass));
 	}
-	if (m_srcRectWidth != dstW || m_srcRectHeight != dstH) {
-		// With DLSS Super Resolution on, the video processor never scales, and the
-		// resize after DLSS reads as no scaling at all.
-		// The processor resizes on its first turn, or on its second after DLSS 5 NR.
-		const bool bSecondTurn = m_bVPScaled;
-		if (m_D3D11VP.IsReady() && ((VPResizesFirst() && !m_bVPScalingUseShaders) || bSecondTurn)) {
-			str.append(L" D3D11");
-			if (m_srcRectWidth < dstW && m_srcRectHeight < dstH) {
-				// The driver is asked for it exactly as upstream asks, and answers
-				// that it will; on a 4:4:4 picture it then leaves the picture alone,
-				// so the line says which of the two happened rather than starring
-				// work nobody did.
-				const bool bChromaKept = bSecondTurn ? m_VPScaleKey.bKeepChroma : m_bChromaReplacedVP;
-				if (bChromaKept && m_iVPSuperRes != SUPERRES_Disable) {
-					str.append(L" (No Super Resolution when chroma by shaders)");
-				} else if (bSecondTurn ? m_bVPScaleSuperRes : m_bVPUseSuperRes) {
-					str.append(L" SuperResolution*");
+
+	// The conversion: the processor converts the picture itself, its chroma included
+	// unless the step above took that; otherwise the shaders do, with the Chroma
+	// upsampling method, a prescaler's time included.
+	if (m_D3D11VP.IsReady()) {
+		std::wstring text = std::format(L"D3D11 VP to {}", DXGIFormatToString(m_D3D11OutputFmt));
+		if (bSubsampled && !m_bChromaReplacedVP) {
+			text += m_bVPReplaceChroma ? L", converts chroma (interlaced)" : L", converts chroma";
+		}
+		Step(L"Processor", text, Ms(CGpuStageTimes::VP));
+		vpStep = step;
+	} else if (m_PSConvColorData.bEnable) {
+		std::wstring text = L"shaders";
+		if (bSubsampled) {
+			text += L", chroma ";
+			text += ChromaScalingName();
+		}
+		Step(L"Convert", text, Ms(CGpuStageTimes::ShaderConvert));
+	}
+
+	// DLSS 5 NR where it runs: at the source's size before the resizing, or after it.
+	// A session that is not running says why, where it would have run.
+	const auto DlssNRSteps = [&](bool bAfterUpscale) {
+		if (!m_bDlssNR) {
+			return;
+		}
+		if (!m_bDlssNRActive) {
+			if (!bAfterUpscale) {
+				Step(L"DLSS 5 NR", m_DlssNR.GetStatusLine(), -1);
+			}
+			return;
+		}
+		if (bAfterUpscale != m_bDlssNRAfterUpscale) {
+			return;
+		}
+		static const wchar_t* const styles[] = { L"default", L"natural", L"cinematic" };
+		const wchar_t* style = (m_DlssParams.iStyle >= 0 && m_DlssParams.iStyle < (int)std::size(styles))
+			? styles[m_DlssParams.iStyle] : L"?";
+		// Timed where the renderer waits for it: it runs on a Direct3D 12 device of its own.
+		Step(L"DLSS 5 NR", std::format(L"{}/P{} i{:.2f} t{:.2f} s{:.2f} k{:.2f}{}{}",
+			style, m_DlssParams.iPreset, m_DlssParams.fIntensity, m_DlssParams.fLocalTone,
+			m_DlssParams.fLocalStructure, m_DlssParams.fSkinStructure,
+			m_DlssParams.bUseAutoMask ? L" auto" : L"", bAfterUpscale ? L", after upscaling" : L""),
+			m_DlssNRTimes.Mean());
+		if (m_DlssCompose.IsCreated()) {
+			// The reduction and the composition at a working size below the picture's.
+			SubStep(L"working", std::format(L"{} % ({}x{}), reduced and carried back", m_iDlssNRWorkingScale,
+				m_DlssCompose.WorkWidth(), m_DlssCompose.WorkHeight()),
+				Sum(Ms(CGpuStageTimes::NRReduce), Ms(CGpuStageTimes::NRCompose)));
+		}
+		if (m_iDlssNRStabilizer > 0) {
+			SubStep(L"stabilizer", std::format(L"{}, {}{}", m_iDlssNRStabilizer,
+				m_DlssStabilizer.IsCreated() ? m_DlssStabilizer.GetStatusLine() : std::wstring(L"not started"),
+				m_DlssStabilizer.GetMotionVectors() ? L", vectors to DLSS" : L""),
+				Sum(Ms(CGpuStageTimes::NRMotion), Ms(CGpuStageTimes::NRStabilize)));
+		}
+	};
+	DlssNRSteps(false);
+
+	// The resizing, whoever does it, with all it cost: the resize shader, and before it
+	// the processor's second turn, DLSS SR or an mpv prescaler.
+	{
+		const UINT dstW = m_videoRect.Width();
+		const UINT dstH = m_videoRect.Height();
+		std::wstring text = m_iRotation
+			? std::format(L"{}x{} r{}°> {}x{}", m_srcRectWidth, m_srcRectHeight, m_iRotation, dstW, dstH)
+			: std::format(L"{}x{} -> {}x{}", m_srcRectWidth, m_srcRectHeight, dstW, dstH);
+		// DLSS SR names itself in the shader names, DLAA included, which runs at no change of size.
+		const auto IsDlssSR = [](const wchar_t* name) { return name && !wcsncmp(name, L"DLSS SR", 7); };
+		const bool bDlssSR = m_bDlssSRActive && m_DlssSR.IsFeatureReady()
+			&& (IsDlssSR(m_strShaderX) || IsDlssSR(m_strShaderY));
+		double extra = -1;
+		if (m_srcRectWidth != dstW || m_srcRectHeight != dstH || bDlssSR) {
+			// With DLSS Super Resolution on, the video processor never scales, and the
+			// resize after DLSS reads as no scaling at all.
+			// The processor resizes on its first turn, or on its second after DLSS 5 NR.
+			const bool bSecondTurn = m_bVPScaled;
+			if (m_D3D11VP.IsReady() && ((VPResizesFirst() && !m_bVPScalingUseShaders) || bSecondTurn)) {
+				text.append(L" D3D11");
+				if (m_srcRectWidth < dstW && m_srcRectHeight < dstH) {
+					// The driver is asked for it exactly as upstream asks, and answers
+					// that it will; on a 4:4:4 picture it then leaves the picture alone,
+					// so the line says which of the two happened rather than starring
+					// work nobody did.
+					const bool bChromaKept = bSecondTurn ? m_VPScaleKey.bKeepChroma : m_bChromaReplacedVP;
+					if (bChromaKept && m_iVPSuperRes != SUPERRES_Disable) {
+						text.append(L" (No Super Resolution when chroma by shaders)");
+					} else if (bSecondTurn ? m_bVPScaleSuperRes : m_bVPUseSuperRes) {
+						text.append(L" SuperResolution*");
+					}
+				}
+				if (bSecondTurn) {
+					extra = Ms(CGpuStageTimes::VPScale);
+				} else {
+					// Done in the same call as the conversion, and timed there.
+					text += std::format(L", in step {}", vpStep);
+				}
+			} else if (bDlssSR) {
+				// Its quality mode and preset, DLAA among them: the last word of its own line.
+				const std::wstring sr = m_DlssSR.GetStatsLine();
+				const size_t space = sr.rfind(L' ');
+				text += L" DLSS SR ";
+				text.append(space == std::wstring::npos ? sr : sr.substr(space + 1));
+				extra = Ms(CGpuStageTimes::SR);
+			} else {
+				text += L' ';
+				if (m_strShaderX) {
+					text.append(m_strShaderX);
+					if (m_strShaderY && m_strShaderY != m_strShaderX) {
+						text += L'/';
+						text.append(m_strShaderY);
+					}
+				} else if (m_strShaderY) {
+					text.append(m_strShaderY);
+				}
+				if (m_bMpvLumaRan) {
+					extra = Ms(CGpuStageTimes::MpvLuma);
 				}
 			}
-		} else {
-			str += L' ';
-			if (m_strShaderX) {
-				str.append(m_strShaderX);
-				if (m_strShaderY && m_strShaderY != m_strShaderX) {
-					str += L'/';
-					str.append(m_strShaderY);
-				}
-			} else if (m_strShaderY) {
-				str.append(m_strShaderY);
-			}
+		}
+		Step(L"Scaling", text, Sum(extra, Ms(CGpuStageTimes::Resize)));
+		if (bDlssSR && !m_strDlssSRMotion.empty()) {
+			SubStep(L"motion", m_strDlssSRMotion, Ms(CGpuStageTimes::SRMotion));
+		} else if (m_bDlssSR && !bDlssSR) {
+			// Ticked and not enlarging: why, or that nothing needed enlarging.
+			SubStep(L"DLSS SR", m_DlssSR.GetStatsLine(), -1);
 		}
 	}
 
-	if (m_strCorrection || m_pPostScaleShaders.size() || m_bDitherUsed) {
-		str.append(L"\nPostProcessing:");
+	DlssNRSteps(true);
+
+	// Everything after the resize, at the size the picture is shown at.
+	{
+		std::wstring text;
+		const auto Add = [&](const std::wstring& what) {
+			if (!text.empty()) {
+				text += L", ";
+			}
+			text += what;
+		};
 		if (m_strCorrection) {
-			str += std::format(L" {},", m_strCorrection);
+			Add(m_strCorrection);
+		}
+		if (m_pPSHDR10ToneMapping) {
+			Add(L"tone mapping");
+		}
+		if (m_pPSSharpen) {
+			Add(std::format(L"{} {}", m_iSharpen == SHARPEN_UnsharpClamp ? L"Unsharp + Clamp" : L"Adaptive-Sharpen",
+				m_iSharpenLevel));
 		}
 		if (m_pPostScaleShaders.size()) {
-			str += std::format(L" shaders[{}],", m_pPostScaleShaders.size());
+			Add(std::format(L"shaders[{}]", m_pPostScaleShaders.size()));
 		}
 		if (m_bDitherUsed) {
-			str.append(L" dither");
+			Add(L"dither");
 		}
-		str_trim_end(str, ',');
+		if (!text.empty()) {
+			Step(L"Finish", text, Ms(CGpuStageTimes::Finish));
+		}
 	}
-	str.append(m_strStatsHDR);
-	str.append(m_strStatsPresent);
 
-	str += std::format(L"\nFrames        : {:5}, skipped: {}/{}, failed: {}",
-		m_pFilter->m_FrameStats.GetFrames(), m_pFilter->m_DrawStats.m_dropped, m_RenderStats.dropped2, m_RenderStats.failed);
-	// A picture whose turn was taken away after it had been given one. Without the
-	// way out in WaitForRenderTime this is where the picture stopped for good, so
-	// the count is worth showing: it says the freeze was really there and was really
-	// caught.
-	if (m_pFilter->m_nRenderWaitsBroken) {
-		str += std::format(L", turns lost: {}", m_pFilter->m_nRenderWaitsBroken);
+	if (!m_strStatsHDR.empty()) {
+		Step(L"HDR", m_strStatsHDR, -1);
 	}
-	if (m_pFilter->m_nRenderWaitsLate) {
-		str += std::format(L", turns late: {} (turn {:+} ms, clock {:+} ms, base {:+} ms)",
-			m_pFilter->m_nRenderWaitsLate, m_pFilter->m_msLastTurnAhead,
-			m_pFilter->m_msClockSinceLastTurn, m_pFilter->m_msBaseSinceLastTurn);
+
+	// What the steps cost together, against the time a picture lasts: the first thing
+	// to look at when pictures come late.
+	const double frameMs = m_pFilter->m_FrameStats.GetAverageFrameDuration() / 10000.0 / (m_bDoubleFrames ? 2 : 1);
+	if (bTimed) {
+		Line(L"  Total", frameMs > 0 ? std::format(L"for a frame of {:.1f} ms", frameMs) : std::wstring(), total, false);
 	}
+
+	// -- How the picture reaches the screen, in the order it happens.
+	Rule(L"Timing", nullptr);
+
 	// Every picture is scheduled against this clock, so when the pictures stop
 	// arriving on time the first thing worth knowing is whose clock it is.
 	if (m_pFilter->m_szClockName[0]) {
@@ -6868,10 +7014,29 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 			m_pFilter->m_bClockStalled ? L", stopped -- pictures paced by the stream" : L"");
 	}
 
-	str += std::format(L"\nTimes(ms)     : Copy{:3}, Paint{:3}, Present{:3}",
-		m_RenderStats.copyticks    * 1000 / GetPreciseTicksPerSecondI(),
-		m_RenderStats.paintticks   * 1000 / GetPreciseTicksPerSecondI(),
-		m_RenderStats.presentticks * 1000 / GetPreciseTicksPerSecondI());
+	// How early a sample is asked for, how long a picture then takes from its sample to
+	// the GPU being done with it, and how many were not done at their present time.
+	if (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded()) {
+		if (!m_bDlssRenderAhead) {
+			str.append(L"\nRender ahead  : off");
+		} else if (m_RenderAhead.MeanLatencyMs() >= 0) {
+			str += std::format(L"\nRender ahead  : asked {:.0f} ms early, ready in {:.1f} (max {:.1f}), {} not in time",
+				m_RenderAhead.GetAhead() / 10000.0, m_RenderAhead.MeanLatencyMs(), m_RenderAhead.MaxLatencyMs(),
+				m_RenderAhead.LateCount());
+		}
+	}
+
+	// The last picture on the render thread: copying the sample, drawing it (DLSS 5 NR
+	// waited for included), waiting for the moment to present it, and Present itself.
+	{
+		const double ticksPerMs = GetPreciseTicksPerSecond() / 1000.0;
+		const uint64_t wait = std::min(m_presentWaitTicks, m_RenderStats.presentticks);
+		str += std::format(L"\nCPU (ms)      : copy {:.1f}, draw {:.1f}, wait {:.1f}, Present {:.1f}",
+			m_RenderStats.copyticks / ticksPerMs, m_RenderStats.paintticks / ticksPerMs,
+			wait / ticksPerMs, (m_RenderStats.presentticks - wait) / ticksPerMs);
+	}
+
+	str.append(m_strStatsPresent);   // the swap chain, and what times each Present
 
 	str += std::format(L"\nSync offset   : {:+3} ms", (m_RenderStats.syncoffset + 5000) / 10000);
 	if (m_bScheduled) {
@@ -6883,7 +7048,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		} else {
 			str += L"\nOn screen     :   ? ms";
 		}
-		str += std::format(L", scheduled, repeated {}, dropped {}, late {}",
+		str += std::format(L", scheduled: repeated {}, dropped {}, shown late {}",
 			m_PresentSchedule.RepeatedCount(), m_PresentSchedule.DroppedCount(), m_PresentSchedule.LateCount());
 	} else
 	if (m_bDlssRenderAhead && m_UsedSwapEffect == DXGI_SWAP_EFFECT_DISCARD && m_pFilter->m_filterState == State_Running) {
@@ -6928,62 +7093,21 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		str += std::format(L"\nVideo delay   : {:+.0f} ms asked for, the picture {:+.0f} ms from its own time", delayMs, delayMs + offsetMs);
 	}
 
-	std::wstring times;
-	const auto AddTime = [&](const wchar_t* name, double ms) {
-		if (ms >= 0) {
-			times += std::format(L"{}{} {:.1f}", times.empty() ? L"" : L", ", name, ms);
-		}
-	};
-
-	// The mpv prescalers' GPU time, while they run.
-	if (m_MpvLuma.IsLoaded() && m_bMpvLumaRan) {
-		AddTime(m_MpvLuma.Info()->name, m_DlssStageTimes.MeanMs(CGpuStageTimes::MpvLuma));
+	// The samples that came in, and the two kinds left out undrawn: by the renderer for
+	// coming too late, and the second field of a deinterlaced one.
+	str += std::format(L"\nFrames        : {:5} received, skipped {} late + {} fields, failed {}",
+		m_pFilter->m_FrameStats.GetFrames(), m_pFilter->m_DrawStats.m_dropped, m_RenderStats.dropped2, m_RenderStats.failed);
+	// A picture whose turn was taken away after it had been given one. Without the
+	// way out in WaitForRenderTime this is where the picture stopped for good, so
+	// the count is worth showing: it says the freeze was really there and was really
+	// caught.
+	if (m_pFilter->m_nRenderWaitsBroken) {
+		str += std::format(L", turns lost: {}", m_pFilter->m_nRenderWaitsBroken);
 	}
-	if (m_bMpvChromaActive && !m_D3D11VP.IsReady()) {
-		AddTime(L"RAVU-zoom chroma", m_DlssStageTimes.MeanMs(CGpuStageTimes::MpvChroma));
-	}
-	if (!times.empty()) {
-		str += L"\nPrescale (ms) : " + times;
-		times.clear();
-	}
-
-	if (m_bDlssNRActive || m_bDlssSRActive) {
-		// Where the DLSS time goes: DLSS 5 NR as the renderer waits for it, the
-		// other stages on the GPU. Optical Flow shows under the stabilizer when
-		// it serves DLSS 5 NR, as OF when DLSS SR runs its own.
-		if (m_bDlssNRActive) {
-			AddTime(L"NR", m_DlssNRTimes.Mean());
-			if (m_DlssCompose.IsCreated()) {
-				// The reduction and the composition at a working size below the picture's.
-				const double reduce = m_DlssStageTimes.MeanMs(CGpuStageTimes::NRReduce);
-				const double compose = m_DlssStageTimes.MeanMs(CGpuStageTimes::NRCompose);
-				AddTime(L"scale", (reduce >= 0 || compose >= 0) ? std::max(reduce, 0.0) + std::max(compose, 0.0) : -1.0);
-			}
-			const double motion = m_DlssStageTimes.MeanMs(CGpuStageTimes::NRMotion);
-			const double stabilize = m_DlssStageTimes.MeanMs(CGpuStageTimes::NRStabilize);
-			AddTime(L"stabilizer", (motion >= 0 || stabilize >= 0) ? std::max(motion, 0.0) + std::max(stabilize, 0.0) : -1.0);
-			if (m_bVPScaled) {
-				// The processor's second turn, Super Resolution with it when it is on.
-				AddTime(L"resize", m_DlssStageTimes.MeanMs(CGpuStageTimes::VPScale));
-			}
-		}
-		if (m_bDlssSRActive) {
-			AddTime(L"OF", m_DlssStageTimes.MeanMs(CGpuStageTimes::SRMotion));
-			AddTime(L"SR", m_DlssStageTimes.MeanMs(CGpuStageTimes::SR));
-		}
-		if (!times.empty()) {
-			str += L"\nDLSS (ms)     : " + times;
-		}
-	}
-
-	if (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded()) {
-		if (!m_bDlssRenderAhead) {
-			str.append(L"\nRender ahead  : off");
-		} else if (m_RenderAhead.MeanLatencyMs() >= 0) {
-			str += std::format(L"\nRender ahead  : {:.0f} ms (ready in {:.1f}, max {:.1f}), late {}",
-				m_RenderAhead.GetAhead() / 10000.0, m_RenderAhead.MeanLatencyMs(), m_RenderAhead.MaxLatencyMs(),
-				m_RenderAhead.LateCount());
-		}
+	if (m_pFilter->m_nRenderWaitsLate) {
+		str += std::format(L", turns late: {} (turn {:+} ms, clock {:+} ms, base {:+} ms)",
+			m_pFilter->m_nRenderWaitsLate, m_pFilter->m_msLastTurnAhead,
+			m_pFilter->m_msClockSinceLastTurn, m_pFilter->m_msBaseSinceLastTurn);
 	}
 
 	return str;
@@ -7030,7 +7154,7 @@ HRESULT CDX11VideoProcessor::DrawStats(ID3D11Texture2D* pRenderTarget)
 
 	const std::wstring str = GetStatsText();
 
-	// The DLSS and prescaler lines come and go: the box is made to fit them.
+	// A step's lines come and go with the step: the box is made to fit them.
 	if (UpdateStatsLayout(str)) {
 		CalcStatsParams();
 	}

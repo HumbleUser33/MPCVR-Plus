@@ -220,8 +220,8 @@ static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, 
 		}
 		wprintf(L"\n  input: %s\n  before any change: %s | HDR: %s\n\n",
 			StatsLine(text, L"Input format  : ").c_str(),
-			StatsLine(text, L"VideoProcessor: ").c_str(),
-			StatsLine(text, L"HDR processing: ").c_str());
+			ConvertLine(text).c_str(),
+			StepLine(text, L"HDR").c_str());
 	}
 	printf("  %-38s %8s %7s %8s  %s\n", "setting changed", "call (s)", "fps", "screen", "what the picture goes through");
 
@@ -268,18 +268,15 @@ static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, 
 		ParseSkipped(text, framesB, skipped);
 
 		const double fps = (framesB - framesA) / 1.5;
-		std::wstring processor = StatsLine(text, L"VideoProcessor: ");
-		const std::wstring scaling = StatsLine(text, L"Scaling       : ");
+		// The conversion names the shaders' chroma method itself when they convert.
+		std::wstring processor = ConvertLine(text);
+		const std::wstring scaling = StepLine(text, L"Scaling");
 		if (!scaling.empty()) {
 			processor += L" | " + scaling;
 		}
-		const std::wstring hdr = StatsLine(text, L"HDR processing: ");
+		const std::wstring hdr = StepLine(text, L"HDR");
 		if (!hdr.empty()) {
 			processor += L" | HDR: " + hdr;
-		}
-		const std::wstring chroma = StatsLine(text, L"Chroma scaling: ");
-		if (!chroma.empty()) {
-			processor += L", chroma " + chroma;
 		}
 		// The renderer may draw every picture into a swap chain the screen no
 		// longer shows, so what counts is whether the window itself changes.

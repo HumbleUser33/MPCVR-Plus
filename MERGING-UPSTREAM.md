@@ -158,10 +158,11 @@ notice its absence.
 | Temporal stabilizer on Optical Flow | `Source/DLSS/DlssStabilizer.cpp`, `DlssOpticalFlow.cpp` | `--tstab`, `--tstabport` |
 | DLSS Super Resolution 4.5, with its own motion | `Source/DLSS/DlssSR.cpp`, `DlssStabilizer.cpp` | `--tsr`, `--tsrport`, `--tsrstill` |
 | Render ahead | `Source/DX11VideoProcessor.cpp` | `playback_test --seconds` |
-| The settings page, seven tabs in one | `Source/SettingsPage/` | `playback_test --mainpage`, `--frame` |
+| The settings page, eight tabs in one | `Source/SettingsPage/` | `playback_test --mainpage`, `--frame` |
+| The statistics laid out as the pipeline, each step with its GPU time | `Source/DX11VideoProcessor.cpp` (`GetStatsText`), `Source/DLSS/DlssTiming.cpp` | `playback_test --file <film> --only 4`, `--afternr` |
 | mpv prescalers: FSRCNNX 8/16, RAVU-zoom, ArtCNN, the AR entries | `Source/Upscale/`, `Shaders/mpv/` | `--tmpvport`, `--tupscale`, `--scalers` |
 | Chroma: Jinc (EWA), RAVU-zoom, FSRCNNX 8 AR | `Source/Shaders.cpp`, `Source/DX11VideoProcessor.cpp` | `--tchroma`, `--chroma`, `--chroma10` |
-| 4:4:4 pre-pass ("Replace VP chroma upsampling") | `Source/DX11VideoProcessor.cpp`, `Source/Shaders.cpp` | `shader444_test`, `--chroma10`, `vp444_probe` |
+| 4:4:4 pre-pass ("Use this method instead of the video processor's chroma upsampling") | `Source/DX11VideoProcessor.cpp`, `Source/Shaders.cpp` | `shader444_test`, `--chroma10`, `vp444_probe` |
 | The flip model kept on a window (no more freeze) | `Source/DX11VideoProcessor.cpp` | `playback_test --toggle`, `--switch` |
 | Every setting applied while the film plays | `Source/VideoRenderer.cpp`, `DX11VideoProcessor.cpp` | `--toggle`, `--switch`, `--gpu` |
 | Lanczos weights kept finite at integer scale | `Shaders/d3d11/ps_interpolation_lanczos*.hlsl` | `--tupscale` |
@@ -171,6 +172,13 @@ notice its absence.
 
 ## Traps we have already fallen into
 
+- **The Direct3D 11 statistics are ours.** `CDX11VideoProcessor::GetStatsText` lays the
+  overlay out as the pipeline, and upstream's lines -- *VideoProcessor*, *Scaling*,
+  *PostProcessing*, *Presentation* -- have become its steps. An upstream commit that changes
+  what one of them says merges into a function that is no longer upstream's, or conflicts
+  with it: carry what it says into the step it belongs to, by hand. Upstream touches them
+  rarely (`46ed311` is the one change since 0.10.7). `playback_test` reads the steps by name
+  and prints them under its old labels, so the report stays comparable.
 - **A compute pass sets no render target of its own.** If the caller has just drawn into a
   texture the pass reads, that texture is still bound as a render target and Direct3D
   silently drops its shader resource view: the pass reads zeros. It cost a black picture

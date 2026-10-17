@@ -565,6 +565,127 @@ static std::wstring StatsLine(const std::wstring& text, const wchar_t* label)
 	return text.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
 }
 
+// A line of the statistics' pipeline, by the step's name and whatever number it was
+// given ("3 Scaling     : ..."), or a step's sub-line ("    motion    : ..."): what
+// follows the colon, and the time at its end, in a column of its own, apart. The time
+// is the last word when it is a number with one decimal, which no step's text ends on.
+static std::wstring StepLine(const std::wstring& text, const wchar_t* name, double* pMs = nullptr)
+{
+	if (pMs) {
+		*pMs = -1;
+	}
+	const size_t nameLength = wcslen(name);
+	for (size_t pos = 0; pos < text.size();) {
+		size_t end = text.find(L'\n', pos);
+		if (end == std::wstring::npos) {
+			end = text.size();
+		}
+		const std::wstring line = text.substr(pos, end - pos);
+		pos = end + 1;
+		size_t i = 0;
+		while (i < line.size() && (iswdigit(line[i]) || line[i] == L' ')) {
+			i++;
+		}
+		// A step has a number or an indent; the lines around the pipeline have neither.
+		if (!i || line.compare(i, nameLength, name)) {
+			continue;
+		}
+		size_t colon = i + nameLength;
+		while (colon < line.size() && line[colon] == L' ') {
+			colon++;
+		}
+		if (colon >= line.size() || line[colon] != L':') {
+			continue;
+		}
+		std::wstring rest = line.substr(std::min(colon + 2, line.size()));
+		const size_t last = rest.find_last_not_of(L' ');
+		if (last == std::wstring::npos) {
+			return {};
+		}
+		const size_t space = rest.find_last_of(L' ', last);
+		if (space != std::wstring::npos) {
+			const std::wstring word = rest.substr(space + 1, last - space);
+			const size_t dot = word.find(L'.');
+			wchar_t* stop = nullptr;
+			const double value = wcstod(word.c_str(), &stop);
+			if (dot != std::wstring::npos && dot + 2 == word.size() && stop && !*stop) {
+				if (pMs) {
+					*pMs = value;
+				}
+				rest.resize(space);
+			}
+		}
+		rest.erase(rest.find_last_not_of(L' ') + 1);
+		return rest;
+	}
+	return {};
+}
+
+static double StepMs(const std::wstring& text, const wchar_t* name)
+{
+	double ms = -1;
+	StepLine(text, name, &ms);
+	return ms;
+}
+
+// The old "DLSS (ms)" line of the statistics, put back together from the steps that
+// carry those times now, so that the report reads as it always has and the checks
+// that look for "NR " and "resize " in it keep their meaning.
+static std::wstring DlssTimes(const std::wstring& text)
+{
+	std::wstring times;
+	const auto Add = [&](const wchar_t* name, double ms) {
+		if (ms >= 0) {
+			times += std::format(L"{}{} {:.1f}", times.empty() ? L"" : L", ", name, ms);
+		}
+	};
+	const std::wstring scaling = StepLine(text, L"Scaling");
+	if (StepMs(text, L"DLSS 5 NR") >= 0) {
+		Add(L"NR", StepMs(text, L"DLSS 5 NR"));
+		Add(L"scale", StepMs(text, L"working"));
+		Add(L"stabilizer", StepMs(text, L"stabilizer"));
+		// The processor's second turn, after the network; its first turn is timed with the conversion.
+		if (scaling.find(L" D3D11") != std::wstring::npos && scaling.find(L", in step ") == std::wstring::npos) {
+			Add(L"resize", StepMs(text, L"Scaling"));
+		}
+	}
+	if (scaling.find(L" DLSS SR ") != std::wstring::npos) {
+		Add(L"OF", StepMs(text, L"motion"));
+		Add(L"SR", StepMs(text, L"Scaling"));
+	}
+	return times;
+}
+
+// The old "Prescale (ms)" line: the mpv prescalers' steps, luma and chroma.
+static std::wstring PrescaleTimes(const std::wstring& text)
+{
+	std::wstring times;
+	for (const wchar_t* step : { L"Scaling", L"Chroma", L"Convert" }) {
+		double ms = -1;
+		const std::wstring line = StepLine(text, step, &ms);
+		for (const wchar_t* prescaler : { L"FSRCNNX", L"RAVU", L"ArtCNN" }) {
+			if (line.find(prescaler) != std::wstring::npos && ms >= 0) {
+				times += std::format(L"{}{} {:.1f}", times.empty() ? L"" : L", ",
+					wcscmp(step, L"Scaling") ? L"chroma" : L"luma", ms);
+				break;
+			}
+		}
+	}
+	return times;
+}
+
+// The old "VideoProcessor" line: what converts the picture, after the chroma step
+// that rebuilds the chroma for the processor when there is one.
+static std::wstring ConvertLine(const std::wstring& text)
+{
+	std::wstring line = StepLine(text, L"Processor");
+	if (line.empty()) {
+		line = StepLine(text, L"Convert");
+	}
+	const std::wstring chroma = StepLine(text, L"Chroma");
+	return chroma.empty() ? line : chroma + L" | " + line;
+}
+
 #include "screen_watch.inl"
 
 struct Config {
@@ -762,15 +883,20 @@ static bool ParseSkipped(const std::wstring& text, int& frames, int& skipped)
 {
 	const std::wstring line = StatsLine(text, L"Frames        : ");
 	int dropped2 = 0, failed = 0;
-	return !line.empty() && swscanf_s(line.c_str(), L"%d, skipped: %d/%d, failed: %d", &frames, &skipped, &dropped2, &failed) >= 2;
+	return !line.empty() && swscanf_s(line.c_str(), L"%d received, skipped %d late + %d fields, failed %d",
+		&frames, &skipped, &dropped2, &failed) >= 2;
 }
 
-// The late count at the end of the Render ahead line; 0 when there is none.
+// The pictures not ready in time, at the end of the Render ahead line; 0 when there is none.
 static int ParseLate(const std::wstring& text)
 {
 	const std::wstring line = StatsLine(text, L"Render ahead  : ");
-	const size_t pos = line.rfind(L"late ");
-	return pos == std::wstring::npos ? 0 : _wtoi(line.c_str() + pos + 5);
+	const size_t pos = line.rfind(L" not in time");
+	if (pos == std::wstring::npos) {
+		return 0;
+	}
+	const size_t start = line.find_last_of(L' ', pos - 1);
+	return _wtoi(line.c_str() + (start == std::wstring::npos ? 0 : start + 1));
 }
 
 #include "file_graph.inl"
@@ -1256,7 +1382,7 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 				Settings_t now;
 				pVR->GetSettings(now);
 				wprintf(L"   %4.1f s  scaling: %s | upscaling %d, sharpen %d | skipped so far: %s\n", i / 10.0,
-					StatsLine(text, L"Scaling       : ").c_str(), now.iUpscaling, now.iSharpen,
+					StepLine(text, L"Scaling").c_str(), now.iUpscaling, now.iSharpen,
 					StatsLine(text, L"Frames        : ").c_str());
 			}
 		}
@@ -1277,8 +1403,9 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 			printf("   %4.1f s  -- DLSS 5 NR working size changed from %d to %d %% --\n", i / 10.0, g_nrScale, g_nrScaleTo);
 		}
 		if ((g_nrScale != DLSSNR_SCALE_DEF || g_nrScaleTo) && i % 10 == 9) {
-			wprintf(L"   %4.1f s  %s | %s | skipped %s\n", i / 10.0, StatsLine(text, L"DLSS 5 NR     : ").c_str(),
-				StatsLine(text, L"DLSS (ms)     : ").c_str(), StatsLine(text, L"Frames        : ").c_str());
+			const std::wstring working = StepLine(text, L"working");
+			wprintf(L"   %4.1f s  %s%s%s | %s | skipped %s\n", i / 10.0, StepLine(text, L"DLSS 5 NR").c_str(),
+				working.empty() ? L"" : L", at ", working.c_str(), DlssTimes(text).c_str(), StatsLine(text, L"Frames        : ").c_str());
 		}
 		if ((g_videoDelay || g_videoDelayTo != INT_MIN) && i % 10 == 9) {
 			wprintf(L"   %4.1f s  sync %s | on screen %s | %s\n", i / 10.0, sync.c_str(),
@@ -1327,16 +1454,23 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 
 	ParseSkipped(text, result.framesAtEnd, result.skippedAtEnd);
 	result.lateAtEnd = ParseLate(text);
-	result.nrLine = StatsLine(text, L"DLSS 5 NR     : ");
-	result.srLine = StatsLine(text, L"DLSS SR       : ");
-	result.dlssTimes = StatsLine(text, L"DLSS (ms)     : ");
+	// The report keeps its own lines as they were: what the statistics now say step by
+	// step is put back into them.
+	result.nrLine = StepLine(text, L"DLSS 5 NR");
+	result.scalingLine = StepLine(text, L"Scaling");
+	if (result.scalingLine.find(L" DLSS SR ") != std::wstring::npos) {
+		const std::wstring motion = StepLine(text, L"motion");
+		result.srLine = motion.empty() ? result.scalingLine : result.scalingLine + L", " + motion;
+	} else {
+		result.srLine = StepLine(text, L"DLSS SR");
+	}
+	result.dlssTimes = DlssTimes(text);
 	result.aheadLine = StatsLine(text, L"Render ahead  : ");
 	result.onScreenLine = StatsLine(text, L"On screen     : ");
-	result.vprocLine = StatsLine(text, L"VideoProcessor: ");
+	result.vprocLine = ConvertLine(text);
 	result.statsAll = text;
-	result.scalingLine = StatsLine(text, L"Scaling       : ");
-	result.hdrLine = StatsLine(text, L"HDR processing: ");
-	result.prescaleTimes = StatsLine(text, L"Prescale (ms) : ");
+	result.hdrLine = StepLine(text, L"HDR");
+	result.prescaleTimes = PrescaleTimes(text);
 	if (g_filmFile) {
 		ReportVPUse(pVR);
 		result.vpUse = pVR->GetActive() ? pVR->GetVideoProcessorUse() : 0;

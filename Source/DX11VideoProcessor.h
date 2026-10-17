@@ -288,7 +288,8 @@ private:
 	bool     m_bCatchUpFutile = false;  // it did not: no more until the stream is flushed
 	double   m_dWaitAtCatchUp = 0;      // how long pictures waited when the last one was left out, ms
 	uint64_t m_tickSampleStart = 0;     // GetPreciseTick() when ProcessSample began on the current sample
-	// Time of each DLSS stage and of the mpv prescalers, for the statistics.
+	uint64_t m_presentWaitTicks = 0;    // of m_RenderStats.presentticks, the wait before Present was called
+	// Time of each step a picture goes through, for the statistics.
 	CGpuStageTimes m_DlssStageTimes;
 	CRollingMs m_DlssNRTimes;
 

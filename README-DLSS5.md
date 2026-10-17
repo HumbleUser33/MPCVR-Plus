@@ -237,8 +237,8 @@ The picture keeps its own fine detail and its own grain, and the network's chang
 down to the detail the working size holds. Nothing else in the chain moves: the pass still
 takes and gives the picture at the source's size, or at the window's after upscaling, and
 whatever resizes goes on resizing after it. At 100 nothing is reduced and the pass is what it
-was. The statistics say the working size on the `DLSS 5 NR` line and the reduction and the
-composition as `scale` in `DLSS (ms)`; the trace's note says it too.
+was. The statistics give the working size a line under the `DLSS 5 NR` step, `working`, with what
+the reduction and the composition cost; the trace's note says it too.
 
 Measured with `dlssnr_harness --tnrscale` on a 4K film frame (`4K1.png`, 3840x2160) with fresh
 grain on every picture and the filter's default settings, against the network and the
@@ -303,8 +303,8 @@ and one that does not fit the 41.7 ms a picture lasts is left out undrawn:
 
 Where every picture but a few was drawn, those few are the first, while the session starts,
 and one more in Kill Bill at 75 %, 9.4 s in. On this card a 3840x2160 film wants 55 % and a
-3840x1600 one 75 %; a faster card wants less taken off, and the statistics' `DLSS (ms)` line
-says how much room is left. A new working size is taken on Apply, and the network starts
+3840x1600 one 75 %; a faster card wants less taken off, and the statistics' *Total* line, against
+the frame it names, says how much room is left. A new working size is taken on Apply, and the network starts
 again at it: seven pictures went undrawn in the bench while it did
 (`playback_test --nrscale 100 --nrscaleto 70`).
 
@@ -466,8 +466,8 @@ or off. When NR runs before upscaling, SR takes its output.
 screen's size -- 4K on a 4K screen -- never reached it at all. With this ticked it runs there
 too, at the picture's own size, rebuilding it without changing its scale; `QualityModeFor`
 asks NGX for `NGX_PERFQUALITY_DLAA` at a ratio of one, which is the mode games call DLAA. The
-statistics line says so: `DLSS SR : 3840x2160->3840x2160 DLAA/M`. Off, the same film reads
-`DLSS SR : initialised` and no pass runs.
+statistics' Scaling step says so: `3840x2160 -> 3840x2160 DLSS SR DLAA/M`. Off, the same film
+reads `DLSS SR : initialised` under it and no pass runs.
 
 It costs a whole DLSS pass at the screen's size, which is the most expensive place to put one.
 Measured here on an RTX 3050, with `playback_test --dlaa --size WxH --window WxH`, per frame:
@@ -958,15 +958,17 @@ The **defaults are unchanged**: Upscaling is Jinc2m and Chroma upsampling Catmul
 fresh installation, and settings already saved in the registry are left alone — each entry
 carries its own number, so reordering the lists moved nobody's setting.
 
-The statistics show what they cost, next to the DLSS lines:
+The statistics show what they cost on the step they serve, a luma prescaler on *Scaling* with
+the resize that finishes its work, a chroma one on *Convert* or *Chroma* (an 800x450 picture
+in a 1280x720 window, `playback_test`):
 
-    Prescale (ms) : FSRCNNX 16 8.4, RAVU-zoom chroma 1.9
+    1 Scaling     : 800x450 -> 1280x720 FSRCNNX 16 AR                   15.4
 
 Only what runs is listed. When the hardware video processor handles the source format it
 converts the picture itself, chroma included, so the **Chroma upsampling** list has nothing to
-do and no chroma line appears; the processor line says so:
+do and no chroma step appears; the processor's step says so:
 
-    VideoProcessor: D3D11 VP, output to R10G10B10A2_UNORM, converts chroma
+    1 Processor   : D3D11 VP to R10G10B10A2_UNORM, converts chroma       1.3
 
 The settings page greys a list that is out of service for that reason: **Chroma upsampling**
 while the video processor converts, **Upscaling** and **Downscaling** while it also resizes
@@ -1065,10 +1067,10 @@ In MPC-HC, a 1080p film at 25 fps on a television at 25 Hz, RTX Video HDR on: wi
 and the processor enlarging, a picture is ready 26 ms after it arrives, and 36 to 39 ms with
 Super Resolution as well (the *Render ahead* line) -- of the 40 ms a frame lasts. That is the
 edge, on an RTX 4060: over stretches of a hundred pictures one run left none out and another
-up to 7. The statistics give the second turn its own figure:
+up to 7. The statistics give the second turn its figure on the Scaling step, which is what it is -- in
+the bench, a 1920x800 film in a 2880x1200 window, DLSS 5 NR at 55 %:
 
-    Scaling       : 1920x1080 -> 3840x2160 D3D11 SuperResolution*
-    DLSS (ms)     : NR 17.5, stabilizer 2.8, resize 13.7
+    3 Scaling     : 1920x800 -> 2880x1200 D3D11 SuperResolution*        10.7
 
 Four cases stand apart:
 
@@ -1153,13 +1155,19 @@ the picture, in 8-bit levels):
 - **HDR passthrough** is unaffected: the processor answers that it converts a PQ picture in
   AYUV, Y410 or Y416 to PQ RGB just as it does one in NV12 or P010 (`vp444_probe --hdrconv`).
 
-The statistics say which is happening, and why when the option does not apply:
+The statistics say which is happening: the chroma pass is a step of its own, before the
+processor, with what it costs (a 1920x800 film, Jinc):
 
-    VideoProcessor: D3D11 VP, output to R10G10B10A2_UNORM, chroma by shaders: Catmull-Rom
-    VideoProcessor: D3D11 VP, output to B8G8R8A8_UNORM, converts chroma (interlaced)
+    1 Chroma      : 4:2:0 -> 4:4:4 Jinc (EWA), for the processor         2.6
+    2 Processor   : D3D11 VP to R10G10B10A2_UNORM                        0.6
 
-The box needs Direct3D 11 and costs the chroma pass, a few tenths of a millisecond at 1080p
-(RAVU-zoom, which enlarges Cb and Cr through its own shader first, costs about 3 ms).
+and an interlaced film, which keeps the processor's chroma, reads `converts chroma
+(interlaced)` on the Processor step.
+
+The box needs Direct3D 11 and costs the chroma pass, which the Chroma step times: a few tenths
+of a millisecond at 1080p for Catmull-Rom and the simpler kernels, more for Jinc (2.6 ms on the
+1920x800 film above), about 3 ms for RAVU-zoom, which enlarges Cb and Cr through its own
+shader first.
 
 Render ahead (below) covers them as well: with FSRCNNX 16 or ArtCNN a 4K picture takes more than the 8 ms
 the renderer allows itself, and without it the picture would reach the screen late.
@@ -1294,17 +1302,20 @@ after the present time, because the source cannot hand over a picture earlier th
 minus its own time. Render ahead does not make the chain faster than the video: at 50 or 60 fps
 with DLSS 5 NR pictures are still skipped, as they were.
 
-The statistics show where the time goes and what render ahead does:
+The statistics show where the time goes and what render ahead does (see *Reading the
+statistics* for the rest):
 
-    DLSS (ms)     : NR 23.0, stabilizer 1.7, SR 3.3
-    Render ahead  : 34 ms (ready in 29.8, max 30.6), late 10
+    2 DLSS 5 NR   : cinematic/P0 i1.50 t0.30 s0.50 k0.90 auto           16.4
+        stabilizer: 100, Optical Flow 960x540, vectors to DLSS           2.0
+    3 Scaling     : 1920x1080 -> 3840x2160 DLSS SR Perf/M                6.1
+        motion    : Optical Flow, global motion                          1.7
+    Render ahead  : asked 43 ms early, ready in 30.5 (max 31.5), 7 not in time
 
 *ready in* is the whole picture, from the start of processing to the GPU being done: the mean
-and the slowest of the last 32. *late* counts pictures the GPU had not finished at their present
-time. A few at start-up are normal; a count that keeps growing means the chain barely fits the
+and the slowest of the last 32. *not in time* counts pictures the GPU had not finished at their
+present time. A few at start-up are normal; a count that keeps growing means the chain barely fits the
 frame rate, and a lighter DLSS SR preset gives it room. DLSS 5 NR is timed where the renderer
-waits for it, the other stages with GPU timestamps while the statistics are shown.
-*Times(ms): Present* includes the wait.
+waits for it, the other steps with GPU timestamps while the statistics are shown.
 
 ### A film at the screen's own rate
 
@@ -1436,11 +1447,11 @@ The statistics say it in the two lines that used to disagree:
 
     Frame sync    : a refresh chosen for each picture
     Sync offset   :  -7 ms
-    On screen     :  -8 ms, scheduled, repeated 0, dropped 0, late 0
+    On screen     :  -8 ms, scheduled: repeated 0, dropped 0, shown late 0
 
 *Sync offset* is then the refresh chosen against the picture's time, known before it happens,
 and *On screen* what DXGI reported of a picture already shown, which is the proof of it.
-*repeated*, *dropped* and *late* count what happened while the film played, a start's first
+*repeated*, *dropped* and *shown late* count what happened while the film played, a start's first
 pictures left aside: a picture given a refresh more or left out to keep the step, and one that
 reached the screen later than chosen.
 
@@ -1744,7 +1755,80 @@ without anyone thinking of it.
 
 The feature is also reachable programmatically through `IExFilterConfig`:
 `Flt_SetBool("dlssNR", true/false)` and `Flt_GetBool("dlssNR", &b)`. `Flt_GetString("statsText")`
-returns the statistics as they are drawn on the picture, for tools that log them.
+returns the statistics as they are drawn on the picture, for tools that log them;
+`playback_test` reads the steps by their names, whatever number they were given.
+
+---
+
+## Reading the statistics
+
+The statistics (*Show statistics*, Ctrl+J in MPC-HC) follow a picture through the renderer:
+what comes in, each step it goes through in the order the renderer takes them with what that
+step costs, then how it reaches the screen. A step that does not run has no line. The
+bench's account of a 1080p film at 25 fps in a 4K window, DLSS 5 NR and DLSS SR on, on the
+RTX 4060 (`playback_test --file <film> --window 3840x2160 --only 4`):
+
+    -- Source --------------------------------------------------------------
+    Input format  : NV12 1920x1080
+      Range: 16-235, Matrix: BT.709
+      Primaries: BT.709, Function: BT.709
+      ChromaLocation: Left(MPEG-2)
+    Frame rate    :  25.000p in,  25.003 drawn
+    -- Pipeline, in R16G16B16A16_FLOAT ------------------------------ GPU ms
+    1 Processor   : D3D11 VP to R10G10B10A2_UNORM, converts chroma       0.3
+    2 DLSS 5 NR   : cinematic/P0 i1.50 t0.30 s0.50 k0.90 auto           16.4
+        stabilizer: 100, Optical Flow 960x540, vectors to DLSS           2.0
+    3 Scaling     : 1920x1080 -> 3840x2160 DLSS SR Perf/M                6.1
+        motion    : Optical Flow, global motion                          1.7
+    4 Finish      : Adaptive-Sharpen 4, dither                           1.3
+      Total       : for a frame of 40.0 ms                              27.9
+    -- Timing --------------------------------------------------------------
+    Clock         : Audio renderer
+    Render ahead  : asked 43 ms early, ready in 30.5 (max 31.5), 7 not in time
+    CPU (ms)      : copy 0.2, draw 20.3, wait 27.4, Present 0.1
+    Swap chain    : Flip discard, R10G10B10A2_UNORM, 3 buffers
+    Frame sync    : a refresh chosen for each picture
+    Sync offset   :  +6 ms
+    On screen     :  -4 ms, scheduled: repeated 0, dropped 0, shown late 0
+    Frames        :   362 received, skipped 0 late + 0 fields, failed 0
+
+**The pipeline**, in the order a picture goes through it. The heading names the format the
+steps work in.
+
+| Step | What it says |
+|---|---|
+| Chroma | The chroma replacement: the shaders rebuild 4:2:0 or 4:2:2 colour with the Chroma upsampling method and hand the processor a 4:4:4 picture, a prescaler's time included |
+| Processor | The video processor converts the picture, its chroma too unless the step above took it, and resizes it when it is the one resizing -- the Scaling step then says `in step N` and has no time of its own |
+| Convert | The shaders convert the picture instead, with the chroma method named, a chroma prescaler's time included |
+| DLSS 5 NR | The network's tuning, or why it is not running. *working* is the reduction and the composition at a working size below the picture's; *stabilizer* its Optical Flow and the stabilizer. The network is timed where the renderer waits for it, since it runs on a Direct3D 12 device of its own |
+| Scaling | From what size to what size, and what does it, with all it costs: the processor's second turn after DLSS 5 NR, DLSS SR and its *motion*, or an mpv prescaler, each with the resize shader that finishes the job. `SuperResolution*` when the driver's Super Resolution runs, and `(No Super Resolution when chroma by shaders)` when it was asked for on a 4:4:4 picture. With *DLSS SR* ticked and not enlarging, a sub-line says why |
+| Finish | What runs at the size the picture is shown at: a correction, the tone mapping, the sharpening and its level, the player's shaders, the dither |
+| HDR | What becomes of HDR: passthrough, tone mapping or conversion to SDR, and RTX Video HDR |
+
+Each time is the mean of the last 32 pictures, measured on the GPU with timestamps read back
+later, never waited for, and only while the statistics are shown. **Total** adds them up
+against how long a picture lasts: the first thing to look at when pictures come late. A chain
+whose total comes near the frame has no room left.
+
+**The timing**, in the order it happens to a picture:
+
+- *Clock*: whose clock every picture is scheduled against, normally the audio renderer's.
+- *Render ahead* (see *Render ahead*): how early a sample is asked for, how long a picture then
+  takes from its sample to the GPU being done with it (the mean and the slowest of the last 32,
+  CPU and waits included, so above the total), and how many were not done at their present
+  time.
+- *CPU (ms)*: the last picture on the render thread. *copy* hands the sample to the GPU,
+  *draw* issues every step and waits for DLSS 5 NR, *wait* is the wait for the moment to
+  present -- a refresh chosen in advance, a vertical blank, the picture's time -- and
+  *Present* the call itself. The wait was once counted as Present.
+- *Swap chain* and *Frame sync*: the swap effect, its format and how many buffers it has, and
+  what decides when each picture is presented.
+- *Sync offset* and *On screen*: see *A film at the screen's own rate* and *A refresh chosen
+  for every picture*. *Video delay* follows them when one is set.
+- *Frames*: the samples received, those the renderer left undrawn for coming too late, the
+  second fields of a deinterlaced picture left out, and the pictures that failed.
+
+The sync offset graph, bottom right, draws the *Sync offset* of the last pictures.
 
 ---
 

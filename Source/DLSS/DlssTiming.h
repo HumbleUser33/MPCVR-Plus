@@ -421,20 +421,27 @@ private:
 
 // CGpuStageTimes
 //
-// GPU time of the DLSS stages, for the statistics: timestamp queries read back a
-// few pictures later, never waited for. A picture for which every query set is
-// still with the GPU goes untimed. DLSS 5 NR runs on a Direct3D 12 device of its
-// own and is timed on the CPU instead, where the renderer waits for it.
+// GPU time of each step a picture goes through, for the statistics: timestamp
+// queries read back a few pictures later, never waited for. A picture for which
+// every query set is still with the GPU goes untimed. DLSS 5 NR runs on a Direct3D
+// 12 device of its own and is timed on the CPU instead, where the renderer waits
+// for it.
 
 class CGpuStageTimes
 {
 public:
 	// NRReduce and NRCompose: DLSS 5 NR at a working size below the picture's.
-	enum Stage { NRMotion, NRStabilize, SRMotion, SR, MpvLuma, MpvChroma, VPScale, NRReduce, NRCompose, StageCount };
+	// VP: the video processor's first turn. ShaderConvert: the conversion shader.
+	// Prepass: the chroma rebuilt for the video processor, a prescaler's included.
+	// Resize: the resize shader. Finish: everything after it, dither included.
+	enum Stage { NRMotion, NRStabilize, SRMotion, SR, MpvLuma, MpvChroma, VPScale, NRReduce, NRCompose,
+		VP, ShaderConvert, Prepass, Resize, Finish, StageCount };
 
 	void Release();
 
 	void BeginFrame(ID3D11Device* pDevice, ID3D11DeviceContext* pContext);
+	// A picture is being timed: a query set is open.
+	bool IsRecording() const { return m_iRecording >= 0; }
 	void Begin(ID3D11DeviceContext* pContext, Stage stage);
 	void End(ID3D11DeviceContext* pContext, Stage stage);
 	void EndFrame(ID3D11DeviceContext* pContext);
