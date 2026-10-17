@@ -962,13 +962,14 @@ The statistics show what they cost on the step they serve, a luma prescaler on *
 the resize that finishes its work, a chroma one on *Convert* or *Chroma* (an 800x450 picture
 in a 1280x720 window, `playback_test`):
 
-    1 Scaling     : 800x450 -> 1280x720 FSRCNNX 16 AR                   15.4
+    1 Scaling     : 800x450 -> 1280x720 FSRCNNX 16 AR                           15.4
 
 Only what runs is listed. When the hardware video processor handles the source format it
 converts the picture itself, chroma included, so the **Chroma upsampling** list has nothing to
-do and no chroma step appears; the processor's step says so:
+do and no chroma step appears; the processor's step says so, and that it resizes too (a 1080p
+film in a 1280x720 window):
 
-    1 Processor   : D3D11 VP to R10G10B10A2_UNORM, converts chroma       1.3
+    1 Processor   : D3D11 VP to R10G10B10A2_UNORM, converts chroma, resizes      0.5
 
 The settings page greys a list that is out of service for that reason: **Chroma upsampling**
 while the video processor converts, **Upscaling** and **Downscaling** while it also resizes
@@ -1070,7 +1071,7 @@ edge, on an RTX 4060: over stretches of a hundred pictures one run left none out
 up to 7. The statistics give the second turn its figure on the Scaling step, which is what it is -- in
 the bench, a 1920x800 film in a 2880x1200 window, DLSS 5 NR at 55 %:
 
-    3 Scaling     : 1920x800 -> 2880x1200 D3D11 SuperResolution*        10.7
+    3 Scaling     : 1920x800 -> 2880x1200 D3D11 SuperResolution*                10.7
 
 Four cases stand apart:
 
@@ -1156,16 +1157,16 @@ the picture, in 8-bit levels):
   AYUV, Y410 or Y416 to PQ RGB just as it does one in NV12 or P010 (`vp444_probe --hdrconv`).
 
 The statistics say which is happening: the chroma pass is a step of its own, before the
-processor, with what it costs (a 1920x800 film, Jinc):
+processor, with what it costs (a 1920x800 film in a 2880x1200 window, Jinc):
 
-    1 Chroma      : 4:2:0 -> 4:4:4 Jinc (EWA), for the processor         2.6
-    2 Processor   : D3D11 VP to R10G10B10A2_UNORM                        0.6
+    1 Chroma      : 4:2:0 -> 4:4:4 Jinc (EWA), for the processor                 2.8
+    2 Processor   : D3D11 VP to R10G10B10A2_UNORM, resizes                       0.6
 
 and an interlaced film, which keeps the processor's chroma, reads `converts chroma
 (interlaced)` on the Processor step.
 
 The box needs Direct3D 11 and costs the chroma pass, which the Chroma step times: a few tenths
-of a millisecond at 1080p for Catmull-Rom and the simpler kernels, more for Jinc (2.6 ms on the
+of a millisecond at 1080p for Catmull-Rom and the simpler kernels, more for Jinc (2.8 ms on the
 1920x800 film above), about 3 ms for RAVU-zoom, which enlarges Cb and Cr through its own
 shader first.
 
@@ -1305,11 +1306,11 @@ with DLSS 5 NR pictures are still skipped, as they were.
 The statistics show where the time goes and what render ahead does (see *Reading the
 statistics* for the rest):
 
-    2 DLSS 5 NR   : cinematic/P0 i1.50 t0.30 s0.50 k0.90 auto           16.4
-        stabilizer: 100, Optical Flow 960x540, vectors to DLSS           2.0
-    3 Scaling     : 1920x1080 -> 3840x2160 DLSS SR Perf/M                6.1
-        motion    : Optical Flow, global motion                          1.7
-    Render ahead  : asked 43 ms early, ready in 30.5 (max 31.5), 7 not in time
+    2 DLSS 5 NR   : cinematic/P0 i1.50 t0.30 s0.50 k0.90 auto                   16.5
+        stabilizer: 100, Optical Flow 960x540, vectors to DLSS                   2.0
+    3 Scaling     : 1920x1080 -> 3840x2160 DLSS SR Perf/M                        6.1
+        motion    : Optical Flow, global motion                                  1.8
+    Render ahead  : asked  42 ms early, ready in  30.6 (max  31.3), 8 not in time
 
 *ready in* is the whole picture, from the start of processing to the GPU being done: the mean
 and the slowest of the last 32. *not in time* counts pictures the GPU had not finished at their
@@ -1768,28 +1769,28 @@ step costs, then how it reaches the screen. A step that does not run has no line
 bench's account of a 1080p film at 25 fps in a 4K window, DLSS 5 NR and DLSS SR on, on the
 RTX 4060 (`playback_test --file <film> --window 3840x2160 --only 4`):
 
-    -- Source --------------------------------------------------------------
+    -- Source ----------------------------------------------------------------------
     Input format  : NV12 1920x1080
       Range: 16-235, Matrix: BT.709
       Primaries: BT.709, Function: BT.709
       ChromaLocation: Left(MPEG-2)
     Frame rate    :  25.000p in,  25.003 drawn
-    -- Pipeline, in R16G16B16A16_FLOAT ------------------------------ GPU ms
-    1 Processor   : D3D11 VP to R10G10B10A2_UNORM, converts chroma       0.3
-    2 DLSS 5 NR   : cinematic/P0 i1.50 t0.30 s0.50 k0.90 auto           16.4
-        stabilizer: 100, Optical Flow 960x540, vectors to DLSS           2.0
-    3 Scaling     : 1920x1080 -> 3840x2160 DLSS SR Perf/M                6.1
-        motion    : Optical Flow, global motion                          1.7
-    4 Finish      : Adaptive-Sharpen 4, dither                           1.3
-      Total       : for a frame of 40.0 ms                              27.9
-    -- Timing --------------------------------------------------------------
+    -- Pipeline, in R16G16B16A16_FLOAT -------------------------------------- GPU ms
+    1 Processor   : D3D11 VP to R10G10B10A2_UNORM, converts chroma               0.3
+    2 DLSS 5 NR   : cinematic/P0 i1.50 t0.30 s0.50 k0.90 auto                   16.5
+        stabilizer: 100, Optical Flow 960x540, vectors to DLSS                   2.0
+    3 Scaling     : 1920x1080 -> 3840x2160 DLSS SR Perf/M                        6.1
+        motion    : Optical Flow, global motion                                  1.8
+    4 Finish      : Adaptive-Sharpen 4, dither                                   1.3
+      Total       : for a frame of 40.0 ms                                      28.1
+    -- Timing ----------------------------------------------------------------------
     Clock         : Audio renderer
-    Render ahead  : asked 43 ms early, ready in 30.5 (max 31.5), 7 not in time
-    CPU (ms)      : copy 0.2, draw 20.3, wait 27.4, Present 0.1
+    Render ahead  : asked  42 ms early, ready in  30.6 (max  31.3), 8 not in time
+    CPU (ms)      : copy   0.2, draw  19.8, wait  25.9, Present   0.1
     Swap chain    : Flip discard, R10G10B10A2_UNORM, 3 buffers
     Frame sync    : a refresh chosen for each picture
-    Sync offset   :  +6 ms
-    On screen     :  -4 ms, scheduled: repeated 0, dropped 0, shown late 0
+    Sync offset   :   +4.9 ms
+    On screen     :   -5.1 ms, scheduled: repeated 0, dropped 0, shown late 1
     Frames        :   362 received, skipped 0 late + 0 fields, failed 0
 
 **The pipeline**, in the order a picture goes through it. The heading names the format the
@@ -1798,7 +1799,7 @@ steps work in.
 | Step | What it says |
 |---|---|
 | Chroma | The chroma replacement: the shaders rebuild 4:2:0 or 4:2:2 colour with the Chroma upsampling method and hand the processor a 4:4:4 picture, a prescaler's time included |
-| Processor | The video processor converts the picture, its chroma too unless the step above took it, and resizes it when it is the one resizing -- the Scaling step then says `in step N` and has no time of its own |
+| Processor | The video processor converts the picture, its chroma too unless the step above took it. When it is the one resizing it does that in the same call, the step says `resizes`, and its time is the resizing's too: the Scaling step then has none of its own |
 | Convert | The shaders convert the picture instead, with the chroma method named, a chroma prescaler's time included |
 | DLSS 5 NR | The network's tuning, or why it is not running. *working* is the reduction and the composition at a working size below the picture's; *stabilizer* its Optical Flow and the stabilizer. The network is timed where the renderer waits for it, since it runs on a Direct3D 12 device of its own |
 | Scaling | From what size to what size, and what does it, with all it costs: the processor's second turn after DLSS 5 NR, DLSS SR and its *motion*, or an mpv prescaler, each with the resize shader that finishes the job. `SuperResolution*` when the driver's Super Resolution runs, and `(No Super Resolution when chroma by shaders)` when it was asked for on a 4:4:4 picture. With *DLSS SR* ticked and not enlarging, a sub-line says why |
@@ -1806,11 +1807,14 @@ steps work in.
 | HDR | What becomes of HDR: passthrough, tone mapping or conversion to SDR, and RTX Video HDR |
 
 Each time is the mean of the last 32 pictures, measured on the GPU with timestamps read back
-later, never waited for, and only while the statistics are shown. **Total** adds them up
+later, never waited for, and only while the statistics are shown. A step whose text does not
+fit before its time goes on under it, so that the column stays where it is. **Total** adds them up
 against how long a picture lasts: the first thing to look at when pictures come late. A chain
 whose total comes near the frame has no room left.
 
-**The timing**, in the order it happens to a picture:
+**The timing**, in the order it happens to a picture. Its figures change with every picture,
+so each keeps its width -- the offsets to a tenth of a millisecond -- and a line does not move
+as they change:
 
 - *Clock*: whose clock every picture is scheduled against, normally the audio renderer's.
 - *Render ahead* (see *Render ahead*): how early a sample is asked for, how long a picture then

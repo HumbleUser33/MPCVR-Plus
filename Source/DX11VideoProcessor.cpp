@@ -6757,9 +6757,11 @@ void CDX11VideoProcessor::UpdateStatsPostProc()
 std::wstring CDX11VideoProcessor::GetStatsText()
 {
 	// A label, then the text, then the time in a column of its own, right-aligned to
-	// the end of the rules that head the blocks.
+	// the end of the rules that head the blocks. Wide enough for the usual steps to keep
+	// to one line ("D3D11 VP to R10G10B10A2_UNORM, converts chroma, resizes"), and well
+	// under kStatsMaxColumns.
 	constexpr size_t kLabel = 14;
-	constexpr size_t kTimeEnd = 72;
+	constexpr size_t kTimeEnd = 80;
 	constexpr size_t kTime = 6;
 
 	std::wstring str;
@@ -6782,17 +6784,48 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 
 	// The pipeline's lines. ms < 0: no time to show. A time is counted in the total
 	// unless it is the total.
+	//
+	// The text gets the room left before the time column, broken between words, and
+	// what does not fit goes on the lines under it, under the text: a step that has a lot
+	// to say -- "(No Super Resolution when chroma by shaders)" -- once pushed its time out
+	// of the column and the box. Lines of its own the text brings ("\n ...", the HDR
+	// metadata) follow as they are.
 	int step = 0;
-	int vpStep = 0;   // the processor's, which its first turn's resizing refers to
 	double total = 0;
 	bool bTimed = false;
 	const auto Line = [&](const std::wstring& label, const std::wstring& text, double ms, bool bCount) {
 		std::wstring line = label;
 		line.resize(std::max(line.size(), kLabel), L' ');
 		line += L": ";
-		line += text;
+		const size_t indent = line.size();
+		const size_t room = kTimeEnd - kTime - 1 - indent;
+		const size_t own = text.find(L'\n');
+		const std::wstring first = text.substr(0, own);
+		std::wstring more;   // the lines the text could not keep on the first
+		size_t pos = 0;
+		while (pos < first.size()) {
+			size_t end = first.size();
+			if (end - pos > room) {
+				// The last space that leaves the line within the room, or a hard cut
+				// for a word longer than the room itself.
+				const size_t space = first.rfind(L' ', pos + room);
+				end = (space != std::wstring::npos && space > pos) ? space : pos + room;
+			}
+			std::wstring piece = first.substr(pos, end - pos);
+			if (!pos) {
+				line += piece;
+			} else {
+				more += L'\n';
+				more.append(indent, L' ');
+				more += piece;
+			}
+			pos = end;
+			while (pos < first.size() && first[pos] == L' ') {
+				pos++;
+			}
+		}
 		if (ms >= 0) {
-			line.append(line.size() + kTime < kTimeEnd ? kTimeEnd - kTime - line.size() : 1, L' ');
+			line.append(kTimeEnd - kTime - line.size(), L' ');
 			line += std::format(L"{:6.1f}", ms);
 			if (bCount) {
 				total += ms;
@@ -6801,6 +6834,10 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		}
 		str += L'\n';
 		str += line;
+		str += more;
+		if (own != std::wstring::npos) {
+			str.append(text, own);
+		}
 	};
 	const auto Step = [&](const wchar_t* name, const std::wstring& text, double ms) {
 		Line(std::format(L"{} {}", ++step, name), text, ms, true);
@@ -6834,15 +6871,24 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	}
 
 	// The conversion: the processor converts the picture itself, its chroma included
-	// unless the step above took that; otherwise the shaders do, with the Chroma
-	// upsampling method, a prescaler's time included.
+	// unless the step above took that, and resizes it in the same call when it is the one
+	// resizing -- its time is then the resizing's too, and the Scaling step has none of its
+	// own. Otherwise the shaders convert, with the Chroma upsampling method, a
+	// prescaler's time included.
+	const UINT dstW = m_videoRect.Width();
+	const UINT dstH = m_videoRect.Height();
+	const bool bResized = m_srcRectWidth != dstW || m_srcRectHeight != dstH;
+	// The processor resizes on its first turn, or on its second after DLSS 5 NR.
+	const bool bVPResizesHere = m_D3D11VP.IsReady() && VPResizesFirst() && !m_bVPScalingUseShaders && !m_bVPScaled;
 	if (m_D3D11VP.IsReady()) {
 		std::wstring text = std::format(L"D3D11 VP to {}", DXGIFormatToString(m_D3D11OutputFmt));
 		if (bSubsampled && !m_bChromaReplacedVP) {
 			text += m_bVPReplaceChroma ? L", converts chroma (interlaced)" : L", converts chroma";
 		}
+		if (bVPResizesHere && bResized) {
+			text += L", resizes";
+		}
 		Step(L"Processor", text, Ms(CGpuStageTimes::VP));
-		vpStep = step;
 	} else if (m_PSConvColorData.bEnable) {
 		std::wstring text = L"shaders";
 		if (bSubsampled) {
@@ -6894,8 +6940,6 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	// The resizing, whoever does it, with all it cost: the resize shader, and before it
 	// the processor's second turn, DLSS SR or an mpv prescaler.
 	{
-		const UINT dstW = m_videoRect.Width();
-		const UINT dstH = m_videoRect.Height();
 		std::wstring text = m_iRotation
 			? std::format(L"{}x{} r{}°> {}x{}", m_srcRectWidth, m_srcRectHeight, m_iRotation, dstW, dstH)
 			: std::format(L"{}x{} -> {}x{}", m_srcRectWidth, m_srcRectHeight, dstW, dstH);
@@ -6904,12 +6948,11 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		const bool bDlssSR = m_bDlssSRActive && m_DlssSR.IsFeatureReady()
 			&& (IsDlssSR(m_strShaderX) || IsDlssSR(m_strShaderY));
 		double extra = -1;
-		if (m_srcRectWidth != dstW || m_srcRectHeight != dstH || bDlssSR) {
+		if (bResized || bDlssSR) {
 			// With DLSS Super Resolution on, the video processor never scales, and the
 			// resize after DLSS reads as no scaling at all.
-			// The processor resizes on its first turn, or on its second after DLSS 5 NR.
 			const bool bSecondTurn = m_bVPScaled;
-			if (m_D3D11VP.IsReady() && ((VPResizesFirst() && !m_bVPScalingUseShaders) || bSecondTurn)) {
+			if (bVPResizesHere || bSecondTurn) {
 				text.append(L" D3D11");
 				if (m_srcRectWidth < dstW && m_srcRectHeight < dstH) {
 					// The driver is asked for it exactly as upstream asks, and answers
@@ -6923,11 +6966,10 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 						text.append(L" SuperResolution*");
 					}
 				}
+				// On its first turn the processor resizes in the call that converts, and
+				// the Processor step's time is the resizing's too.
 				if (bSecondTurn) {
 					extra = Ms(CGpuStageTimes::VPScale);
-				} else {
-					// Done in the same call as the conversion, and timed there.
-					text += std::format(L", in step {}", vpStep);
 				}
 			} else if (bDlssSR) {
 				// Its quality mode and preset, DLAA among them: the last word of its own line.
@@ -7014,13 +7056,17 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 			m_pFilter->m_bClockStalled ? L", stopped -- pictures paced by the stream" : L"");
 	}
 
+	// The figures below change with every picture, so each keeps a width of its own:
+	// one that went from one digit to two moved everything after it on its line, and the
+	// line could not be read while the film played.
+
 	// How early a sample is asked for, how long a picture then takes from its sample to
 	// the GPU being done with it, and how many were not done at their present time.
 	if (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded()) {
 		if (!m_bDlssRenderAhead) {
 			str.append(L"\nRender ahead  : off");
 		} else if (m_RenderAhead.MeanLatencyMs() >= 0) {
-			str += std::format(L"\nRender ahead  : asked {:.0f} ms early, ready in {:.1f} (max {:.1f}), {} not in time",
+			str += std::format(L"\nRender ahead  : asked {:3.0f} ms early, ready in {:5.1f} (max {:5.1f}), {} not in time",
 				m_RenderAhead.GetAhead() / 10000.0, m_RenderAhead.MeanLatencyMs(), m_RenderAhead.MaxLatencyMs(),
 				m_RenderAhead.LateCount());
 		}
@@ -7031,22 +7077,22 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	{
 		const double ticksPerMs = GetPreciseTicksPerSecond() / 1000.0;
 		const uint64_t wait = std::min(m_presentWaitTicks, m_RenderStats.presentticks);
-		str += std::format(L"\nCPU (ms)      : copy {:.1f}, draw {:.1f}, wait {:.1f}, Present {:.1f}",
+		str += std::format(L"\nCPU (ms)      : copy {:5.1f}, draw {:5.1f}, wait {:5.1f}, Present {:5.1f}",
 			m_RenderStats.copyticks / ticksPerMs, m_RenderStats.paintticks / ticksPerMs,
 			wait / ticksPerMs, (m_RenderStats.presentticks - wait) / ticksPerMs);
 	}
 
 	str.append(m_strStatsPresent);   // the swap chain, and what times each Present
 
-	str += std::format(L"\nSync offset   : {:+3} ms", (m_RenderStats.syncoffset + 5000) / 10000);
+	str += std::format(L"\nSync offset   : {:+6.1f} ms", m_RenderStats.syncoffset / 10000.0);
 	if (m_bScheduled) {
 		// The Sync offset above is then the refresh chosen against the picture's time.
 		// This line is what DXGI reported of a picture already shown, which is the
 		// proof of it, and what the schedule had to do to keep the step.
 		if (m_PresentSchedule.ShownKnown()) {
-			str += std::format(L"\nOn screen     : {:+3.0f} ms", m_PresentSchedule.ShownOffsetMs());
+			str += std::format(L"\nOn screen     : {:+6.1f} ms", m_PresentSchedule.ShownOffsetMs());
 		} else {
-			str += L"\nOn screen     :   ? ms";
+			str += L"\nOn screen     :      ? ms";
 		}
 		str += std::format(L", scheduled: repeated {}, dropped {}, shown late {}",
 			m_PresentSchedule.RepeatedCount(), m_PresentSchedule.DroppedCount(), m_PresentSchedule.LateCount());
@@ -7057,7 +7103,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		str += L"\nOn screen     : not scheduled (Swap effect: Discard)";
 	} else
 	if (m_bOnScreenKnown) {
-		str += std::format(L"\nOn screen     : {:+3} ms, queue {}", (m_rtOnScreenOffset + 5000) / 10000, m_uPresentQueue);
+		str += std::format(L"\nOn screen     : {:+6.1f} ms, queue {}", m_rtOnScreenOffset / 10000.0, m_uPresentQueue);
 		if (m_uCaughtUp) {
 			str += std::format(L", caught up {}{}", m_uCaughtUp, m_bCatchUpFutile ? L" (no use, stopped)" : L"");
 		}
@@ -7090,7 +7136,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		const double delayMs = m_rtVideoDelay / 10000.0;
 		const double offsetMs = (m_bScheduled && m_PresentSchedule.ShownKnown()) ? m_PresentSchedule.ShownOffsetMs()
 			: m_bOnScreenKnown ? m_rtOnScreenOffset / 10000.0 : m_RenderStats.syncoffset / 10000.0;
-		str += std::format(L"\nVideo delay   : {:+.0f} ms asked for, the picture {:+.0f} ms from its own time", delayMs, delayMs + offsetMs);
+		str += std::format(L"\nVideo delay   : {:+.0f} ms asked for, the picture {:+6.1f} ms from its own time", delayMs, delayMs + offsetMs);
 	}
 
 	// The samples that came in, and the two kinds left out undrawn: by the renderer for

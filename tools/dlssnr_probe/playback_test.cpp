@@ -569,11 +569,14 @@ static std::wstring StatsLine(const std::wstring& text, const wchar_t* label)
 // given ("3 Scaling     : ..."), or a step's sub-line ("    motion    : ..."): what
 // follows the colon, and the time at its end, in a column of its own, apart. The time
 // is the last word when it is a number with one decimal, which no step's text ends on.
+// A text too long for the room before the time goes on under it, on lines that start
+// where the text does; they are put back after it.
 static std::wstring StepLine(const std::wstring& text, const wchar_t* name, double* pMs = nullptr)
 {
 	if (pMs) {
 		*pMs = -1;
 	}
+	constexpr size_t kIndent = 16;   // the label's 14 characters and ": "
 	const size_t nameLength = wcslen(name);
 	for (size_t pos = 0; pos < text.size();) {
 		size_t end = text.find(L'\n', pos);
@@ -582,6 +585,22 @@ static std::wstring StepLine(const std::wstring& text, const wchar_t* name, doub
 		}
 		const std::wstring line = text.substr(pos, end - pos);
 		pos = end + 1;
+		const auto Continued = [&](std::wstring rest) {
+			while (pos < text.size()) {
+				size_t next = text.find(L'\n', pos);
+				if (next == std::wstring::npos) {
+					next = text.size();
+				}
+				const std::wstring more = text.substr(pos, next - pos);
+				if (more.size() <= kIndent || more.find_first_not_of(L' ') != kIndent) {
+					break;
+				}
+				rest += L' ';
+				rest += more.substr(kIndent);
+				pos = next + 1;
+			}
+			return rest;
+		};
 		size_t i = 0;
 		while (i < line.size() && (iswdigit(line[i]) || line[i] == L' ')) {
 			i++;
@@ -616,7 +635,7 @@ static std::wstring StepLine(const std::wstring& text, const wchar_t* name, doub
 			}
 		}
 		rest.erase(rest.find_last_not_of(L' ') + 1);
-		return rest;
+		return Continued(rest);
 	}
 	return {};
 }
@@ -644,8 +663,10 @@ static std::wstring DlssTimes(const std::wstring& text)
 		Add(L"NR", StepMs(text, L"DLSS 5 NR"));
 		Add(L"scale", StepMs(text, L"working"));
 		Add(L"stabilizer", StepMs(text, L"stabilizer"));
-		// The processor's second turn, after the network; its first turn is timed with the conversion.
-		if (scaling.find(L" D3D11") != std::wstring::npos && scaling.find(L", in step ") == std::wstring::npos) {
+		// The processor's second turn, after the network. On its first turn it resizes in
+		// the call that converts, the Processor step says so, and its time is that step's.
+		if (scaling.find(L" D3D11") != std::wstring::npos
+				&& StepLine(text, L"Processor").find(L", resizes") == std::wstring::npos) {
 			Add(L"resize", StepMs(text, L"Scaling"));
 		}
 	}
@@ -1288,9 +1309,10 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		Pump(100);
 		text = StatsText(pRenderer);
 		const std::wstring sync = StatsLine(text, L"Sync offset   : ");
-		int value = 0;
-		if (!sync.empty() && swscanf_s(sync.c_str(), L"%d", &value) == 1) {
-			result.syncs.push_back(value);
+		// Shown to a tenth now, counted to the millisecond as the report always has.
+		double value = 0;
+		if (!sync.empty() && swscanf_s(sync.c_str(), L"%lf", &value) == 1) {
+			result.syncs.push_back((int)std::lround(value));
 		}
 		if (g_bRewindow) {
 			// The swap effect is the plainest setting that has the renderer make its
