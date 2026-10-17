@@ -802,6 +802,7 @@ void CDX11VideoProcessor::ReleaseDevice()
 	m_DlssSR.Shutdown();
 	m_bDlssSRActive = false;
 	m_DlssStageTimes.Release();
+	m_pVPTimingProbe.Release();
 	m_pPictureDoneQuery.Release();
 	ReleaseVPScale();
 	m_D3D11VPScale.ReleaseVideoDevice();
@@ -4661,6 +4662,49 @@ void CDX11VideoProcessor::UpdateBitmapShader()
 	}
 }
 
+// The video processor works on an engine of its own, and timestamps written on the 3D
+// queue around it saw none of its work: with Super Resolution and RTX Video HDR on a
+// 1080p film in a 4K window, its step read 0.0 ms while the picture took 21.6 to be
+// ready. Two things put the processor between them. One texel of what it wrote, copied
+// on the 3D queue, makes that queue wait for the processor before the timestamp that
+// ends the step. And the timestamp that starts it is sent to the GPU before the
+// processor is asked for anything (BeginVPForTiming): left in the same submission, it
+// was held back with the rest of it until the processor was done, and the step still
+// read 0.0. With both it reads 17.4 ms, of 20.8 for the whole picture. Only while the
+// statistics are timed; the next pass reads that output anyway and waits for it all the
+// same.
+void CDX11VideoProcessor::WaitForVPForTiming(ID3D11Texture2D* pOutput)
+{
+	if (!m_DlssStageTimes.IsRecording() || !pOutput) {
+		return;
+	}
+	D3D11_TEXTURE2D_DESC desc = {};
+	pOutput->GetDesc(&desc);
+	D3D11_TEXTURE2D_DESC probe = {};
+	if (m_pVPTimingProbe) {
+		m_pVPTimingProbe->GetDesc(&probe);
+	}
+	if (!m_pVPTimingProbe || probe.Format != desc.Format) {
+		m_pVPTimingProbe.Release();
+		probe = { 1, 1, 1, 1, desc.Format, { 1, 0 }, D3D11_USAGE_DEFAULT, 0, 0, 0 };
+		if (FAILED(m_pDevice->CreateTexture2D(&probe, nullptr, &m_pVPTimingProbe))) {
+			return;
+		}
+	}
+	const D3D11_BOX texel = { 0, 0, 0, 1, 1, 1 };
+	m_pDeviceContext->CopySubresourceRegion(m_pVPTimingProbe, 0, 0, 0, 0, pOutput, 0, &texel);
+}
+
+// The timestamp that starts the processor's step, sent to the GPU before the processor
+// is asked for anything.
+void CDX11VideoProcessor::BeginVPForTiming(CGpuStageTimes::Stage stage)
+{
+	m_DlssStageTimes.Begin(m_pDeviceContext, stage);
+	if (m_DlssStageTimes.IsRecording()) {
+		m_pDeviceContext->Flush();
+	}
+}
+
 HRESULT CDX11VideoProcessor::D3D11VPPass(ID3D11Texture2D* pRenderTarget, const CRect& srcRect, const CRect& dstRect, const bool second)
 {
 	HRESULT hr = m_D3D11VP.SetRectangles(srcRect, dstRect);
@@ -5343,8 +5387,9 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 				|| ((m_bDlssNRActive || m_bDlssSRActive) && bAllowDlss); // the DLSS passes need the intermediate texture
 			if (!bNeedShaderTransform && !numSteps) {
 				m_bVPScalingUseShaders = false;
-				m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::VP);
+				BeginVPForTiming(CGpuStageTimes::VP);
 				hr = D3D11VPPass(pRenderTarget, rSrc, dstRect, second);
+				WaitForVPForTiming(pRenderTarget);
 				m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::VP);
 
 				return hr;
@@ -5352,8 +5397,9 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 		}
 
 		CRect rect(0, 0, m_TexConvertOutput.desc.Width, m_TexConvertOutput.desc.Height);
-		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::VP);
+		BeginVPForTiming(CGpuStageTimes::VP);
 		hr = D3D11VPPass(m_TexConvertOutput.pTexture, rSrc, rect, second);
+		WaitForVPForTiming(m_TexConvertOutput.pTexture);
 		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::VP);
 		pInputTexture = &m_TexConvertOutput;
 		rSrc = rect;
@@ -5389,8 +5435,11 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 	bool bVPScaled = false;
 	if (bAllowDlss && pInputTexture && m_D3D11VPScale.IsReady() && !m_bVPScaleFailed) {
 		Tex2D_t* pScaled = nullptr;
-		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::VPScale);
+		BeginVPForTiming(CGpuStageTimes::VPScale);
 		const HRESULT hrScale = VPScalePass(pInputTexture, rSrc, &pScaled);
+		if (S_OK == hrScale && pScaled) {
+			WaitForVPForTiming(pScaled->pTexture);
+		}
 		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::VPScale);
 		if (S_OK == hrScale && pScaled) {
 			pInputTexture = pScaled;
@@ -7035,15 +7084,19 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		}
 	}
 
-	if (!m_strStatsHDR.empty()) {
-		Step(L"HDR", m_strStatsHDR, -1);
-	}
-
 	// What the steps cost together, against the time a picture lasts: the first thing
 	// to look at when pictures come late.
 	const double frameMs = m_pFilter->m_FrameStats.GetAverageFrameDuration() / 10000.0 / (m_bDoubleFrames ? 2 : 1);
 	if (bTimed) {
 		Line(L"  Total", frameMs > 0 ? std::format(L"for a frame of {:.1f} ms", frameMs) : std::wstring(), total, false);
+	}
+
+	// What becomes of HDR is not a pass of its own, so it has no number and no time and
+	// comes after the total: passthrough is nothing to compute, RTX Video HDR runs inside
+	// the processor and is in its time, and a tone mapping or a conversion to SDR is in
+	// Finish.
+	if (!m_strStatsHDR.empty()) {
+		Line(L"  HDR", m_strStatsHDR, -1, false);
 	}
 
 	// -- How the picture reaches the screen, in the order it happens.
@@ -7151,8 +7204,10 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		str += std::format(L", turns lost: {}", m_pFilter->m_nRenderWaitsBroken);
 	}
 	if (m_pFilter->m_nRenderWaitsLate) {
-		str += std::format(L", turns late: {} (turn {:+} ms, clock {:+} ms, base {:+} ms)",
-			m_pFilter->m_nRenderWaitsLate, m_pFilter->m_msLastTurnAhead,
+		// The details of the last one on a line of their own, under the text: on the same
+		// line they took it out of the box.
+		str += std::format(L", turns late: {}\n{:16}(turn {:+} ms, clock {:+} ms, base {:+} ms)",
+			m_pFilter->m_nRenderWaitsLate, L"", m_pFilter->m_msLastTurnAhead,
 			m_pFilter->m_msClockSinceLastTurn, m_pFilter->m_msBaseSinceLastTurn);
 	}
 

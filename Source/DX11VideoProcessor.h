@@ -292,6 +292,11 @@ private:
 	// Time of each step a picture goes through, for the statistics.
 	CGpuStageTimes m_DlssStageTimes;
 	CRollingMs m_DlssNRTimes;
+	// One texel of the video processor's output, copied so that the timestamp after it
+	// waits for the processor's own engine (WaitForVPForTiming).
+	CComPtr<ID3D11Texture2D> m_pVPTimingProbe;
+	void WaitForVPForTiming(ID3D11Texture2D* pOutput);
+	void BeginVPForTiming(CGpuStageTimes::Stage stage);
 
 	// mpv prescalers (Shaders/mpv). As the Upscaling method, FSRCNNX, RAVU-zoom or
 	// ArtCNN enlarges the luma and Catmull-Rom the picture, which takes the network's

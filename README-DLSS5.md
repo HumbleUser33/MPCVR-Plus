@@ -1799,18 +1799,22 @@ steps work in.
 | Step | What it says |
 |---|---|
 | Chroma | The chroma replacement: the shaders rebuild 4:2:0 or 4:2:2 colour with the Chroma upsampling method and hand the processor a 4:4:4 picture, a prescaler's time included |
-| Processor | The video processor converts the picture, its chroma too unless the step above took it. When it is the one resizing it does that in the same call, the step says `resizes`, and its time is the resizing's too: the Scaling step then has none of its own |
+| Processor | The video processor converts the picture, its chroma too unless the step above took it. When it is the one resizing it does that in the same call, the step says `resizes`, and its time is the resizing's too: the Scaling step then has none of its own. RTX Video Super Resolution and RTX Video HDR run inside it and are in its time. The processor works on an engine of its own, which the timestamps around it once missed altogether -- 0.0 ms with Super Resolution and RTX Video HDR at 4K, of 21.6 for the picture; it is now timed from its call to its output being ready, 17.4 ms of 20.8 there |
 | Convert | The shaders convert the picture instead, with the chroma method named, a chroma prescaler's time included |
 | DLSS 5 NR | The network's tuning, or why it is not running. *working* is the reduction and the composition at a working size below the picture's; *stabilizer* its Optical Flow and the stabilizer. The network is timed where the renderer waits for it, since it runs on a Direct3D 12 device of its own |
 | Scaling | From what size to what size, and what does it, with all it costs: the processor's second turn after DLSS 5 NR, DLSS SR and its *motion*, or an mpv prescaler, each with the resize shader that finishes the job. `SuperResolution*` when the driver's Super Resolution runs, and `(No Super Resolution when chroma by shaders)` when it was asked for on a 4:4:4 picture. With *DLSS SR* ticked and not enlarging, a sub-line says why |
 | Finish | What runs at the size the picture is shown at: a correction, the tone mapping, the sharpening and its level, the player's shaders, the dither |
-| HDR | What becomes of HDR: passthrough, tone mapping or conversion to SDR, and RTX Video HDR |
 
 Each time is the mean of the last 32 pictures, measured on the GPU with timestamps read back
 later, never waited for, and only while the statistics are shown. A step whose text does not
 fit before its time goes on under it, so that the column stays where it is. **Total** adds them up
 against how long a picture lasts: the first thing to look at when pictures come late. A chain
 whose total comes near the frame has no room left.
+
+Under the total, unnumbered, **HDR** says what becomes of HDR: passthrough, tone mapping or
+conversion to SDR, and RTX Video HDR. It is not a pass of its own and has no time: passthrough
+computes nothing, RTX Video HDR is in the processor's time, and a tone mapping or a conversion
+to SDR is in Finish's.
 
 **The timing**, in the order it happens to a picture. Its figures change with every picture,
 so each keeps its width -- the offsets to a tenth of a millisecond -- and a line does not move
@@ -1830,7 +1834,9 @@ as they change:
 - *Sync offset* and *On screen*: see *A film at the screen's own rate* and *A refresh chosen
   for every picture*. *Video delay* follows them when one is set.
 - *Frames*: the samples received, those the renderer left undrawn for coming too late, the
-  second fields of a deinterlaced picture left out, and the pictures that failed.
+  second fields of a deinterlaced picture left out, and the pictures that failed; *turns lost*
+  and *turns late* when a picture's turn in the renderer was taken away or came late, the
+  last late one's details on the line under.
 
 The sync offset graph, bottom right, draws the *Sync offset* of the last pictures.
 
