@@ -360,11 +360,15 @@ def dlss_timeline(qpf, stretches):
                   len(rows), nr, flow, detector, vectors, sr, vp, lost, max(gaps) if gaps else 0.0))
         draws = sorted((r["tickDrawn"] - r["tickSample"]) * 1000.0 / qpf for r in rows if not r["flags"] & SKIPPED) or [0.0]
         line = "            drawing %.1f ms (median), %.1f at most" % (draws[len(draws) // 2], draws[-1])
+        # Since the two devices wait for each other on the GPU, the render thread waits
+        # only for the network of the picture before (nrWaitUs), and nrGpuUs is the
+        # network's own time on its queue. A trace from before that holds the render
+        # thread's waits for the input and for the GPU in the first and the last.
         timed = [r for r in rows if r["flags"] & DLSS_NR and r["nrGpuUs"]]
         if timed:
             def median(key):
                 return sorted(r[key] for r in timed)[len(timed) // 2] / 1000.0
-            line += "; of which DLSS 5 NR waited %.1f ms for its input, recorded for %.1f and waited %.1f for the GPU" % (
+            line += "; of which DLSS 5 NR waited %.1f ms for the picture before, recorded for %.1f, and ran %.1f on the GPU" % (
                 median("nrWaitUs"), median("nrRecordUs"), median("nrGpuUs"))
         print(line)
     print("%d picture(s) in %d stretch(es): DLSS 5 NR ran on %d, DLSS SR on %d" % (total, len(stretches), on_nr, on_sr))

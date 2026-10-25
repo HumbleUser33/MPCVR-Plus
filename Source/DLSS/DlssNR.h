@@ -17,14 +17,25 @@
  * So the renderer keeps its D3D11 textures and we open them a second time on a
  * private D3D12 device, sharing through NT handles.
  *
- * Synchronisation is CPU-side on purpose
- * --------------------------------------
- * An earlier version let the two devices wait on each other's fences on the
- * GPU. That made it impossible to know when the command allocator was free,
- * and resetting it while the GPU was still executing removed the device
- * (DXGI_ERROR_DEVICE_REMOVED) -- which then showed up as black frames, frozen
- * pictures and sharing failures. Both directions now block on the CPU: two
- * short stalls per frame, one ordering rule, no way to get it subtly wrong.
+ * Synchronisation is on the GPU, and the CPU only checks
+ * ------------------------------------------------------
+ * The two devices wait on each other's fences on the GPU: the queue for the
+ * renderer's input, the renderer for the network's output. The render thread
+ * waits for neither. Waiting for both on the CPU instead -- what this did until
+ * 2026-10 -- held it 18 ms a picture at 1080p on an RTX 4060 (2.9 for the input,
+ * 0.5 recording, 14.3 for the GPU), and left the GPU idle while it recorded and
+ * while the renderer resubmitted.
+ *
+ * An earlier GPU-side version removed the device (DXGI_ERROR_DEVICE_REMOVED):
+ * it reset the command allocator while the GPU was still executing what had been
+ * recorded from it. So before a picture is recorded, the previous picture's
+ * network is known to have finished, on the CPU (OpenList), and only then is the
+ * allocator reset; in steady state that costs nothing -- it finished a frame ago.
+ * The same check keeps a hung queue from freezing the renderer: waiting for the
+ * one before, rather than for an older one, means it is made before the next
+ * Present, which would otherwise wait for good on a picture that waits for the
+ * network. A network not finished after two seconds is given up, and both fences
+ * are signalled from the CPU (Unblock), releasing whichever device was waiting.
  *
  * Bring-up order, all of it established empirically, and the order Init keeps:
  *   1. hook NvAPI_GPU_GetArchInfo before anything loads (see m_bArchOverride)
@@ -119,15 +130,21 @@ public:
 		bool operator==(const Params&) const = default;
 	};
 
-	// Where the time of the last Evaluate went, in ms: waiting for Direct3D 11 to
-	// finish writing the input, recording the network's work, and waiting for the
-	// GPU to run it.
+	// Where the time of the last Evaluate went, in ms. On the CPU: waiting for the
+	// picture before it to be through the network, which in steady state it long is,
+	// and recording the network's work. gpuMs is the network's own time on the GPU,
+	// of the latest picture known to be through it (CollectGpuTime), and gpuSerial
+	// counts those.
 	struct Timing {
 		double inputWaitMs = 0;
 		double recordMs    = 0;
-		double gpuWaitMs   = 0;
+		double gpuWaitMs   = 0;   // no longer waited for: always 0
+		double gpuMs       = -1;  // negative until a picture has been timed
+		unsigned gpuSerial = 0;
 	};
 	const Timing& LastTiming() const { return m_Timing; }
+	// Reads the GPU time of the latest picture the GPU is done with, without waiting.
+	void CollectGpuTime();
 
 	enum class State {
 		Off, DllNotFound, DllLoadFailed, ExportsMissing, ShimMissing,
@@ -204,8 +221,13 @@ private:
 	bool InstallArchOverride();
 	void QueryRequirements();
 	void PushEvaluateParams(NVSDK_NGX_Parameter* p, const Params& s, bool bReset);
+	// The command list, open on an allocator the GPU is done with (OpenList), and
+	// handed to the queue with the fence value it signals (SubmitList).
+	bool OpenList();
+	bool SubmitList(bool bTimed);
 	bool ExecuteAndWait();
 	void DrainGpu();
+	void Unblock();
 	bool WaitForFence(ID3D12Fence* pFence, UINT64 value);
 	bool CheckDeviceLost();
 	void Log(const wchar_t* fmt, ...);
@@ -254,6 +276,13 @@ private:
 	CComPtr<ID3D12CommandQueue>        m_pQueue;
 	CComPtr<ID3D12CommandAllocator>    m_pAlloc;
 	CComPtr<ID3D12GraphicsCommandList> m_pList;
+	bool   m_bListOpen = false;     // recording, on an allocator the GPU is done with
+	UINT64 m_LastSubmitted = 0;     // the fence value the latest submission signals
+	bool   m_bLastTimed = false;    // and it wrote the network's two timestamps
+	// The network's GPU time, two timestamps read back once the GPU is past them.
+	CComPtr<ID3D12QueryHeap> m_pTimestamps;
+	CComPtr<ID3D12Resource>  m_pTimestampReadback;
+	UINT64 m_TimestampFrequency = 0;
 
 	// shared textures: created on D3D11, opened here
 	CComPtr<ID3D12Resource> m_pTex12In;

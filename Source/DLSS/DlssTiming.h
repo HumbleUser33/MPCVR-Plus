@@ -424,8 +424,7 @@ private:
 // GPU time of each step a picture goes through, for the statistics: timestamp
 // queries read back a few pictures later, never waited for. A picture for which
 // every query set is still with the GPU goes untimed. DLSS 5 NR runs on a Direct3D
-// 12 device of its own and is timed on the CPU instead, where the renderer waits
-// for it.
+// 12 device of its own and is timed there, on its queue (CDlssNR::LastTiming).
 
 class CGpuStageTimes
 {

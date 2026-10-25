@@ -298,7 +298,8 @@ private:
 	uint64_t m_presentWaitTicks = 0;    // of m_RenderStats.presentticks, the wait before Present was called
 	// Time of each step a picture goes through, for the statistics.
 	CGpuStageTimes m_DlssStageTimes;
-	CRollingMs m_DlssNRTimes;
+	CRollingMs m_DlssNRTimes;           // DLSS 5 NR's GPU time, from its own queue
+	unsigned m_uDlssNRTimed = 0;        // the last of its timings taken into it
 	// One texel of the video processor's output, copied so that the timestamp after it
 	// waits for the processor's own engine (WaitForVPForTiming).
 	CComPtr<ID3D11Texture2D> m_pVPTimingProbe;

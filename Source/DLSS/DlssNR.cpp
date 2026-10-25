@@ -489,6 +489,28 @@ bool CDlssNR::CreateD3D12(ID3D11Device* pDevice)
 		Log(L"could not build the D3D12 command objects");
 		return false;
 	}
+	m_bListOpen = true;   // a command list is made recording
+
+	// The network's GPU time. Without it the network goes untimed, nothing more.
+	const D3D12_QUERY_HEAP_DESC qh = { D3D12_QUERY_HEAP_TYPE_TIMESTAMP, 2, 0 };
+	const D3D12_HEAP_PROPERTIES readback = { D3D12_HEAP_TYPE_READBACK };
+	D3D12_RESOURCE_DESC rd = {};
+	rd.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+	rd.Width            = 2 * sizeof(UINT64);
+	rd.Height           = 1;
+	rd.DepthOrArraySize = 1;
+	rd.MipLevels        = 1;
+	rd.SampleDesc.Count = 1;
+	rd.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	if (FAILED(m_pQueue->GetTimestampFrequency(&m_TimestampFrequency)) || !m_TimestampFrequency
+			|| FAILED(m_pDev12->CreateQueryHeap(&qh, IID_PPV_ARGS(&m_pTimestamps)))
+			|| FAILED(m_pDev12->CreateCommittedResource(&readback, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST,
+				nullptr, IID_PPV_ARGS(&m_pTimestampReadback)))) {
+		Log(L"no timestamps on the D3D12 queue: the network goes untimed");
+		m_pTimestamps.Release();
+		m_pTimestampReadback.Release();
+		m_TimestampFrequency = 0;
+	}
 
 	// Two shared fences, one per direction.
 	if (FAILED(m_pDev11->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&m_pFenceUp11)))) {
@@ -739,8 +761,15 @@ void CDlssNR::Shutdown()
 	m_pFenceUp12.Release();
 	m_pFenceDown12.Release();
 	m_pFenceDown11.Release();
+	m_pTimestamps.Release();
+	m_pTimestampReadback.Release();
+	m_TimestampFrequency = 0;
 	m_pList.Release();
 	m_pAlloc.Release();
+	m_bListOpen = false;
+	m_LastSubmitted = 0;
+	m_bLastTimed = false;
+	m_Timing = {};
 	m_pQueue.Release();
 	m_pDev12.Release();
 	m_pCtx11.Release();
@@ -789,53 +818,103 @@ void CDlssNR::Shutdown()
 // Feature and evaluation
 // ============================================================================
 
-// Release anything the other device may still be parked on, then let the queue
-// drain. Without this, tearing the D3D12 side down while the renderer's context
-// still holds a GPU-side Wait on a fence nobody will ever signal again stops the
-// D3D11 timeline dead: the picture freezes while audio, on its own path, keeps
-// playing. That is exactly what toggling the feature during playback did.
+// Let the queue drain, and release anything the other device may still be parked on.
+// Tearing the D3D12 side down while the renderer's context still holds a GPU-side Wait
+// on a fence nobody will ever signal again stops the D3D11 timeline dead: the picture
+// freezes while audio, on its own path, keeps playing. That is exactly what toggling
+// the feature during playback once did.
 void CDlssNR::DrainGpu()
 {
 	// Nothing may still be reading or writing the shared textures when they are
-	// released. Everything is CPU-synchronous now, so this only has to cover
-	// work submitted but not yet retired.
-	if (m_pQueue && m_pDev12 && SUCCEEDED(m_pDev12->GetDeviceRemovedReason())) {
+	// released: the queue is given a last signal and waited for, and a queue that will
+	// not get there -- a device gone, a wait for an input that never comes -- is
+	// released from the CPU instead.
+	if (m_pQueue && m_pDev12 && m_pFenceDown12 && SUCCEEDED(m_pDev12->GetDeviceRemovedReason())) {
 		m_FenceValue++;
-		if (m_pFenceDown12 && SUCCEEDED(m_pQueue->Signal(m_pFenceDown12, m_FenceValue))) {
-			WaitForFence(m_pFenceDown12, m_FenceValue);
+		if (FAILED(m_pQueue->Signal(m_pFenceDown12, m_FenceValue)) || !WaitForFence(m_pFenceDown12, m_FenceValue)) {
+			Unblock();
 		}
+	} else {
+		Unblock();
 	}
 	if (m_pCtx11) {
 		m_pCtx11->Flush();
 	}
 }
 
-bool CDlssNR::ExecuteAndWait()
+// Both fences to the highest value either was ever asked for, from the CPU: whichever
+// device waits on the other goes on. Only for a session that is being given up.
+void CDlssNR::Unblock()
 {
+	if (m_pFenceUp12) {
+		m_pFenceUp12->Signal(m_FenceValue);
+	}
+	if (m_pFenceDown12) {
+		m_pFenceDown12->Signal(m_FenceValue);
+	}
+}
+
+// The list open on the allocator, once the GPU is done with everything recorded from
+// it: the previous submission, which is the previous picture's network. Resetting the
+// allocator before that is what once removed the device (DXGI_ERROR_DEVICE_REMOVED,
+// 0x887A0005).
+bool CDlssNR::OpenList()
+{
+	if (m_bListOpen) {
+		return true;
+	}
+	if (m_LastSubmitted && !WaitForFence(m_pFenceDown12, m_LastSubmitted)) {
+		return false;
+	}
+	CollectGpuTime();   // the timestamps are written over by the next submission
+	if (FAILED(m_pAlloc->Reset()) || FAILED(m_pList->Reset(m_pAlloc, nullptr))) {
+		return false;
+	}
+	m_bListOpen = true;
+	return true;
+}
+
+// What was recorded, to the queue, which then signals the next fence value.
+bool CDlssNR::SubmitList(const bool bTimed)
+{
+	m_bListOpen = false;
 	if (FAILED(m_pList->Close())) {
 		return false;
 	}
 	ID3D12CommandList* lists[] = { m_pList };
 	m_pQueue->ExecuteCommandLists(1, lists);
-
-	// Wait on the CPU, not on the D3D11 timeline. ID3D12CommandAllocator::Reset
-	// is illegal while the GPU is still executing commands recorded from it, and
-	// a GPU-side wait does not tell us when that is -- doing it that way removed
-	// the device (DXGI_ERROR_DEVICE_REMOVED, 0x887A0005) and everything else
-	// followed from that. One stall per frame is a fair price for a pass that
-	// already costs milliseconds.
 	m_FenceValue++;
 	if (FAILED(m_pQueue->Signal(m_pFenceDown12, m_FenceValue))) {
 		return false;
 	}
-	if (!WaitForFence(m_pFenceDown12, m_FenceValue)) {
-		return false;
-	}
-
-	if (FAILED(m_pAlloc->Reset()) || FAILED(m_pList->Reset(m_pAlloc, nullptr))) {
-		return false;
-	}
+	m_LastSubmitted = m_FenceValue;
+	m_bLastTimed = bTimed;
 	return true;
+}
+
+// The work that has to be there before anything else is done: the feature's own
+// upload. The list is left closed; the next OpenList finds the GPU done with it.
+bool CDlssNR::ExecuteAndWait()
+{
+	return OpenList() && SubmitList(false) && WaitForFence(m_pFenceDown12, m_LastSubmitted);
+}
+
+void CDlssNR::CollectGpuTime()
+{
+	if (!m_bLastTimed || !m_pFenceDown12 || !m_pTimestampReadback || m_pFenceDown12->GetCompletedValue() < m_LastSubmitted) {
+		return;
+	}
+	m_bLastTimed = false;
+	const D3D12_RANGE range = { 0, 2 * sizeof(UINT64) };
+	UINT64* stamps = nullptr;
+	if (SUCCEEDED(m_pTimestampReadback->Map(0, &range, (void**)&stamps)) && stamps) {
+		if (stamps[1] >= stamps[0]) {
+			m_Timing.gpuMs = double(stamps[1] - stamps[0]) * 1000.0 / double(m_TimestampFrequency);
+			m_Timing.gpuSerial++;
+		}
+		const D3D12_RANGE none = { 0, 0 };
+		m_pTimestampReadback->Unmap(0, &none);
+	}
 }
 
 // Blocks until the fence reaches the value, or the device dies.
@@ -875,6 +954,7 @@ bool CDlssNR::CheckDeviceLost()
 	m_DetailError = std::format(L"Direct3D 12 device removed (0x{:08X})", (unsigned)hr);
 	Log(L"%s", m_DetailError.c_str());
 	m_State = State::DeviceLost;
+	Unblock();   // the renderer may be waiting for a network that will not come
 	return true;
 }
 
@@ -1020,6 +1100,12 @@ bool CDlssNR::CreateFeature(ID3D11Texture2D* pShared11In, ID3D11Texture2D* pShar
 	m_pParams->Set("CreationNodeMask",   (unsigned int)1);
 	m_pParams->Set("VisibilityNodeMask", (unsigned int)1);
 
+	if (!OpenList()) {
+		m_State = State::FeatureCreateFailed;
+		Log(L"CreateFeature %ux%u: the GPU had not finished the last network after two seconds", w, h);
+		Unblock();
+		return false;
+	}
 	const NVSDK_NGX_Result r = CallCreate(m_pParams, &m_pFeature);
 	m_LastResult = r;
 	if (NGX_FAILED(r) || !m_pFeature) {
@@ -1105,13 +1191,15 @@ bool CDlssNR::Evaluate(const Params& p)
 		return false;
 	}
 
-	// A wait that ran out leaves the command list where it stopped, and the session
-	// is not to be used again as it is: the caller starts another (State says so).
+	// A wait that ran out leaves the session not to be used again as it is: whatever
+	// device waits on the other is released, and the caller starts another session
+	// (State says so).
 	const auto GaveUp = [this](const wchar_t* what) {
 		m_DetailError = what;
 		m_State = State::EvaluateFailed;
 		m_LastResult = NGX_Result_Fail;
 		Log(L"%s", what);
+		Unblock();
 		return false;
 	};
 	if (s_FailAt > 0 && ++s_Evaluations % s_FailAt == 0) {
@@ -1123,27 +1211,40 @@ bool CDlssNR::Evaluate(const Params& p)
 		QueryPerformanceFrequency(&qpf);
 		return qpf.QuadPart / 1000.0;
 	}();
-	LARGE_INTEGER t0 = {}, t1 = {}, t2 = {}, t3 = {};
+	LARGE_INTEGER t0 = {}, t1 = {}, t2 = {};
 	QueryPerformanceCounter(&t0);
 
-	// The renderer has just written the input texture. Make that work reach the
-	// GPU and finish before the other device reads it -- again on the CPU, so
-	// there is exactly one ordering rule to get right instead of two timelines
-	// signalling each other.
-	m_FenceValue++;
-	m_pCtx11->Signal(m_pFenceUp11, m_FenceValue);
-	m_pCtx11->Flush();
-	if (!WaitForFence(m_pFenceUp12, m_FenceValue)) {
-		return GaveUp(L"the input was not ready after two seconds");
+	// The previous picture's network is done with before this one is recorded: the
+	// allocator is free, and a queue that has hung is found here, before the next
+	// Present would wait on it for good.
+	if (!OpenList()) {
+		return CheckDeviceLost() ? false : GaveUp(L"the GPU had not run the network of the picture before after two seconds");
 	}
 	QueryPerformanceCounter(&t1);
+
+	// The renderer has just written the input texture: the queue reads it once the
+	// renderer's context has got that far, which the context signals.
+	m_FenceValue++;
+	const UINT64 inputWritten = m_FenceValue;
+	m_pCtx11->Signal(m_pFenceUp11, inputWritten);
+	m_pCtx11->Flush();
+	if (FAILED(m_pQueue->Wait(m_pFenceUp12, inputWritten))) {
+		return GaveUp(L"the queue could not be told to wait for the input");
+	}
 
 	// No barriers: a texture shared from D3D11 comes back with
 	// ALLOW_SIMULTANEOUS_ACCESS already set (measured: D3D12 reports flags
 	// 0x25), so it stays usable in COMMON from both devices and transitioning
 	// it would only add a way to get the state wrong.
 	PushEvaluateParams(m_pParams, p, m_bResetPending || p.bNoHistory);
+	if (m_pTimestamps) {
+		m_pList->EndQuery(m_pTimestamps, D3D12_QUERY_TYPE_TIMESTAMP, 0);
+	}
 	const NVSDK_NGX_Result r = CallEvaluate(m_pParams);
+	if (m_pTimestamps) {
+		m_pList->EndQuery(m_pTimestamps, D3D12_QUERY_TYPE_TIMESTAMP, 1);
+		m_pList->ResolveQueryData(m_pTimestamps, D3D12_QUERY_TYPE_TIMESTAMP, 0, 2, m_pTimestampReadback, 0);
+	}
 	QueryPerformanceCounter(&t2);
 
 	m_LastResult = r;
@@ -1151,17 +1252,21 @@ bool CDlssNR::Evaluate(const Params& p)
 		m_DetailError.clear();
 		m_State = State::EvaluateFailed;
 		Log(L"Evaluate failed: 0x%08X %s", r, NgxResultName(r));
-		ExecuteAndWait();   // keep the list in a usable state
+		SubmitList(false);   // what was recorded goes, and the queue's wait with it
 		return false;
 	}
-
-	if (!ExecuteAndWait()) {
-		return CheckDeviceLost() ? false : GaveUp(L"the GPU had not run the network after two seconds");
+	if (!SubmitList(m_pTimestamps != nullptr)) {
+		return CheckDeviceLost() ? false : GaveUp(L"the network could not be handed to the queue");
 	}
-	QueryPerformanceCounter(&t3);
+	// The renderer's context reads the network's output from here on: it waits for
+	// the queue, on the GPU -- or, should it refuse to, here.
+	if (FAILED(m_pCtx11->Wait(m_pFenceDown11, m_LastSubmitted)) && !WaitForFence(m_pFenceDown12, m_LastSubmitted)) {
+		return GaveUp(L"the GPU had not run the network after two seconds");
+	}
+
 	m_Timing.inputWaitMs = double(t1.QuadPart - t0.QuadPart) / s_ticksPerMs;
 	m_Timing.recordMs    = double(t2.QuadPart - t1.QuadPart) / s_ticksPerMs;
-	m_Timing.gpuWaitMs   = double(t3.QuadPart - t2.QuadPart) / s_ticksPerMs;
+	m_Timing.gpuWaitMs   = 0;
 
 	m_bResetPending = false;
 	return true;

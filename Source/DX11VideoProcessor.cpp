@@ -3447,7 +3447,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 			| m_tracePasses;
 		traced.nrWaitUs   = (int)(m_traceNRTiming.inputWaitMs * 1000.0);
 		traced.nrRecordUs = (int)(m_traceNRTiming.recordMs * 1000.0);
-		traced.nrGpuUs    = (int)(m_traceNRTiming.gpuWaitMs * 1000.0);
+		traced.nrGpuUs    = (int)(std::max(m_traceNRTiming.gpuMs, 0.0) * 1000.0);
 	}
 
 	// A picture that has a time, and a clock running to be on time by. A redraw, a
@@ -5220,10 +5220,14 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 		UpdateStatsStatic();
 		return E_FAIL;
 	}
-	// The network's own time. Its wait for the input is the Direct3D 11 work queued
-	// before it -- the copy, and Optical Flow, which has its own timestamps.
-	m_DlssNRTimes.Add(m_DlssNR.LastTiming().recordMs + m_DlssNR.LastTiming().gpuWaitMs);
-	m_traceNRTiming = m_DlssNR.LastTiming();
+	// The network's own GPU time, on its queue: the picture before's, which the queue is
+	// done with by now. Nothing here waits for it.
+	const CDlssNR::Timing& timing = m_DlssNR.LastTiming();
+	if (timing.gpuMs >= 0 && timing.gpuSerial != m_uDlssNRTimed) {
+		m_uDlssNRTimed = timing.gpuSerial;
+		m_DlssNRTimes.Add(timing.gpuMs);
+	}
+	m_traceNRTiming = timing;
 	m_tracePasses |= CPacingTrace::DlssNR | (m_DlssNR.HasMotionVectors() ? CPacingTrace::NRVectors : 0)
 		| ((bStabilize && m_DlssStabilizer.HasFlow()) ? CPacingTrace::NRFlow : 0);
 
@@ -7034,7 +7038,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		static const wchar_t* const styles[] = { L"default", L"natural", L"cinematic" };
 		const wchar_t* style = (m_DlssParams.iStyle >= 0 && m_DlssParams.iStyle < (int)std::size(styles))
 			? styles[m_DlssParams.iStyle] : L"?";
-		// Timed where the renderer waits for it: it runs on a Direct3D 12 device of its own.
+		// Timed on the Direct3D 12 device it runs on, by timestamps on its own queue.
 		Step(L"DLSS 5 NR", std::format(L"{}/P{} i{:.2f} t{:.2f} s{:.2f} k{:.2f}{}{}",
 			style, m_DlssParams.iPreset, m_DlssParams.fIntensity, m_DlssParams.fLocalTone,
 			m_DlssParams.fLocalStructure, m_DlssParams.fSkinStructure,
@@ -7200,8 +7204,8 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		}
 	}
 
-	// The last picture on the render thread: copying the sample, drawing it (DLSS 5 NR
-	// waited for included), waiting for the moment to present it, and Present itself.
+	// The last picture on the render thread: copying the sample, drawing it (DLSS 5 NR's
+	// work issued, not waited for), waiting for the moment to present it, and Present itself.
 	{
 		const double ticksPerMs = GetPreciseTicksPerSecond() / 1000.0;
 		const uint64_t wait = std::min(m_presentWaitTicks, m_RenderStats.presentticks);

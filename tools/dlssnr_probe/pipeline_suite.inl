@@ -1,8 +1,10 @@
 // --tpipeline: the renderer's DLSS chain run frame after frame the way Process
 // runs it -- the upload, DLSS 5 NR, the stabilizer, DLSS Super Resolution and the
 // copy into the 4K target -- on a panning 1080p film frame. For each stage: the
-// CPU time the render thread spends in it (DLSS 5 NR waits for the GPU on the
-// CPU, the other stages only queue work), the GPU time from timestamp queries,
+// CPU time the render thread spends in it (every stage only queues work, DLSS 5 NR
+// included: its device and the renderer's wait for each other on the GPU), the GPU
+// time from timestamp queries -- DLSS 5 NR's as the renderer's context sees it, the
+// upload and the wait for the network's queue --
 // and the whole frame from the upload to the GPU being done with it. Mean, p95
 // and max over the frames, so spikes show.
 //
@@ -167,8 +169,8 @@ static int RunPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dls
 		if (!rc) {
 			g_report = fopen("temporal_results_pipeline.txt", "w");
 			Out("\nThe renderer's DLSS chain on %S, %ux%u -> %ux%u, %d frames after %d to warm up.\n", ref.name.c_str(), W, H, OW, OH, frames, kWarmup);
-			Out("CPU: time the render thread spends in each stage (DLSS 5 NR waits for the GPU there; the other stages\n");
-			Out("queue work). GPU: timestamp queries (DLSS 5 NR runs on its own Direct3D 12 device and is not in them).\n");
+			Out("CPU: time the render thread spends in each stage, which only queues work. GPU: timestamp queries; DLSS 5 NR\n");
+			Out("runs on its own Direct3D 12 device, and its line is the renderer's context waiting for it, the upload included.\n");
 			Out("frame: from the upload to the GPU being done with the frame. Times in ms: mean / p95 / max.\n");
 		}
 
@@ -214,7 +216,7 @@ static int RunPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dls
 				continue;
 			}
 
-			Samples cpuNR, cpuStab, cpuSR, cpuOut, cpuTotal, frameTotal, gpuStab, gpuSR, gpuOut, gpuTotal;
+			Samples cpuNR, cpuStab, cpuSR, cpuOut, cpuTotal, frameTotal, gpuNR, gpuStab, gpuSR, gpuOut, gpuTotal;
 			for (int f = 0; f < kWarmup + frames; f++) {
 				const bool measured = f >= kWarmup;
 				Tex2D_t& source = sources[f % kSources];
@@ -297,6 +299,7 @@ static int RunPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dls
 					frameTotal.Add(QpcMs(t0, t5));
 					if (!dj.Disjoint && dj.Frequency) {
 						auto gpuMs = [&](int a, int b) { return double(ts[b] - ts[a]) * 1000.0 / dj.Frequency; };
+						gpuNR.Add(gpuMs(0, 1));
 						gpuStab.Add(gpuMs(1, 2));
 						gpuSR.Add(gpuMs(2, 3));
 						gpuOut.Add(gpuMs(3, 4));
@@ -319,7 +322,7 @@ static int RunPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dls
 				Out("\n");
 			};
 			Out("\n%s\n", config.name);
-			line(config.nr ? "upload + DLSS 5 NR" : "upload", cpuNR, nullptr);
+			line(config.nr ? "upload + DLSS 5 NR" : "upload", cpuNR, config.nr ? &gpuNR : nullptr);
 			if (config.nr) {
 				line("stabilizer", cpuStab, &gpuStab);
 			}

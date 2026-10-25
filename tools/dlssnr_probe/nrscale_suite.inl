@@ -547,7 +547,9 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 						}
 						NRScaleFinish(dev, ctx);
 						QueryPerformanceCounter(&t1);
-						network += dlss.LastTiming().recordMs + dlss.LastTiming().gpuWaitMs;
+						// The renderer's context waited for the network, so it is done too.
+						dlss.CollectGpuTime();
+						network += dlss.LastTiming().gpuMs;
 						chain += double(t1.QuadPart - t0.QuadPart) * 1000.0 / qpf.QuadPart;
 						ok++;
 					}
