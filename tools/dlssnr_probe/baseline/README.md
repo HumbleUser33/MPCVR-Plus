@@ -1,8 +1,8 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 17 October 2026, on an
-RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all twenty-four steps green.
-The filter is `4a348c2`, build 2711, and filter and tools are built by MSVC 14.44. It is the thing
+`run_all_report.txt` here is what the whole battery measured on 25 October 2026, on an
+RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all twenty-five steps green.
+The filter is `6c936d1`, build 2720, and filter and tools are built by MSVC 14.44. It is the thing
 a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
@@ -181,3 +181,32 @@ of the code:
   steps new; the measured rows beside them are the same to 0.01.
 
 The other 31 new rows are the stabilizer's step. None is gone.
+
+## 25 October 2026: after a review of the whole filter
+
+The report of 17 October, at `4a348c2`, is in the history. Since then eight commits
+(`24ef5f3` to `6c936d1`) made passes cheaper, had DLSS 5 NR and the renderer wait for each
+other on the GPU instead of the CPU, and moved this fork's own functions out of
+`DX11VideoProcessor.cpp` into files of their own. The battery has one step more, "the
+upscalers through the filter, with bars": the picture kept in its shape between bars, which
+the first step after the scaling now reads where it lies instead of copying it there
+(`d0dce3e`).
+
+It was taken with the settings of the report before: Upscaling FSRCNNX 16 AR,
+Adaptive-Sharpen at 4, the DLSS 5 NR style cinematic, with Jinc chroma upsampling and
+*Swap effect* on Flip.
+
+Of the 2654 rows the two reports share, 3 moved by more than 0.1, none of them a measurement
+of the code:
+
+- two of "the pipeline", its "frame, upload to done" printed bare as mean / 95th percentile /
+  maximum: with DLSS SR alone 13.83 / 24.11 / 25.79 ms then, 9.45 / 10.54 / 17.49 now, and
+  with Catmull-Rom alone 0.84 / 5.68 / 10.84 then, 0.39 / 0.42 / 0.48 now. The first run of
+  the 25th, on the code of 17 October, already read 9.42 / 10.51 / 16.44 and 0.41 / 0.47 /
+  0.57: it was the run of the 17th that was slow. The 95th percentile with DLSS SR alone goes
+  from 10.5 to 16.9 and back from one run to the next whatever the code, over the nine runs
+  of the 25th;
+- one *On screen* count of late pictures, Jinc2m in "the upscalers through the filter": 10
+  on the 17th, none in any run of the 25th.
+
+None is gone; the 15 new rows are the new step's.
