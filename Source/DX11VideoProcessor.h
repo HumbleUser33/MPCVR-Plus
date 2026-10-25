@@ -214,6 +214,13 @@ private:
 	int m_iSharpenLevel = SHARPEN_LEVEL_DEF;
 	CComPtr<ID3D11PixelShader> m_pPSSharpen;
 	CComPtr<ID3D11Buffer> m_pSharpenConstants;
+	// The same method ending on the dither, for when sharpening is the last step
+	// before it: one pass to the screen where there were two.
+	CComPtr<ID3D11PixelShader> m_pPSSharpenDither;
+	bool SharpenTakesDither() const {
+		return m_bFinalPass && m_pPSSharpen && m_pPSSharpenDither && m_pPostScaleShaders.empty() && !m_pPSHalfOUtoInterlace;
+	}
+	void UpdateSharpenDitherShader();
 
 	bool m_bVPReplaceChroma = false;    // the setting
 	bool m_bChromaReplacedVP = false;   // and the shaders rebuild this source's chroma

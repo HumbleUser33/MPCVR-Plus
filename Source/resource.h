@@ -137,6 +137,11 @@
 #define IDF_PS_11_DLSS_COMPOSE_6        1922
 #define IDF_PS_11_DLSS_COMPOSE_7        1923
 #define IDF_PS_11_DLSS_COMPOSE_8        1924
+// The sharpening passes ending on the dither, in 8 and in 10 bits.
+#define IDF_PS_11_SHARPEN_UNSHARP_DITHER    1925
+#define IDF_PS_11_SHARPEN_UNSHARP_DITHER10  1926
+#define IDF_PS_11_SHARPEN_ADAPTIVE_DITHER   1927
+#define IDF_PS_11_SHARPEN_ADAPTIVE_DITHER10 1928
 #define IDF_VS_11_MPV_HOOK              1950
 #define IDF_PS_11_MPV_LUMA              1951
 #define IDF_PS_11_MPV_COMBINE           1952

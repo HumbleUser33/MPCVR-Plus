@@ -31,6 +31,11 @@
 // ps_mpv_prescale.hlsl PASS 2, and the reason sharpening does not have to touch
 // the colour. RGBMODE 1 sharpens the three channels on their own, which is what
 // CAS does natively and what a 4:4:4 picture could afford.
+//
+// QUANTIZATION, 255 or 1023, has the pass end on the dither of ps_final_pass.hlsl,
+// for when it is the last step before it: the picture then goes to the screen in one
+// pass instead of being written as half floats and read back by another, which at
+// 4K is a 66 MB picture written and read once more.
 
 #ifndef PASS
     #define PASS 1
@@ -41,6 +46,10 @@
 
 Texture2D tex : register(t0);
 SamplerState samp : register(s0);
+#ifdef QUANTIZATION
+Texture2D texDither : register(t1);
+SamplerState sampDither : register(s1);
+#endif
 
 cbuffer PS_SHARPEN : register(b0)
 {
@@ -49,6 +58,9 @@ cbuffer PS_SHARPEN : register(b0)
     float2 scale;    // 1, 1 here: this pass does not resize
     float  strength; // how much of the method's answer is kept, 0 = none
     float  param2;   // PASS 2 and 4: how far the clamp may pull back
+#ifdef QUANTIZATION
+    float2 ditherCoordScale; // what ps_final_pass.hlsl is given
+#endif
 };
 
 struct PS_INPUT
@@ -68,9 +80,8 @@ static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
 
 float3 Sharpen(float2 uv, float3 e);
 
-float4 main(PS_INPUT input) : SV_Target
+float4 Sharpened(const float2 uv)
 {
-    const float2 uv = input.Tex;
     const float4 centre = tex.SampleLevel(samp, uv, 0);
 
 #if PASS == 5
@@ -88,6 +99,17 @@ float4 main(PS_INPUT input) : SV_Target
     // channels by the same amount: the colour difference is untouched.
     return float4(centre.rgb + (dot(sharp, kLuma) - dot(centre.rgb, kLuma)), centre.a);
 #endif
+#endif
+}
+
+float4 main(PS_INPUT input) : SV_Target
+{
+#ifdef QUANTIZATION
+    // ps_final_pass.hlsl's dither, read at the same place.
+    const float4 ditherValue = texDither.Sample(sampDither, input.Tex * ditherCoordScale);
+    return floor(Sharpened(input.Tex) * QUANTIZATION + ditherValue) / QUANTIZATION;
+#else
+    return Sharpened(input.Tex);
 #endif
 }
 
