@@ -153,16 +153,16 @@ notice its absence.
 
 | What the fork adds | Where it lives | What proves it |
 |---|---|---|
-| DLSS 5 neural reconstruction (NGX feature 18) | `Source/DLSS/DlssNR.cpp` | `--frames 300` |
+| DLSS 5 neural reconstruction (NGX feature 18) | `Source/DLSS/DlssNR.cpp`, `Source/DX11VideoProcessorDlss.cpp` | `--frames 300` |
 | DLSS 5 NR at a working size below the picture's | `Source/DLSS/DlssCompose.cpp` | `--tnrscale` |
 | Temporal stabilizer on Optical Flow | `Source/DLSS/DlssStabilizer.cpp`, `DlssOpticalFlow.cpp` | `--tstab`, `--tstabport` |
-| DLSS Super Resolution 4.5, with its own motion | `Source/DLSS/DlssSR.cpp`, `DlssStabilizer.cpp` | `--tsr`, `--tsrport`, `--tsrstill` |
-| Render ahead | `Source/DX11VideoProcessor.cpp` | `playback_test --seconds` |
+| DLSS Super Resolution 4.5, with its own motion | `Source/DLSS/DlssSR.cpp`, `DlssStabilizer.cpp`, `Source/DX11VideoProcessorDlss.cpp` | `--tsr`, `--tsrport`, `--tsrstill` |
+| Render ahead | `Source/DX11VideoProcessorPresent.cpp`, `DX11VideoProcessor.cpp` | `playback_test --seconds` |
 | The settings page, eight tabs in one | `Source/SettingsPage/` | `playback_test --mainpage`, `--frame` |
-| The statistics laid out as the pipeline, each step with its GPU time | `Source/DX11VideoProcessor.cpp` (`GetStatsText`), `Source/DLSS/DlssTiming.cpp` | `playback_test --file <film> --only 4`, `--afternr` |
-| mpv prescalers: FSRCNNX 8/16, RAVU-zoom, ArtCNN, the AR entries | `Source/Upscale/`, `Shaders/mpv/` | `--tmpvport`, `--tupscale`, `--scalers` |
-| Chroma: Jinc (EWA), RAVU-zoom, FSRCNNX 8 AR | `Source/Shaders.cpp`, `Source/DX11VideoProcessor.cpp` | `--tchroma`, `--chroma`, `--chroma10` |
-| 4:4:4 pre-pass ("Use this method instead of the video processor's chroma upsampling") | `Source/DX11VideoProcessor.cpp`, `Source/Shaders.cpp` | `shader444_test`, `--chroma10`, `vp444_probe` |
+| The statistics laid out as the pipeline, each step with its GPU time | `Source/DX11VideoProcessorStats.cpp` (`GetStatsText`), `Source/DLSS/DlssTiming.cpp` | `playback_test --file <film> --only 4`, `--afternr` |
+| mpv prescalers: FSRCNNX 8/16, RAVU-zoom, ArtCNN, the AR entries | `Source/Upscale/`, `Source/DX11VideoProcessorMpv.cpp`, `Shaders/mpv/` | `--tmpvport`, `--tupscale`, `--scalers` |
+| Chroma: Jinc (EWA), RAVU-zoom, FSRCNNX 8 AR | `Source/Shaders.cpp`, `Source/DX11VideoProcessorMpv.cpp` | `--tchroma`, `--chroma`, `--chroma10` |
+| 4:4:4 pre-pass ("Use this method instead of the video processor's chroma upsampling") | `Source/DX11VideoProcessorMpv.cpp`, `Source/Shaders.cpp` | `shader444_test`, `--chroma10`, `vp444_probe` |
 | The flip model kept on a window (no more freeze) | `Source/DX11VideoProcessor.cpp` | `playback_test --toggle`, `--switch` |
 | Every setting applied while the film plays | `Source/VideoRenderer.cpp`, `DX11VideoProcessor.cpp` | `--toggle`, `--switch`, `--gpu` |
 | Lanczos weights kept finite at integer scale | `Shaders/d3d11/ps_interpolation_lanczos*.hlsl` | `--tupscale` |
@@ -172,13 +172,22 @@ notice its absence.
 
 ## Traps we have already fallen into
 
-- **The Direct3D 11 statistics are ours.** `CDX11VideoProcessor::GetStatsText` lays the
-  overlay out as the pipeline, and upstream's lines -- *VideoProcessor*, *Scaling*,
+- **The Direct3D 11 statistics are ours.** `CDX11VideoProcessor::GetStatsText`, in
+  `DX11VideoProcessorStats.cpp`, lays the overlay out as the pipeline, and upstream's lines -- *VideoProcessor*, *Scaling*,
   *PostProcessing*, *Presentation* -- have become its steps. An upstream commit that changes
   what one of them says merges into a function that is no longer upstream's, or conflicts
   with it: carry what it says into the step it belongs to, by hand. Upstream touches them
   rarely (`46ed311` is the one change since 0.10.7). `playback_test` reads the steps by name
   and prints them under its old labels, so the report stays comparable.
+- **What is ours alone lives in files of ours.** The parts of `CDX11VideoProcessor` upstream
+  has nothing of are in `DX11VideoProcessorDlss.cpp`, `...Mpv.cpp`, `...Present.cpp` and
+  `...Stats.cpp`; `DX11VideoProcessor.cpp` keeps upstream's code with ours grafted in where
+  it has to be. Moving them out on 25 October 2026 took 1 812 of the 3 071 lines we had
+  added to upstream's file out of it, and its contact points with ours from 181 to 140. A
+  trial merge with upstream as fetched that day still gave the same 7 conflicts there, all
+  in code both sides change: the gain is in what there is to read, not in what conflicts.
+  A new function of ours goes in one of those files, and a helper of upstream's that it
+  needs is declared in `DX11VideoProcessorShared.h`, not copied.
 - **A compute pass sets no render target of its own.** If the caller has just drawn into a
   texture the pass reads, that texture is still bound as a render target and Direct3D
   silently drops its shader resource view: the pass reads zeros. It cost a black picture

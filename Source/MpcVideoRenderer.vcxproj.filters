@@ -69,6 +69,18 @@
     <ClCompile Include="DX11VideoProcessor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DX11VideoProcessorDlss.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DX11VideoProcessorMpv.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DX11VideoProcessorPresent.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DX11VideoProcessorStats.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Times.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -213,6 +225,9 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="DX11VideoProcessor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DX11VideoProcessorShared.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="FrameStats.h">
