@@ -55,6 +55,10 @@ CALL :Run "video processor rebuild"            "vp_rebuild_test.exe"
 CALL :Run "the generated 4:4:4 chroma pass"    "shader444_test.exe"
 CALL :Run "playback, 10 s"                     "playback_test.exe --seconds 10"
 CALL :Run "the upscalers through the filter"   "playback_test.exe --scalers --seconds 4"
+REM The same with the picture kept in its shape, as a player shows it: a prescaler then
+REM makes it the size it is shown at, and it is only to be put in its place between the
+REM bars, which the first step after does by reading it where it lies.
+CALL :Run "the upscalers through the filter, with bars" "playback_test.exe --scalers --letterbox --size 1920x800 --window 3840x2160 --seconds 2"
 CALL :Run "chroma through the filter, 8-bit"   "playback_test.exe --chroma %REF% --seconds 3"
 CALL :Run "chroma through the filter, 10-bit"  "playback_test.exe --chroma10 %REF% --seconds 3"
 CALL :Run "settings changed while playing"     "playback_test.exe --toggle --seconds 3"

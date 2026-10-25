@@ -5534,7 +5534,27 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 			m_bVPScalingUseShaders = rSrc.Width() != dstRect.Width() || rSrc.Height() != dstRect.Height();
 		}
 
-		if (rSrc != dstRect || rotation != 0) {
+		// A picture that only has to be put in its place -- the processor, DLSS SR or a
+		// prescaler made it the size it is shown at, and it has black bars or sits in a
+		// window -- is read where it lies by the first step after, and the copy that
+		// placed it goes: 0.10 ms for a 3840x1600 picture between the bars of a 4K
+		// window on an RTX 4060 (RenderDoc), and the statistics gave the processor's
+		// such copy 0.5 ms at 4K. The step also reads the picture as it was made, not an
+		// 8-bit copy of it, and its edge clamped where it used to read what lay under the
+		// bars. Not where that step is not a plain draw of the
+		// picture: DLSS 5 NR after the resize, or the 3D conversion, which draws the
+		// subtitles first on what it reads. rRead is the part of its input a step reads:
+		// the picture where it lies, the first time, and where it was put from then on.
+		const bool bFirstStepDraws = m_pPSCorrection || m_pPSHDR10ToneMapping || m_pPSSharpen
+			|| !m_pPostScaleShaders.empty() || (m_bFinalPass && !m_pPSHalfOUtoInterlace);
+		const bool bPlaceInFirstStep = rSrc != dstRect && rSrc.Size() == dstRect.Size() && rotation == 0 && !m_bFlip
+			&& rect == dstRect && bFirstStepDraws && !(m_bDlssNRActive && bAllowDlss && m_bDlssNRAfterUpscale);
+		CRect rRead = rect;
+
+		if (bPlaceInFirstStep) {
+			pTex = pInputTexture;
+			rRead = rSrc;
+		} else if (rSrc != dstRect || rotation != 0) {
 			m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::Resize);
 			hr = ResizeShaderPass(*pInputTexture, pRT, rSrc, dstRect, rotation);
 			m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Resize);
@@ -5566,7 +5586,8 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 
 		if (m_pPSCorrection) {
 			StepSetting();
-			hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPSCorrection, m_pCorrectionConstants, 0, false);
+			hr = TextureCopyRect(*pInputTexture, pRT, rRead, rect, m_pPSCorrection, m_pCorrectionConstants, 0, false);
+			rRead = rect;
 		}
 
 		if (m_pPSHDR10ToneMapping) {
@@ -5576,7 +5597,8 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 				m_pDeviceContext->PSSetConstantBuffers(1, 1, &m_pDoViDynamicConstants.p);
 			}
 
-			hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPSHDR10ToneMapping, m_pHDR10ToneMappingConstants, 0, false);
+			hr = TextureCopyRect(*pInputTexture, pRT, rRead, rect, m_pPSHDR10ToneMapping, m_pHDR10ToneMappingConstants, 0, false);
+			rRead = rect;
 		}
 
 		if (m_pPSSharpen) {
@@ -5608,13 +5630,14 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 			if (bDither) {
 				m_pDeviceContext->PSSetShaderResources(1, 1, &m_TexDither.pShaderResource.p);
 				m_pDeviceContext->PSSetSamplers(1, 1, &m_pSamplerDither.p);
-				hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPSSharpenDither, m_pSharpenConstants, 0, false);
+				hr = TextureCopyRect(*pInputTexture, pRT, rRead, rect, m_pPSSharpenDither, m_pSharpenConstants, 0, false);
 				ID3D11ShaderResourceView* views[1] = {};
 				m_pDeviceContext->PSSetShaderResources(1, 1, views);
 				m_bDitherUsed = true;
 			} else {
-				hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPSSharpen, m_pSharpenConstants, 0, false);
+				hr = TextureCopyRect(*pInputTexture, pRT, rRead, rect, m_pPSSharpen, m_pSharpenConstants, 0, false);
 			}
+			rRead = rect;
 		}
 
 		if (m_pPostScaleShaders.size()) {
@@ -5638,7 +5661,8 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 
 			for (UINT idx = 0; idx < m_pPostScaleShaders.size(); idx++) {
 				StepSetting();
-				hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPostScaleShaders[idx].shader, m_pPostScaleConstants, 0, false);
+				hr = TextureCopyRect(*pInputTexture, pRT, rRead, rect, m_pPostScaleShaders[idx].shader, m_pPostScaleConstants, 0, false);
+				rRead = rect;
 			}
 		}
 
@@ -5656,12 +5680,13 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 				memcpy(mr.pData, &ConstData, sizeof(ConstData));
 				m_pDeviceContext->Unmap(m_pHalfOUtoInterlaceConstantBuffer, 0);
 			}
-			hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPSHalfOUtoInterlace, m_pHalfOUtoInterlaceConstantBuffer, 0, false);
+			hr = TextureCopyRect(*pInputTexture, pRT, rRead, rect, m_pPSHalfOUtoInterlace, m_pHalfOUtoInterlaceConstantBuffer, 0, false);
+			rRead = rect;
 		}
 
 		if (m_bFinalPass && !SharpenTakesDither()) {
 			StepSetting();
-			hr = FinalPass(*pTex, pRT, rect, rect);
+			hr = FinalPass(*pTex, pRT, rRead, rect);
 			m_bDitherUsed = true;
 		}
 		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Finish);

@@ -33,6 +33,7 @@
 //   playback_test.exe --delay N [--delayto M]   the Video delay setting, and moved while it plays;
 //                                     with MPCVR_PACING_TRACE set, pacing_report.py says where the pictures went
 //   playback_test.exe --nrscale N [--nrscaleto M]   DLSS 5 NR's working size, per cent, and moved while it plays
+//   playback_test.exe --letterbox       the picture keeps its shape in the window, with bars, instead of filling it
 //                                     which processor then converts the picture
 
 #include <windows.h>
@@ -119,6 +120,10 @@ static int g_hz = 0;                   // --hz N: put the screen at N Hz for the
 static bool g_bJolt = false;           // --jolt: change a setting while it plays, and watch the queue
 static bool g_bPresetKeys = false;     // --presets: save two, recall each by its key while it plays
 static bool g_bRewindow = false;       // --rewindow: have the video window made again, from another thread and from this one
+// --letterbox: the picture keeps its shape in the window, with bars, as a player shows it,
+// where otherwise it is stretched to the window: a picture enlarged to its size is then
+// still to be put in its place.
+static bool g_bLetterbox = false;
 
 // --hz: a film at the screen's own rate is the case where a picture that once
 // arrived late never gets its refresh back, and a 60 Hz desktop never shows it.
@@ -1278,7 +1283,18 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	pVW->put_Owner((OAHWND)hwnd);
 	pVW->put_WindowStyle(WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);
 	pVW->SetWindowPosition(0, 0, window.cx, window.cy);
-	pBV->SetDestinationPosition(0, 0, window.cx, window.cy);
+	long destX = 0, destY = 0, destW = window.cx, destH = window.cy;
+	long videoW = 0, videoH = 0;
+	if (g_bLetterbox && SUCCEEDED(pBV->GetVideoSize(&videoW, &videoH)) && videoW > 0 && videoH > 0) {
+		if ((long long)window.cx * videoH <= (long long)window.cy * videoW) {
+			destH = (long)((long long)window.cx * videoH / videoW);
+			destY = (window.cy - destH) / 2;
+		} else {
+			destW = (long)((long long)window.cy * videoW / videoH);
+			destX = (window.cx - destW) / 2;
+		}
+	}
+	pBV->SetDestinationPosition(destX, destY, destW, destH);
 
 	CComQIPtr<IMediaControl> pMC(pGraph.p);
 	if (g_filmFile && g_filmSeek > 0) {
@@ -2296,6 +2312,8 @@ int wmain(int argc, wchar_t* argv[])
 			source.cy &= ~1;
 		} else if (!wcscmp(argv[i], L"--rewindow")) {
 			g_bRewindow = true;
+		} else if (!wcscmp(argv[i], L"--letterbox")) {
+			g_bLetterbox = true;
 		} else if (!wcscmp(argv[i], L"--presets")) {
 			g_bPresetKeys = true;
 		} else if (!wcscmp(argv[i], L"--jolt")) {
