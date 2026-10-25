@@ -46,12 +46,6 @@ constexpr float kCutLightRatio  = 30.0f; // and the residual this many times the
 constexpr float kCutCorrelation = 0.25f; // or the picture: the median group's normalized correlation under this
 constexpr float kCutRatio       = 3.0f;  // and the residual this many times
 
-// The layout of the renderer's VERTEX.
-struct QuadVertex {
-	float x, y, z;
-	float u, v;
-};
-
 // About 540 lines of flow whatever the video: 1.6 ms on an RTX 3050 (--tflow).
 UINT FlowFactor(UINT height)
 {
@@ -96,29 +90,6 @@ CDlssStabilizer::FlowSettings CDlssStabilizer::ForDlssNR(UINT divider)
 	return flow;
 }
 
-HRESULT CDlssStabilizer::CreateTarget(ID3D11Device* pDevice, UINT width, UINT height, DXGI_FORMAT format, Target& target)
-{
-	D3D11_TEXTURE2D_DESC desc = {};
-	desc.Width            = width;
-	desc.Height           = height;
-	desc.MipLevels        = 1;
-	desc.ArraySize        = 1;
-	desc.Format           = format;
-	desc.SampleDesc.Count = 1;
-	desc.Usage            = D3D11_USAGE_DEFAULT;
-	desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-
-	target = Target{};
-	HRESULT hr = pDevice->CreateTexture2D(&desc, nullptr, &target.pTexture);
-	if (SUCCEEDED(hr)) {
-		hr = pDevice->CreateShaderResourceView(target.pTexture, nullptr, &target.pShaderResource);
-	}
-	if (SUCCEEDED(hr)) {
-		hr = pDevice->CreateRenderTargetView(target.pTexture, nullptr, &target.pRenderTarget);
-	}
-	return hr;
-}
-
 bool CDlssStabilizer::Matches(UINT width, UINT height, bool bMotionOnly, const FlowSettings& flow) const
 {
 	return m_width == width && m_height == height && m_bMotionOnly == bMotionOnly
@@ -146,21 +117,7 @@ HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT
 		}
 	}
 
-	D3D11_BUFFER_DESC bufferDesc = { 32 * sizeof(float), D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
-	hr = pDevice->CreateBuffer(&bufferDesc, nullptr, &m_pConstants);
-	if (SUCCEEDED(hr)) {
-		// FillVertices for an unrotated, unflipped blit of a whole texture: the
-		// winding the renderer draws with, which survives back-face culling.
-		static const QuadVertex quad[4] = {
-			{ -1, -1, 0,  0, 1 },
-			{ -1, +1, 0,  0, 0 },
-			{ +1, -1, 0,  1, 1 },
-			{ +1, +1, 0,  1, 0 },
-		};
-		bufferDesc = { sizeof(quad), D3D11_USAGE_IMMUTABLE, D3D11_BIND_VERTEX_BUFFER, 0, 0, 0 };
-		const D3D11_SUBRESOURCE_DATA init = { quad, 0, 0 };
-		hr = pDevice->CreateBuffer(&bufferDesc, &init, &m_pQuad);
-	}
+	hr = m_Pass.Create(pDevice, 32);
 
 	if (SUCCEEDED(hr)) {
 		hr = m_TexMotion.CheckCreate(pDevice, DXGI_FORMAT_R16G16_FLOAT, width, height, Tex2D_DefaultShaderRTargetUAVShared);
@@ -169,7 +126,7 @@ HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT
 		hr = pDevice->CreateRenderTargetView(m_TexMotion.pTexture, nullptr, &m_pMotionTarget);
 	}
 	if (SUCCEEDED(hr)) {
-		hr = CreateTarget(pDevice, width, height, DXGI_FORMAT_R8_UNORM, m_Confidence);
+		hr = CPassTarget::Create(pDevice, width, height, DXGI_FORMAT_R8_UNORM, m_Confidence);
 	}
 	if (SUCCEEDED(hr) && flow.snap) {
 		// The global motion, measured on the GPU and read there: nothing waits for it.
@@ -268,9 +225,9 @@ HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT
 		return hr;
 	}
 	for (int i = 0; i < 2 && SUCCEEDED(hr); i++) {
-		hr = CreateTarget(pDevice, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, m_History[i]);
+		hr = CPassTarget::Create(pDevice, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, m_History[i]);
 		if (SUCCEEDED(hr)) {
-			hr = CreateTarget(pDevice, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, m_Input[i]);
+			hr = CPassTarget::Create(pDevice, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, m_Input[i]);
 		}
 	}
 	if (SUCCEEDED(hr)) {
@@ -331,7 +288,7 @@ HRESULT CDlssStabilizer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pCon
 	if (m_bFlow && m_pPSBlockMotion) {
 		// PASS 4's blocks, one pixel per vector, known once the engine has its grid.
 		for (int i = 0; i < 2 && SUCCEEDED(hr); i++) {
-			hr = CreateTarget(pDevice, m_Flow.OutputWidth(), m_Flow.OutputHeight(), DXGI_FORMAT_R32G32B32A32_FLOAT, m_BlockField[i]);
+			hr = CPassTarget::Create(pDevice, m_Flow.OutputWidth(), m_Flow.OutputHeight(), DXGI_FORMAT_R32G32B32A32_FLOAT, m_BlockField[i]);
 		}
 		// The refinement's sums, a pixel per 16 x 16 group of the flow frame, and the cut
 		// detection's after them.
@@ -410,8 +367,7 @@ void CDlssStabilizer::Release()
 	m_pGlobalMotionTarget.Release();
 	m_pGlobalMotionView.Release();
 	m_pGlobalMotion.Release();
-	m_pConstants.Release();
-	m_pQuad.Release();
+	m_Pass.Release();
 	m_pMotionTarget.Release();
 	m_TexMotion.Release();
 	m_pVectorsTarget.Release();
@@ -465,63 +421,24 @@ void CDlssStabilizer::Draw(ID3D11DeviceContext* pContext, ID3D11PixelShader* pSh
 	std::initializer_list<ID3D11RenderTargetView*> targets, UINT width, UINT height,
 	std::initializer_list<ID3D11ShaderResourceView*> inputs, const float* constants, size_t count)
 {
-	ID3D11RenderTargetView* rtvs[2] = {};
-	const UINT numTargets = (UINT)std::min<size_t>(targets.size(), std::size(rtvs));
-	std::copy_n(targets.begin(), numTargets, rtvs);
-	ID3D11ShaderResourceView* srvs[8] = {};
-	std::copy_n(inputs.begin(), std::min<size_t>(inputs.size(), std::size(srvs)), srvs);
-
-	D3D11_MAPPED_SUBRESOURCE mr = {};
-	if (constants && count && SUCCEEDED(pContext->Map(m_pConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr))) {
-		float block[32] = {};
-		std::copy_n(constants, std::min<size_t>(count, std::size(block)), block);
-		memcpy(mr.pData, block, sizeof(block));
-		pContext->Unmap(m_pConstants, 0);
-	}
-
-	const D3D11_VIEWPORT viewport = { 0, 0, (FLOAT)width, (FLOAT)height, 0, 1 };
-	const UINT stride = sizeof(QuadVertex);
-	const UINT offset = 0;
-	ID3D11SamplerState* samplers[2] = { m_pSamplerPoint, m_pSamplerLinear };
-	ID3D11Buffer* pConstants = m_pConstants;
-	ID3D11Buffer* pQuad = m_pQuad;
-
-	pContext->IASetInputLayout(m_pInputLayout);
-	pContext->OMSetRenderTargets(numTargets, rtvs, nullptr);
-	pContext->RSSetViewports(1, &viewport);
-	pContext->OMSetBlendState(nullptr, nullptr, D3D11_DEFAULT_SAMPLE_MASK);
-	pContext->VSSetShader(m_pVertexShader, nullptr, 0);
-	pContext->PSSetShader(pShader, nullptr, 0);
-	pContext->PSSetShaderResources(0, (UINT)std::size(srvs), srvs);
-	pContext->PSSetSamplers(0, (UINT)std::size(samplers), samplers);
-	pContext->PSSetConstantBuffers(0, 1, &pConstants);
-	pContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-	pContext->IASetVertexBuffers(0, 1, &pQuad, &stride, &offset);
-	pContext->Draw(4, 0);
-
-	// Unbound, so the next pass can write what this one read.
-	ID3D11ShaderResourceView* noViews[8] = {};
-	pContext->PSSetShaderResources(0, (UINT)std::size(noViews), noViews);
-	ID3D11RenderTargetView* noTargets[2] = {};
-	pContext->OMSetRenderTargets((UINT)std::size(noTargets), noTargets, nullptr);
+	m_Pass.Draw(pContext, m_pInputLayout, m_pVertexShader, pShader, targets, width, height, inputs,
+		{ m_pSamplerPoint, m_pSamplerLinear }, constants, count);
 }
 
 void CDlssStabilizer::MeasureGlobalMotion(ID3D11DeviceContext* pContext)
 {
 	// Only the blocks PASS 1 would trust count, by the same measures.
-	D3D11_MAPPED_SUBRESOURCE mr = {};
-	if (SUCCEEDED(pContext->Map(m_pConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr))) {
-		const float constants[32] = {
+	{
+		const float constants[] = {
 			(float)m_Flow.GridSize(), kConsistency, kCostLow, kCostHigh,
 			(float)m_Flow.Width(), (float)m_Flow.Height(), m_Flow.Bidirectional() ? 1.0f : 0.0f, m_Flow.HasCost() ? 1.0f : 0.0f,
 			kTrustedShare
 		};
-		memcpy(mr.pData, constants, sizeof(constants));
-		pContext->Unmap(m_pConstants, 0);
+		m_Pass.SetConstants(pContext, constants, std::size(constants));
 	}
 	ID3D11ShaderResourceView* views[3] = { m_Flow.ForwardFlow(), m_Flow.BackwardFlow(), m_Flow.ForwardCost() };
 	ID3D11UnorderedAccessView* pTarget = m_pGlobalMotionTarget;
-	ID3D11Buffer* pConstants = m_pConstants;
+	ID3D11Buffer* pConstants = m_Pass.Constants();
 	pContext->CSSetShader(m_pCSGlobalMotion, nullptr, 0);
 	pContext->CSSetShaderResources(0, (UINT)std::size(views), views);
 	pContext->CSSetConstantBuffers(0, 1, &pConstants);
@@ -537,10 +454,9 @@ void CDlssStabilizer::MeasureGlobalMotion(ID3D11DeviceContext* pContext)
 
 	// Then refined on the flow frames themselves (cs_dlss_global_refine.hlsl).
 	if (m_pCSRefineStep && m_pCSRefineSolve && m_pRefinePartial[1]) {
-		if (SUCCEEDED(pContext->Map(m_pConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr))) {
-			const float constants[32] = { (float)m_Flow.GridSize(), m_FlowSettings.globalNear, 2000.0f, 0.5f, m_FlowSettings.globalRobust };
-			memcpy(mr.pData, constants, sizeof(constants));
-			pContext->Unmap(m_pConstants, 0);
+		{
+			const float constants[] = { (float)m_Flow.GridSize(), m_FlowSettings.globalNear, 2000.0f, 0.5f, m_FlowSettings.globalRobust };
+			m_Pass.SetConstants(pContext, constants, std::size(constants));
 		}
 		const UINT groupsX = (m_Flow.Width() + 15) / 16, groupsY = (m_Flow.Height() + 15) / 16;
 		for (int step = 0; step < m_FlowSettings.globalRefine; step++) {
@@ -581,10 +497,9 @@ void CDlssStabilizer::MeasureGlobalMotion(ID3D11DeviceContext* pContext)
 		pContext->CSSetShaderResources(0, (UINT)std::size(noViews), noViews);
 		pContext->CSSetUnorderedAccessViews(0, (UINT)std::size(noTargets), noTargets, nullptr);
 
-		if (SUCCEEDED(pContext->Map(m_pConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr))) {
-			const float constants[32] = { kCutHistogram, kCutRatio, kCutResidual, kCutCorrelation, kCutLightHist, kCutLightRatio };
-			memcpy(mr.pData, constants, sizeof(constants));
-			pContext->Unmap(m_pConstants, 0);
+		{
+			const float constants[] = { kCutHistogram, kCutRatio, kCutResidual, kCutCorrelation, kCutLightHist, kCutLightRatio };
+			m_Pass.SetConstants(pContext, constants, std::size(constants));
 		}
 		ID3D11ShaderResourceView* cutViews[4] = { m_Flow.CurrentFrame(), m_Flow.PreviousFrame(), m_pRefinePartialView[0], m_pRefinePartialView[1] };
 		ID3D11UnorderedAccessView* cutTarget = m_pCutStateTarget;

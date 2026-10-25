@@ -25,12 +25,6 @@
 
 namespace {
 
-// The layout of the renderer's VERTEX.
-struct QuadVertex {
-	float x, y, z;
-	float u, v;
-};
-
 // What ps_dlss_compose.hlsl reads from b0, in its order.
 struct Constants {
 	float fullW, fullH, workW, workH;
@@ -48,29 +42,6 @@ void CDlssCompose::WorkingSize(UINT fullW, UINT fullH, int percent, UINT& workW,
 	};
 	workW = Scale(fullW);
 	workH = Scale(fullH);
-}
-
-HRESULT CDlssCompose::CreateTarget(ID3D11Device* pDevice, UINT width, UINT height, DXGI_FORMAT format, Target& target)
-{
-	D3D11_TEXTURE2D_DESC desc = {};
-	desc.Width            = width;
-	desc.Height           = height;
-	desc.MipLevels        = 1;
-	desc.ArraySize        = 1;
-	desc.Format           = format;
-	desc.SampleDesc.Count = 1;
-	desc.Usage            = D3D11_USAGE_DEFAULT;
-	desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-
-	target = Target{};
-	HRESULT hr = pDevice->CreateTexture2D(&desc, nullptr, &target.pTexture);
-	if (SUCCEEDED(hr)) {
-		hr = pDevice->CreateShaderResourceView(target.pTexture, nullptr, &target.pShaderResource);
-	}
-	if (SUCCEEDED(hr)) {
-		hr = pDevice->CreateRenderTargetView(target.pTexture, nullptr, &target.pRenderTarget);
-	}
-	return hr;
 }
 
 bool CDlssCompose::Matches(UINT fullW, UINT fullH, UINT workW, UINT workH, Method method) const
@@ -112,23 +83,9 @@ HRESULT CDlssCompose::Create(ID3D11Device* pDevice, UINT fullW, UINT fullH, UINT
 		}
 	}
 
-	D3D11_BUFFER_DESC bufferDesc = { 16 * sizeof(float), D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
-	hr = pDevice->CreateBuffer(&bufferDesc, nullptr, &m_pConstants);
+	hr = m_Pass.Create(pDevice, 16);
 	if (SUCCEEDED(hr)) {
-		// FillVertices for an unrotated, unflipped blit of a whole texture: the winding
-		// the renderer draws with, which survives back-face culling.
-		static const QuadVertex quad[4] = {
-			{ -1, -1, 0,  0, 1 },
-			{ -1, +1, 0,  0, 0 },
-			{ +1, -1, 0,  1, 1 },
-			{ +1, +1, 0,  1, 0 },
-		};
-		bufferDesc = { sizeof(quad), D3D11_USAGE_IMMUTABLE, D3D11_BIND_VERTEX_BUFFER, 0, 0, 0 };
-		const D3D11_SUBRESOURCE_DATA init = { quad, 0, 0 };
-		hr = pDevice->CreateBuffer(&bufferDesc, &init, &m_pQuad);
-	}
-	if (SUCCEEDED(hr)) {
-		hr = CreateTarget(pDevice, workW, fullH, DXGI_FORMAT_R16G16B16A16_FLOAT, m_ReduceX);
+		hr = CPassTarget::Create(pDevice, workW, fullH, DXGI_FORMAT_R16G16B16A16_FLOAT, m_ReduceX);
 	}
 	if (SUCCEEDED(hr)) {
 		hr = m_TexResult.Create(pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, fullW, fullH, Tex2D_DefaultShaderRTarget);
@@ -141,12 +98,12 @@ HRESULT CDlssCompose::Create(ID3D11Device* pDevice, UINT fullW, UINT fullH, UINT
 	if (SUCCEEDED(hr) && method == Method::Guided) {
 		for (Target& t : m_Sums) {
 			if (SUCCEEDED(hr)) {
-				hr = CreateTarget(pDevice, workW, workH, DXGI_FORMAT_R32G32B32A32_FLOAT, t);
+				hr = CPassTarget::Create(pDevice, workW, workH, DXGI_FORMAT_R32G32B32A32_FLOAT, t);
 			}
 		}
 		for (Target& t : m_AB) {
 			if (SUCCEEDED(hr)) {
-				hr = CreateTarget(pDevice, workW, workH, DXGI_FORMAT_R32G32B32A32_FLOAT, t);
+				hr = CPassTarget::Create(pDevice, workW, workH, DXGI_FORMAT_R32G32B32A32_FLOAT, t);
 			}
 		}
 	}
@@ -171,8 +128,7 @@ void CDlssCompose::Release()
 	for (auto& ps : m_pPS) {
 		ps.Release();
 	}
-	m_pConstants.Release();
-	m_pQuad.Release();
+	m_Pass.Release();
 	m_ReduceX = Target{};
 	for (Target& t : m_Sums) {
 		t = Target{};
@@ -250,44 +206,6 @@ void CDlssCompose::Draw(ID3D11DeviceContext* pContext, ID3D11PixelShader* pShade
 	if (!pShader) {
 		return;
 	}
-	ID3D11RenderTargetView* rtvs[4] = {};
-	const UINT numTargets = (UINT)std::min<size_t>(targets.size(), std::size(rtvs));
-	std::copy_n(targets.begin(), numTargets, rtvs);
-	ID3D11ShaderResourceView* srvs[4] = {};
-	std::copy_n(inputs.begin(), std::min<size_t>(inputs.size(), std::size(srvs)), srvs);
-
-	D3D11_MAPPED_SUBRESOURCE mr = {};
-	if (constants && count && SUCCEEDED(pContext->Map(m_pConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr))) {
-		float block[16] = {};
-		std::copy_n(constants, std::min<size_t>(count, std::size(block)), block);
-		memcpy(mr.pData, block, sizeof(block));
-		pContext->Unmap(m_pConstants, 0);
-	}
-
-	// What the pass writes may still be bound for reading from the pass before.
-	ID3D11ShaderResourceView* noViews[4] = {};
-	pContext->PSSetShaderResources(0, (UINT)std::size(noViews), noViews);
-
-	const D3D11_VIEWPORT viewport = { 0, 0, (FLOAT)width, (FLOAT)height, 0, 1 };
-	const UINT stride = sizeof(QuadVertex);
-	const UINT offset = 0;
-	ID3D11Buffer* pConstants = m_pConstants;
-	ID3D11Buffer* pQuad = m_pQuad;
-
-	pContext->IASetInputLayout(m_pInputLayout);
-	pContext->OMSetRenderTargets(numTargets, rtvs, nullptr);
-	pContext->RSSetViewports(1, &viewport);
-	pContext->OMSetBlendState(nullptr, nullptr, D3D11_DEFAULT_SAMPLE_MASK);
-	pContext->VSSetShader(m_pVertexShader, nullptr, 0);
-	pContext->PSSetShader(pShader, nullptr, 0);
-	pContext->PSSetShaderResources(0, (UINT)std::size(srvs), srvs);
-	pContext->PSSetConstantBuffers(0, 1, &pConstants);
-	pContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-	pContext->IASetVertexBuffers(0, 1, &pQuad, &stride, &offset);
-	pContext->Draw(4, 0);
-
-	// Unbound, so the next pass can write what this one read.
-	pContext->PSSetShaderResources(0, (UINT)std::size(noViews), noViews);
-	ID3D11RenderTargetView* noTargets[4] = {};
-	pContext->OMSetRenderTargets((UINT)std::size(noTargets), noTargets, nullptr);
+	// The passes read with Load: no sampler has a say.
+	m_Pass.Draw(pContext, m_pInputLayout, m_pVertexShader, pShader, targets, width, height, inputs, {}, constants, count);
 }

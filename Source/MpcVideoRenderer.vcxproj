@@ -120,6 +120,7 @@
     <ClInclude Include="DLSS\DlssOpticalFlow.h" />
     <ClInclude Include="DLSS\DlssStabilizer.h" />
     <ClInclude Include="DLSS\DlssCompose.h" />
+    <ClInclude Include="DLSS\DlssPass.h" />
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowCommon.h" />
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowD3D11.h" />
     <ClInclude Include="DLSS\DlssSR.h" />

@@ -185,6 +185,9 @@
     <ClInclude Include="DLSS\DlssCompose.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="DLSS\DlssPass.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowCommon.h">
       <Filter>Source Files</Filter>
     </ClInclude>

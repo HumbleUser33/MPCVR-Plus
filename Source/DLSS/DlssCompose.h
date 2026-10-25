@@ -22,6 +22,7 @@
 
 #include <initializer_list>
 #include "DX11Helper.h"
+#include "DlssPass.h"
 
 // CDlssCompose
 //
@@ -83,20 +84,14 @@ public:
 	Tex2D_t* GetResult() { return &m_TexResult; }
 
 private:
-	struct Target {
-		CComPtr<ID3D11Texture2D>          pTexture;
-		CComPtr<ID3D11ShaderResourceView> pShaderResource;
-		CComPtr<ID3D11RenderTargetView>   pRenderTarget;
-	};
+	using Target = CPassTarget;
 
-	static HRESULT CreateTarget(ID3D11Device* pDevice, UINT width, UINT height, DXGI_FORMAT format, Target& target);
 	void Draw(ID3D11DeviceContext* pContext, ID3D11PixelShader* pShader,
 		std::initializer_list<ID3D11RenderTargetView*> targets, UINT width, UINT height,
 		std::initializer_list<ID3D11ShaderResourceView*> inputs, const float* constants, size_t count);
 
 	CComPtr<ID3D11PixelShader> m_pPS[9];   // PASS 0 to 8 of ps_dlss_compose.hlsl, those the method needs
-	CComPtr<ID3D11Buffer>      m_pConstants;
-	CComPtr<ID3D11Buffer>      m_pQuad;
+	CQuadPass                  m_Pass;   // the constants and the quad every pass draws with
 
 	Target  m_ReduceX;                     // RGBA16F, reduced across: workW x fullH
 	Target  m_Sums[4];                     // RGBA32F at the working size, Guided only

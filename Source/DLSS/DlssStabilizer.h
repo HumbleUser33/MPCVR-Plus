@@ -24,6 +24,7 @@
 #include <string>
 #include "DX11Helper.h"
 #include "DlssOpticalFlow.h"
+#include "DlssPass.h"
 
 // CDlssStabilizer
 //
@@ -171,13 +172,8 @@ public:
 	const std::wstring& GetStatusLine() const { return m_status; }
 
 private:
-	struct Target {
-		CComPtr<ID3D11Texture2D>          pTexture;
-		CComPtr<ID3D11ShaderResourceView> pShaderResource;
-		CComPtr<ID3D11RenderTargetView>   pRenderTarget;
-	};
+	using Target = CPassTarget;
 
-	static HRESULT CreateTarget(ID3D11Device* pDevice, UINT width, UINT height, DXGI_FORMAT format, Target& target);
 	HRESULT CreateResources(ID3D11Device* pDevice, UINT width, UINT height, bool bMotionOnly, const FlowSettings& flow);
 	void MeasureGlobalMotion(ID3D11DeviceContext* pContext);
 	void Draw(ID3D11DeviceContext* pContext, ID3D11PixelShader* pShader,
@@ -206,8 +202,7 @@ private:
 	CComPtr<ID3D11UnorderedAccessView> m_pCutStateTarget;
 	bool m_bCutStateStale = true;                             // to clear before the next picture: a reset, a new session
 	bool m_bCutMeasured = false;
-	CComPtr<ID3D11Buffer>      m_pConstants;
-	CComPtr<ID3D11Buffer>      m_pQuad;
+	CQuadPass                  m_Pass;   // the constants and the quad every pass draws with
 
 	Tex2D_t m_TexMotion;                       // RG16F, shared with the DLSS device
 	CComPtr<ID3D11RenderTargetView> m_pMotionTarget;
