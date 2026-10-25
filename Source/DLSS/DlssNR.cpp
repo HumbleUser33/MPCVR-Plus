@@ -1316,7 +1316,17 @@ std::wstring CDlssNR::GetInfoBlock() const
 	s += std::format(L"  Transport : Direct3D 12 interop{}\n", m_bUseShim ? L", nvngx.dll shim" : L"");
 	s += std::format(L"  Arch      : {}\n", m_bArchOverride ? L"reported as Blackwell" : L"as reported by the driver");
 	s += std::format(L"  State     : {}\n", GetStatusLine());
-	s += std::format(L"  Guides    : {}\n", m_GuideMask.p12 ? L"ControlMask (temporal stabilizer)" : L"none");
+	// The renderer gives the network its cleaned motion vectors and nothing else; the line
+	// said "none" while they were there, from the time a control mask was all it could get.
+	std::wstring guides;
+	for (const auto& [slot, name] : { std::pair{ &m_GuideMVec, L"motion vectors" },
+	                                  std::pair{ &m_GuideDepth, L"depth" },
+	                                  std::pair{ &m_GuideMask, L"control mask" } }) {
+		if (slot->p12) {
+			guides += (guides.empty() ? L"" : L", ") + std::wstring(name);
+		}
+	}
+	s += std::format(L"  Guides    : {}\n", guides.empty() ? L"none" : guides);
 
 	if (m_bHaveReq) {
 		s += std::format(L"  Reported  : supported=0x{:X} minArch=0x{:X}", m_ReqSupported, m_ReqMinArch);
