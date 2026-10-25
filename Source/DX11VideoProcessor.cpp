@@ -28,9 +28,9 @@
 #include "Times.h"
 #include "resource.h"
 #include "VideoRenderer.h"
-#include "../Include/Version.h"
+#include "Version.h"
 #include "DX11VideoProcessor.h"
-#include "../Include/ID3DVideoMemoryConfiguration.h"
+#include <ID3DVideoMemoryConfiguration.h>
 #include "Shaders.h"
 #include "Utils/CPUInfo.h"
 #include "DX11VideoProcessorShared.h"
@@ -599,6 +599,16 @@ HRESULT CDX11VideoProcessor::Init(const HWND hwnd, const bool displayHdrChanged,
 
 	if (m_bExclusiveScreen != m_pFilter->m_bExclusiveScreen) {
 		m_srcVideoTransferFunction = 0;
+	}
+
+	if (!m_pDXGIFactory1->IsCurrent()) {
+		m_pDXGIFactory1.Release();
+
+		auto hr = CreateDXGIFactory1(IID_IDXGIFactory1, (void**)&m_pDXGIFactory1);
+		if (FAILED(hr)) {
+			DLog(L"CDX11VideoProcessor::Init() : CreateDXGIFactory1() failed with error {}", HR2Str(hr));
+			return E_FAIL;
+		}
 	}
 
 	IDXGIAdapter* pDXGIAdapter = nullptr;
@@ -1838,16 +1848,38 @@ HRESULT CDX11VideoProcessor::InitSwapChain(bool bWindowChanged)
 		if (bHdrOutput) {
 			hr2 = m_pDXGISwapChain1->QueryInterface(IID_PPV_ARGS(&m_pDXGISwapChain4));
 
-			if (m_pDXGIOutput) {
-				CComPtr<IDXGIOutput6> pDXGIOutput6;
-				if (SUCCEEDED(m_pDXGIOutput->QueryInterface(IID_PPV_ARGS(&pDXGIOutput6)))) {
-					DXGI_OUTPUT_DESC1 desc;
-					if (SUCCEEDED(pDXGIOutput6->GetDesc1(&desc))) {
-						m_MaxDisplayLuminance = static_cast<UINT>(desc.MaxLuminance);
+			if (m_pDXGIFactory1) {
+				[&] {
+					const auto hMonitor = MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST);
 
-						m_pFilter->UpdateDisplayInfo();
+					CComPtr<IDXGIAdapter1> pDXGIAdapter;
+					for (UINT i = 0; m_pDXGIFactory1->EnumAdapters1(i, &pDXGIAdapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+						CComPtr<IDXGIOutput> pDXGIOutput;
+						for (UINT j = 0; pDXGIAdapter->EnumOutputs(j, &pDXGIOutput) != DXGI_ERROR_NOT_FOUND; ++j) {
+							DXGI_OUTPUT_DESC desc;
+							if (SUCCEEDED(pDXGIOutput->GetDesc(&desc)) && desc.Monitor == hMonitor) {
+								CComPtr<IDXGIOutput6> pDXGIOutput6;
+								if (SUCCEEDED(pDXGIOutput->QueryInterface(IID_PPV_ARGS(&pDXGIOutput6)))) {
+									DXGI_OUTPUT_DESC1 desc;
+									if (SUCCEEDED(pDXGIOutput6->GetDesc1(&desc))) {
+										auto MaxLuminance = static_cast<UINT>(desc.MaxLuminance);
+										if (MaxLuminance != m_MaxDisplayLuminance) {
+											m_MaxDisplayLuminance = MaxLuminance;
+											m_pFilter->UpdateDisplayInfo();
+										}
+									}
+								}
+
+								return;
+							}
+
+							pDXGIOutput.Release();
+						}
+
+						pDXGIAdapter.Release();
 					}
-				}
+
+				}();
 			}
 		}
 	}
@@ -2078,17 +2110,20 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 	m_srcLines = biHeight * FmtParams.PitchCoeff / 2;
 	m_srcPitch = biWidth * FmtParams.Packsize;
 	switch (FmtParams.cformat) {
-	case CF_Y8:
-	case CF_NV12:
-	case CF_RGB24:
-	case CF_BGR48:
+	case CF_YUY2:
+	case CF_UYVY:
 		m_srcPitch = ALIGN(m_srcPitch, 4);
 		break;
 	case CF_V210:
 		m_srcPitch = ALIGN((biWidth + 5) / 6 * 16, 128);
-	}
-	if (pBIH->biCompression == BI_RGB && pBIH->biHeight > 0) {
-		m_srcPitch = -m_srcPitch;
+		break;
+	default:
+		if (pBIH->biCompression == BI_RGB) {
+			m_srcPitch = ALIGN(m_srcPitch, 4);
+			if (pBIH->biHeight > 0) {
+				m_srcPitch = -m_srcPitch;
+			}
+		}
 	}
 
 	UINT origW = biWidth;
@@ -2289,14 +2324,9 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 	// The 4:4:4 pre-pass used to switch it off here, which cost a capability the
 	// original has for an option of ours; the driver is left to answer for itself.
 	//
-	// Upstream also refuses it unless the picture is on its way to an 8-bit target
-	// or RTX Video HDR is making the HDR, which rules out every real HDR film and
-	// every 10-bit source -- while its own Configure() asks without that test, so
-	// re-picking the same value from the list turned it on and ticking "Use for
-	// resizing" did not. The two places ask the same question now, and it is the
-	// one the driver answers yes to: on a PQ BT.2020 source in P010 the extension
-	// changes the picture by 3.928, against 3.903 on the same frame in SDR
-	// (tools/dlssnr_probe vp444_probe).
+	// Upstream's own test is asked in UpdateVPSuperRes (VPSuperResAllowed), from
+	// Configure() as well: upstream's Configure() still asks its older test, so there
+	// the same setting can get a different answer from the one it gets here.
 	UpdateVPSuperRes(params.CDepth);
 
 	// Turning the driver's tone mapping on or off changes what the swap chain has to

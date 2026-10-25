@@ -27,7 +27,7 @@
 #include "PropPage.h"
 #include "SettingsPage/SettingsPage.h"
 #include "VideoRendererInputPin.h"
-#include "../Include/Version.h"
+#include "Version.h"
 #include "VideoRenderer.h"
 #include "SubPic/XySubPicProvider.h"
 #include "SubPic/XySubPicQueueImpl.h"

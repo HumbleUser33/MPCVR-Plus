@@ -15,7 +15,7 @@ rendering is bit-identical to upstream.
 | **Settings** | one page, seven tabs, in the order the picture travels through them |
 
 It was called MPCVR-DLSS5 until 1.7, when DLSS 5 stopped being the whole of it. The branch is
-still `dlss5`, so the filter reports itself as `0.10.8.xxxx.dlss5`.
+still `dlss5`, so the filter reports itself as `0.10.9.xxxx.dlss5`.
 
 ## The two DLSS passes
 

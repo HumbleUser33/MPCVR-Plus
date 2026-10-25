@@ -479,7 +479,7 @@ void CDX11VideoProcessor::UpdateVPScale()
 	VPScaleKey key;
 	key.w = w;
 	key.h = h;
-	key.superRes = (m_srcParams.CDepth == 8 || !m_bACMEnabled) ? m_iVPSuperRes : SUPERRES_Disable;
+	key.superRes = VPSuperResAllowed(m_srcParams.CDepth) ? m_iVPSuperRes : SUPERRES_Disable;
 	key.bPq = m_D3D11VP.IsPqSupported() != FALSE;
 	key.bKeepChroma = m_bVPReplaceChroma;
 	key.outFmt = m_D3D11OutputFmt;
@@ -681,6 +681,18 @@ HRESULT CDX11VideoProcessor::VPScalePass(Tex2D_t* pInputTexture, const CRect& rS
 	return S_OK;
 }
 
+// Upstream's test for the driver's Super Resolution, as 0.10.9 has it (7ba4618, bc509ba):
+// refused only with Windows' automatic colour management on, an 8-bit source, a target
+// wider than 8 bits and no RTX Video HDR. Before, upstream also refused it for any
+// picture bound for a target wider than 8 bits, every real HDR film among them, which
+// the driver does take: on a PQ BT.2020 source in P010 the extension changes the
+// picture by 3.928, against 3.903 on the same frame in SDR (tools/dlssnr_probe
+// vp444_probe). Both turns of the processor ask it with the source's own facts.
+bool CDX11VideoProcessor::VPSuperResAllowed(const int depth) const
+{
+	return !(m_bACMEnabled && !m_bVPUseRTXVideoHDR && depth == 8 && m_InternalTexFmt != DXGI_FORMAT_B8G8R8A8_UNORM);
+}
+
 // The driver's Super Resolution on the processor's first turn, asked for in one place.
 // It belongs to the resizing and to nothing else, so it is asked for on the turn that
 // resizes. While a DLSS pass held the first turn at the source's size it stayed asked
@@ -691,6 +703,6 @@ HRESULT CDX11VideoProcessor::VPScalePass(Tex2D_t* pInputTexture, const CRect& rS
 // the question is upstream's.
 void CDX11VideoProcessor::UpdateVPSuperRes(const int depth)
 {
-	const int superRes = (VPResizesFirst() && (depth == 8 || !m_bACMEnabled)) ? m_iVPSuperRes : SUPERRES_Disable;
+	const int superRes = (VPResizesFirst() && VPSuperResAllowed(depth)) ? m_iVPSuperRes : SUPERRES_Disable;
 	m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
 }

@@ -40,6 +40,9 @@ cl /nologo /EHsc /std:c++20 /O2 /MT probe.cpp ^
 
 ECHO Building the harness (compiles the filter's own DLSS code)...
 SET SRC=..\..\Source
+REM The filter's project looks in Include as well: Helper.h takes MediaTypes.h and
+REM IMediaSideData.h from there since upstream 0.10.9.
+SET INC=..\..\Include
 REM The stabilizer's shaders, compiled and embedded the way the filter does it
 REM (Shaders\compile_shaders.cmd, Source\res\MpcVideoRenderer.rc2).
 SET SH=..\..\Shaders\d3d11
@@ -79,7 +82,7 @@ IF EXIST "%ORT%\build\native\include\onnxruntime_cxx_api.h" (
 )
 
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
-   /DUNICODE /D_UNICODE /I"%SRC%" %ORTFLAGS% harness.cpp %ORTLIB% ^
+   /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" %ORTFLAGS% harness.cpp %ORTLIB% ^
    "%SRC%\DLSS\DlssNR.cpp" "%SRC%\DLSS\DlssOpticalFlow.cpp" "%SRC%\DLSS\DlssStabilizer.cpp" ^
    "%SRC%\DLSS\DlssSR.cpp" "%SRC%\DLSS\DlssCompose.cpp" "%SRC%\Upscale\MpvShader.cpp" ^
    "%SRC%\DX11Helper.cpp" "%SRC%\Utils\Util.cpp" ^
@@ -88,13 +91,13 @@ cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x
 
 ECHO Building the video processor rebuild test (the paused green frame)...
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
-   /DUNICODE /D_UNICODE /I"%SRC%" vp_rebuild_test.cpp ^
+   /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" vp_rebuild_test.cpp ^
    "%SRC%\D3D11VP.cpp" "%SRC%\DX11Helper.cpp" ^
    /Fe:vp_rebuild_test.exe /link strmiids.lib || EXIT /B 1
 
 ECHO Building the video processor probe (what it does with 4:2:0 and with 4:4:4)...
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
-   /DUNICODE /D_UNICODE /I"%SRC%" vp444_probe.cpp shader444_guids.cpp ^
+   /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" vp444_probe.cpp shader444_guids.cpp ^
    "%SRC%\D3D11VP.cpp" "%SRC%\DX11Helper.cpp" ^
    "%SRC%\Shaders.cpp" "%SRC%\Helper.cpp" "%SRC%\csputils.cpp" ^
    "%SRC%\Utils\Util.cpp" "%SRC%\Utils\CPUInfo.cpp" ^
@@ -102,14 +105,14 @@ cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x
 
 ECHO Building the 4:4:4 chroma pass test (the shaders the filter generates, compiled)...
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
-   /DUNICODE /D_UNICODE /I"%SRC%" shader444_test.cpp shader444_guids.cpp ^
+   /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" shader444_test.cpp shader444_guids.cpp ^
    "%SRC%\Shaders.cpp" "%SRC%\Helper.cpp" "%SRC%\csputils.cpp" ^
    "%SRC%\Utils\Util.cpp" "%SRC%\Utils\CPUInfo.cpp" "%SRC%\DX11Helper.cpp" ^
    /Fe:shader444_test.exe /link strmiids.lib windowscodecs.lib mfuuid.lib || EXIT /B 1
 
 ECHO Building the playback test (render ahead in a DirectShow graph, needs the x64 filter built)...
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 /DNDEBUG ^
-   /DUNICODE /D_UNICODE /I"%SRC%" /I"..\..\external\BaseClasses" playback_test.cpp ^
+   /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" /I"..\..\external\BaseClasses" playback_test.cpp ^
    /Fe:playback_test.exe /link "..\..\_bin\lib\Release_x64\BaseClasses.lib" dbghelp.lib d3d11.lib ^
    /MANIFEST:EMBED /MANIFESTINPUT:playback_test.manifest || EXIT /B 1
 

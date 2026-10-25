@@ -4,4 +4,4 @@
 #include <d3d9.h>
 #include <initguid.h>
 #include <dxva2api.h>
-#include "Utils/MediaTypes.h"
+#include <MediaTypes.h>

@@ -27,11 +27,11 @@
 #include "IVideoRenderer.h"
 #include "DX9VideoProcessor.h"
 #include "DX11VideoProcessor.h"
-#include "../Include/ISubRender.h"
-#include "../Include/ISubRender11.h"
-#include "../Include/ID3DFullscreenControl.h"
-#include "../Include/FilterInterfacesImpl.h"
-#include "../Include/SubRenderIntf.h"
+#include <ISubRender.h>
+#include <ISubRender11.h>
+#include <ID3DFullscreenControl.h>
+#include <FilterInterfacesImpl.h>
+#include <SubRenderIntf.h>
 #include "SubPic/ISubPic.h"
 
 const AMOVIESETUP_MEDIATYPE sudPinTypesIn[] = {
@@ -54,6 +54,7 @@ const AMOVIESETUP_MEDIATYPE sudPinTypesIn[] = {
 	{&MEDIATYPE_Video, &MEDIASUBTYPE_I420},
 	{&MEDIATYPE_Video, &MEDIASUBTYPE_IYUV},
 	{&MEDIATYPE_Video, &MEDIASUBTYPE_Y42B},
+	{&MEDIATYPE_Video, &MEDIASUBTYPE_NV16},
 	{&MEDIATYPE_Video, &MEDIASUBTYPE_444P},
 	{&MEDIATYPE_Video, &MEDIASUBTYPE_YUV444P16},
 	{&MEDIATYPE_Video, &MEDIASUBTYPE_RGB24},

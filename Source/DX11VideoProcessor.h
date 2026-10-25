@@ -362,6 +362,7 @@ private:
 	// takes the resizing from both.
 	bool VPResizesFirst() const { return m_bVPScaling && !m_bDlssSRActive && !(m_bDlssNRActive && !m_bDlssNRAfterUpscale); }
 	bool VPResizesAfterNR() const { return m_bVPScaling && !m_bDlssSRActive && m_bDlssNRActive && !m_bDlssNRAfterUpscale; }
+	bool VPSuperResAllowed(const int depth) const;
 	void UpdateVPSuperRes(const int depth);
 
 	// The processor's second turn.
