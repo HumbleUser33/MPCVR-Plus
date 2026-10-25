@@ -7,9 +7,9 @@ HLSL shader model 5 -- the route libplacebo itself takes on Direct3D 11 -- so
 matrix order, gathers and integer arithmetic keep their GLSL meaning exactly.
 
 Compute passes written for workgroup-shared memory (ArtCNN keeps its 3x3
-neighbourhood in a `shared` array filled once per workgroup) have no HLSL
-equivalent. They are rewritten to fetch the neighbourhood per invocation: the
-same texels, the same weights, only the caching goes.
+neighbourhood in a `shared` array filled once per workgroup) keep it where it pays,
+with its size given in numbers, and fetch the neighbourhood per invocation where it
+does not: the same texels, the same weights (unshare).
 
 Two uses:
 
@@ -138,22 +138,45 @@ def parse(text):
     return passes, textures, params
 
 
-def unshare(code):
-    """Rewrites a compute pass that caches its neighbourhood in a `shared` array."""
+def clamped(expr):
+    """texelFetch(NAME_raw, E, 0) -> the same texel, clamped inside the texture."""
+    return re.sub(r"texelFetch\((\w+)_raw, (input_base \+ ivec2\(\d+, \d+\)), 0\)",
+                  lambda t: "texelFetch({0}_raw, clamp({1}, ivec2(0), ivec2({0}_size) - ivec2(1)), 0)".format(t.group(1), t.group(2)),
+                  expr)
+
+
+def unshare(code, compute):
+    """A compute pass that caches its neighbourhood in a `shared` array, as HLSL can run it.
+
+    The array is sized from the workgroup, which SPIR-V carries as a specialization
+    constant, and SPIRV-Cross cannot declare a groupshared array of that size. Given in
+    numbers, the array goes through as it is, and where it pays it is kept: when each
+    invocation writes a single texel, the neighbourhood is fetched nine times over
+    without it. Measured on an RTX 4060, 1920x1080 to 3840x2160: ArtCNN's last
+    convolution, one texel an invocation, 2.05 ms a picture fetching per invocation and
+    0.48 to 0.54 with the array. Where an invocation computes four texels the passes are
+    bound by their arithmetic, the array buys nothing (1.31 against 1.32 ms) and costs
+    the first pass 0.42 against 0.37: those fetch per invocation instead -- the same
+    texels, the same weights, only the caching goes. Read past the edge, both clamp, so
+    that the two ways give the same texels to the bit.
+    """
     m = re.search(r"shared\s+(\w+)\s+inp\[(\d+)\]\[isize\.y\]\[isize\.x\];", code)
     if not m:
         return code
     kind, channels = m.group(1), int(m.group(2))
     scale = re.search(r"const ivec2 input_base = \(base \+ ivec2\(x,y\) - offset\) \* ivec2\((\d+), (\d+)\);", code)
     fills = dict(re.findall(r"inp\[(\d+)\]\[y\]\[x\] = (.+);", code))
-    if not scale or len(fills) != channels:
+    ksize = re.search(r"const ivec2 ksize = ivec2\((\d+), (\d+)\);", code)
+    if not scale or not ksize or len(fills) != channels:
         raise ValueError("unexpected shared-memory layout")
 
-    def clamped(expr):
-        # texelFetch(NAME_raw, E, 0) -> the same texel, clamped inside the texture
-        return re.sub(r"texelFetch\((\w+)_raw, (input_base \+ ivec2\(\d+, \d+\)), 0\)",
-                      lambda t: "texelFetch({0}_raw, clamp({1}, ivec2(0), ivec2({0}_size) - ivec2(1)), 0)".format(t.group(1), t.group(2)),
-                      expr)
+    block, threads = compute[:2], (compute[2:4] if len(compute) >= 4 else compute[:2])
+    if block == threads:
+        isize = [threads[0] + int(ksize.group(1)) - 1, threads[1] + int(ksize.group(2)) - 1]
+        code = code.replace("const ivec2 isize = wg_size + ksize - 1;", "")
+        code = re.sub(r"\bisize\.x\b", str(isize[0]), code)
+        code = re.sub(r"\bisize\.y\b", str(isize[1]), code)
+        return clamped(code)
 
     helpers = []
     for c in range(channels):
@@ -246,7 +269,7 @@ def glsl_for(p, params, textures):
     code = re.sub(r"^\s*#extension GL_EXT_shader_explicit_arithmetic_types_float16\s*:\s*enable\s*$", "", code, flags=re.M)
     code = re.sub(r"^#ifdef GL_EXT_shader_explicit_arithmetic_types_float16\s*$", "#if 0", code, flags=re.M)
     if compute:
-        code = unshare(code)
+        code = unshare(code, p["compute"])
     out.append(code)
     out.append("void main() {")
     out.append("    hook();" if compute else "    pl_out = hook();")
