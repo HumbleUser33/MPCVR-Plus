@@ -59,7 +59,17 @@ public:
 			if (pOutput5) {
 				const DXGI_FORMAT wanted[] = { DXGI_FORMAT_R16G16B16A16_FLOAT,
 					DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM };
+				// DuplicateOutput1 wants a caller aware of DPI per monitor (v2). The manifest
+				// already made the process aware of the system's, so the process cannot be
+				// changed any more and the call answered DXGI_ERROR_UNSUPPORTED every time;
+				// the thread can be, for the length of the call.
+				using PFN_SetThreadDpi = HANDLE (WINAPI*)(HANDLE);
+				const auto setThreadDpi = (PFN_SetThreadDpi)GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetThreadDpiAwarenessContext");
+				const HANDLE before = setThreadDpi ? setThreadDpi((HANDLE)-4) : nullptr;  // per monitor, v2
 				m_hrHdr = pOutput5->DuplicateOutput1(m_pDevice, 0, (UINT)std::size(wanted), wanted, &m_pDuplication);
+				if (before) {
+					setThreadDpi(before);
+				}
 			}
 			CComQIPtr<IDXGIOutput1> pOutput1(pOutput.p);
 			if (!m_pDuplication && (!pOutput1 || FAILED(pOutput1->DuplicateOutput(m_pDevice, &m_pDuplication)))) {
@@ -79,6 +89,7 @@ public:
 	}
 
 	bool Ready() const { return m_pDuplication != nullptr; }
+	bool m_bKeepLinear = false;  // --vpturns: keep the unclipped values of the crop
 	DXGI_FORMAT Format() const { return m_format; }
 	HRESULT HdrAttempt() const { return m_hrHdr; }
 	RECT LastRect() const { return m_lastRect; }
@@ -123,6 +134,8 @@ public:
 		// a tone mapper lifted past SDR white shows up clipped rather than rescaled.
 		std::vector<BYTE> crop;   // BGRA, bottom-up, ready for SaveBmp
 		int cropW = 0, cropH = 0;
+		// The same area unclipped, RGB in the scale above, top-down; only with m_bKeepLinear.
+		std::vector<float> linear;
 	};
 
 	Reading Measure(HWND hwnd)
@@ -223,11 +236,18 @@ public:
 		r.cropW = x1 - x0;
 		r.cropH = y1 - y0;
 		r.crop.resize((size_t)r.cropW * r.cropH * 4);
+		if (m_bKeepLinear) {
+			r.linear.resize((size_t)r.cropW * r.cropH * 3);
+		}
 		for (int y = y0; y < y1; y++) {
 			BYTE* dst = r.crop.data() + (size_t)(y - y0) * r.cropW * 4;  // top-down, as SaveBmp writes
 			for (int x = x0; x < x1; x++, dst += 4) {
 				for (int c = 0; c < 3; c++) {
-					const double v = std::clamp(At(x, y, c), 0.0, 1.0);
+					const double raw = At(x, y, c);
+					if (m_bKeepLinear) {
+						r.linear[((size_t)(y - y0) * r.cropW + (x - x0)) * 3 + c] = (float)raw;
+					}
+					const double v = std::clamp(raw, 0.0, 1.0);
 					// Back through the sRGB curve, since scRGB carries light and the
 					// eight-bit picture carries what a screen is fed.
 					const double e = (bHalf || bTenBit)
