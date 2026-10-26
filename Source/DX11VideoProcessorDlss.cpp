@@ -693,6 +693,27 @@ bool CDX11VideoProcessor::VPSuperResAllowed(const int depth) const
 	return !(m_bACMEnabled && !m_bVPUseRTXVideoHDR && depth == 8 && m_InternalTexFmt != DXGI_FORMAT_B8G8R8A8_UNORM);
 }
 
+// The size the processor's first turn writes where it does not resize: the source's, or
+// for RTX Video HDR (kRtxHdrMinPixels) the source enlarged, keeping its shape, just past
+// 640x360 pixels -- 640x270 to 740x312 -- for the shaders to enlarge the rest. A small
+// picture the shaders enlarged was otherwise shown without RTX Video HDR. It costs some
+// of the shaders' enlargement: Fight Club reduced to 640x266 and enlarged back to 1920x800
+// by FSRCNNX 16 AR came to 35.70 dB of luma PSNR against the original with it, 37.32
+// without, and the processor enlarging alone to 35.40. Not for DLSS 5 NR before the
+// resizing, nor DLSS SR: both start from the source's own size.
+CSize CDX11VideoProcessor::VPConvertTexSize() const
+{
+	CSize size((int)m_srcRectWidth, (int)m_srcRectHeight);
+	const UINT64 pixels = (UINT64)m_srcRectWidth * m_srcRectHeight;
+	const bool bShadersResize = !m_bVPScaling && !m_bDlssSRActive && !(m_bDlssNRActive && !m_bDlssNRAfterUpscale);
+	if (m_bVPUseRTXVideoHDR && bShadersResize && pixels && pixels < kRtxHdrMinPixels) {
+		const double scale = std::sqrt((double)kRtxHdrMinPixels / (double)pixels);
+		size.cx = (int)std::ceil(m_srcRectWidth * scale);
+		size.cy = (int)std::ceil(m_srcRectHeight * scale);
+	}
+	return size;
+}
+
 // The driver's Super Resolution, on an 8-bit source the processor writes in ten bits on an
 // HDR desktop, writes HDR10 there -- PQ, BT.2020 -- whatever output colour space it was
 // given, and without RTX Video HDR the swap chain is SDR and shows it as such: a picture

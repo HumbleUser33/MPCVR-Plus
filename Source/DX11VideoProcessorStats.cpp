@@ -174,6 +174,9 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		if (bVPResizesHere && bResized) {
 			text += L", resizes";
 		}
+		if (m_bVPPreEnlarged) {
+			text += std::format(L", to {}x{} for RTX Video HDR", m_TexConvertOutput.desc.Width, m_TexConvertOutput.desc.Height);
+		}
 		Step(L"Processor", text, Ms(CGpuStageTimes::VP));
 	} else if (m_PSConvColorData.bEnable) {
 		std::wstring text = L"shaders";

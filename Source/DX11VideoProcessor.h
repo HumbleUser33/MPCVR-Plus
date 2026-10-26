@@ -374,6 +374,10 @@ private:
 	// it at its own size. The texture written counts for nothing: the picture at its own
 	// size in the corner of a 640x360 one was left out all the same.
 	static constexpr UINT64 kRtxHdrMinPixels = 640 * 360;
+	// Where the shaders resize, the first turn enlarges a smaller picture just past that,
+	// and the shaders enlarge the rest (VPConvertTexSize).
+	CSize VPConvertTexSize() const;
+	bool m_bVPPreEnlarged = false;   // the first turn writes the picture larger than the source, for RTX Video HDR
 
 	// The processor's second turn.
 	CD3D11VP m_D3D11VPScale;

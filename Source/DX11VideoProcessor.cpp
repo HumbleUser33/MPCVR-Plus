@@ -3589,6 +3589,7 @@ void CDX11VideoProcessor::UpdateTexures()
 
 	ID3D11Texture2D* const pConvertOutputBefore = m_TexConvertOutput.pTexture;
 
+	m_bVPPreEnlarged = false;
 	if (m_D3D11VP.IsReady()) {
 		// With DLSS active the hardware VP must not upscale: the network is meant
 		// to run at source resolution, and letting the VP scale first would both
@@ -3601,7 +3602,10 @@ void CDX11VideoProcessor::UpdateTexures()
 				hr = m_TexConvertOutput.CheckCreate(m_pDevice, m_D3D11OutputFmt, m_srcRectWidth, m_srcRectHeight, Tex2D_DefaultShaderRTarget);
 			}
 		} else {
-			hr = m_TexConvertOutput.CheckCreate(m_pDevice, m_D3D11OutputFmt, m_srcRectWidth, m_srcRectHeight, Tex2D_DefaultShaderRTarget);
+			// The source's size, or a little more for RTX Video HDR (VPConvertTexSize).
+			const CSize convertSize = VPConvertTexSize();
+			hr = m_TexConvertOutput.CheckCreate(m_pDevice, m_D3D11OutputFmt, convertSize.cx, convertSize.cy, Tex2D_DefaultShaderRTarget);
+			m_bVPPreEnlarged = SUCCEEDED(hr) && (convertSize.cx != (LONG)m_srcRectWidth || convertSize.cy != (LONG)m_srcRectHeight);
 		}
 	}
 	else {
