@@ -1,8 +1,8 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 25 October 2026, on an
-RTX 4060 (driver 32.0.16.1656) with the Windows desktop in HDR, all twenty-five steps green.
-The filter is `6c936d1`, build 2720, and filter and tools are built by MSVC 14.44. It is the thing
+`run_all_report.txt` here is what the whole battery measured on 26 October 2026, on an
+RTX 4060 (driver 32.0.16.1742) with the Windows desktop in HDR, all twenty-five steps green.
+The filter is `6e6ceb5`, build 2746, and filter and tools are built by MSVC 14.44. It is the thing
 a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
@@ -210,3 +210,45 @@ of the code:
   on the 17th, none in any run of the 25th.
 
 None is gone; the 15 new rows are the new step's.
+
+## 26 October 2026: upstream 0.10.9, RTX Video HDR on a small picture, and a new driver
+
+The report of 25 October, at `6c936d1`, is in the history. Since then upstream's 0.10.9 was
+merged (`1cb2a27`), and seven commits followed (`a622873` to `6e6ceb5`): the bench reads an
+HDR desktop in half floats; a 10-bit DIB no longer overruns its allocation; Super Resolution
+on an 8-bit picture writes eight bits on an HDR desktop; the chroma replacement waits for a
+picture really interlaced; the statistics say when the driver leaves RTX Video HDR out, and a
+small picture the shaders enlarge is first enlarged past 640x360 for it.
+
+It was taken with the settings of the report before: Upscaling FSRCNNX 16 AR,
+Adaptive-Sharpen at 4, the DLSS 5 NR style cinematic, Jinc chroma upsampling and *Swap
+effect* on Flip.
+
+**The NVIDIA driver changed under it.** 32.0.16.1742 was installed at 06:32 on the 26th, in
+place of 32.0.16.1656, by an update and not by this work. Three batteries were run against the report of the 25th,
+and of the 2669 rows each shares with it, none is gone and none is new:
+
+- at `1cb2a27`, the merge, on 1656 the evening before: 3 moved -- the table of GPU times in
+  "the DLSS passes against the harness" ("zoom 3 %", 1.87 to 2.00 ms), the pipeline's "frame,
+  upload to done" printed bare, and one picture shown late with bars (FSRCNNX 16 AR);
+- at `597334f`, on 1742: 2 moved -- the same pipeline row, and ArtCNN with bars dropping one
+  picture and showing one late;
+- at `6e6ceb5`, this report, on 1742: 1 moved -- the same pipeline row, its 95th percentile
+  10.54 to 16.02 ms, the flip between about 10.5 and 16.5 noted on the 25th.
+
+So neither the merge, nor the fixes, nor the driver moved a measurement. The steps the fixes
+change -- a picture under 640x360 pixels with RTX Video HDR, Super Resolution with RTX Video
+HDR off -- are in no step of the battery; `playback_test --vpturns` is how they were measured.
+
+**What the new driver adds to the report.** Its NGX runtime checks the signature of every
+snippet in the folder it is given for DLSS SR, and logs that `nvngx_dlssnr.dll`'s does not
+match the file (`nvLoadSignedLibraryW() failed ... missing or corrupted`, `NGXLoadFromPath
+failed ... 0xBAD00000`): eleven such lines, absent from every report before, each ending in a
+stray carriage return. The filter loads that DLL itself and calls it through its shim, never
+through NGX's loader, and DLSS 5 NR ran as before: its rows are unchanged, and the steps that
+fail when it does not run passed.
+
+**The screen watch reads half floats now.** `DuplicateOutput1` had answered
+`DXGI_ERROR_UNSUPPORTED` in every run before `a622873`, and the stills came from the old
+duplication instead. The two steps that compare stills, "the processor enlarging after DLSS 5
+NR" and its PQ twin, give the same rows read either way.
