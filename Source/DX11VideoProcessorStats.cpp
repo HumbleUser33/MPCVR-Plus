@@ -339,7 +339,21 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	// the processor and is in its time, and a tone mapping or a conversion to SDR is in
 	// Finish.
 	if (!m_strStatsHDR.empty()) {
-		Line(L"  HDR", m_strStatsHDR, -1, false);
+		// The star says the driver took RTX Video HDR on; it then leaves out, without a
+		// word, a picture the processor writes in fewer than 640x360 pixels
+		// (kRtxHdrMinPixels). Where that is what happens, the line says so.
+		std::wstring hdr = m_strStatsHDR;
+		if (m_bVPUseRTXVideoHDR && m_D3D11VP.IsReady()) {
+			const UINT64 written = VPResizesFirst()
+				? (UINT64)m_videoRect.Width() * m_videoRect.Height()
+				: (UINT64)m_TexConvertOutput.desc.Width * m_TexConvertOutput.desc.Height;
+			const wchar_t* const rtx = L"RTX Video HDR*";
+			const size_t at = hdr.find(rtx);
+			if (written < kRtxHdrMinPixels && at != std::wstring::npos) {
+				hdr.insert(at + wcslen(rtx), L", left out by the driver under 640x360");
+			}
+		}
+		Line(L"  HDR", hdr, -1, false);
 	}
 
 	// -- How the picture reaches the screen, in the order it happens.

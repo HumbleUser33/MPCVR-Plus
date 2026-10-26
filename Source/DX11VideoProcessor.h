@@ -367,6 +367,14 @@ private:
 	bool VPSuperResOutputsEightBits(const int depth);   // not const: SourceIsHDR is not
 	bool m_bVPOutEightBitsAsked = false;   // the first turn was made to write eight bits for it
 
+	// RTX Video HDR is applied by the driver only when what the processor writes has
+	// 640x360 pixels or more: measured on a 640x270 XviD through the processor resized to
+	// one size after another, 672x342 (229 824 pixels) and 768x288 untouched, 640x360 and
+	// 960x270 tone mapped -- the area decides, not either side, and a 1920x800 picture gets
+	// it at its own size. The texture written counts for nothing: the picture at its own
+	// size in the corner of a 640x360 one was left out all the same.
+	static constexpr UINT64 kRtxHdrMinPixels = 640 * 360;
+
 	// The processor's second turn.
 	CD3D11VP m_D3D11VPScale;
 	Tex2D_t m_TexVPScaleOut;                    // what it enlarges into, the size of the picture on the screen
