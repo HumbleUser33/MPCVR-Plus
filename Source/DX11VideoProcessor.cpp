@@ -2068,6 +2068,12 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 		return FALSE;
 	}
 
+	// A media type of its own, not the one kept being set up again: no picture of it
+	// has been seen interlaced yet.
+	if (pmt != &m_pFilter->m_inputMT) {
+		m_bInterlacedSeen = false;
+	}
+
 	ReleaseVP();
 
 	auto FmtParams = GetFmtConvParams(pmt);
@@ -2162,7 +2168,7 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 	// Where the user asked for it, the shaders rebuild the chroma and the processor
 	// still takes the picture, in 4:4:4. Read here, so that it means "the option
 	// applies to this picture" and not "the processor was not going to take it".
-	m_bChromaReplacedVP = !disableD3D11VP && ChromaToShaders(FmtParams, m_bInterlaced);
+	m_bChromaReplacedVP = !disableD3D11VP && ChromaToShaders(FmtParams, m_bInterlaced && m_bInterlacedSeen);
 	if (disableD3D11VP) {
 		FmtParams.VP11Format = DXGI_FORMAT_UNKNOWN;
 	}
@@ -2308,7 +2314,9 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 	// (VPSuperResOutputsEightBits); remembered, so that Configure knows when it changes.
 	m_bVPOutEightBitsAsked = VPSuperResOutputsEightBits(params.CDepth);
 	m_D3D11OutputFmt = m_bVPOutEightBitsAsked ? DXGI_FORMAT_B8G8R8A8_UNORM : m_InternalTexFmt;
-	const int deinterlacing = m_bInterlaced ? m_iVPDeinterlacing : DEINT_Disable;
+	// Pictures that come progressive through a processor reading 4:4:4 are not
+	// deinterlaced: the first interlaced one sets it up again with its own chroma.
+	const int deinterlacing = (m_bInterlaced && !m_bChromaReplacedVP) ? m_iVPDeinterlacing : DEINT_Disable;
 	HRESULT hr = m_D3D11VP.InitVideoProcessor(dxgiFormat, width, height, m_srcExFmt, deinterlacing, bHdrPassthrough, m_D3D11OutputFmt);
 	if (FAILED(hr)) {
 		DLog(L"CDX11VideoProcessor::InitializeD3D11VP() : InitVideoProcessor() failed with error {}", HR2Str(hr));
@@ -2684,6 +2692,18 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 					}
 					m_bDoubleFrames = m_iVPDeinterlacing && m_bDeintDouble && m_D3D11VP.IsReady();
 				}
+			}
+		}
+		// The first picture really interlaced in a stream that was only said to be one:
+		// the processor takes its chroma back and deinterlaces, before this picture is
+		// copied, for the rest of the media type. Set up again once, as Dolby Vision's
+		// changes below are.
+		if (m_SampleFormat != D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE && !m_bInterlacedSeen) {
+			m_bInterlacedSeen = true;
+			if (m_bChromaReplacedVP && m_D3D11VP.IsReady()) {
+				DLog(L"CDX11VideoProcessor::CopySample() : an interlaced picture, the processor takes the chroma back");
+				InitMediaType(&m_pFilter->m_inputMT);
+				m_bDoubleFrames = m_iVPDeinterlacing && m_bDeintDouble && m_D3D11VP.IsReady();
 			}
 		}
 	}
@@ -5009,7 +5029,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 
 	if (config.bVPReplaceChroma != m_bVPReplaceChroma) {
 		m_bVPReplaceChroma = config.bVPReplaceChroma;
-		if (!m_bInterlaced && m_srcParams.VP11Format != DXGI_FORMAT_UNKNOWN
+		if (!(m_bInterlaced && m_bInterlacedSeen) && m_srcParams.VP11Format != DXGI_FORMAT_UNKNOWN
 				&& (m_srcParams.Subsampling == 420 || m_srcParams.Subsampling == 422)) {
 			changeVP = true;   // only InitMediaType chooses which processor takes the picture
 		}

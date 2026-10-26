@@ -165,7 +165,11 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	if (m_D3D11VP.IsReady()) {
 		std::wstring text = std::format(L"D3D11 VP to {}", DXGIFormatToString(m_D3D11OutputFmt));
 		if (bSubsampled && !m_bChromaReplacedVP) {
-			text += m_bVPReplaceChroma ? L", converts chroma (interlaced)" : L", converts chroma";
+			// Asked for and not done: interlaced pictures have come, and this driver
+			// deinterlaces NV12 alone (ChromaToShaders); or a format it does not take.
+			text += !m_bVPReplaceChroma ? L", converts chroma"
+				: (m_bInterlaced && m_bInterlacedSeen) ? L", converts chroma (interlaced pictures)"
+				: L", converts chroma (not replaced in this format)";
 		}
 		if (bVPResizesHere && bResized) {
 			text += L", resizes";

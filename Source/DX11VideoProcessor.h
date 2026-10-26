@@ -545,6 +545,11 @@ public:
 
 	// Whether the shaders rebuild this source's chroma before the processor takes it.
 	bool ChromaToShaders(const FmtConvParams_t& params, const bool interlaced);
+	// An interlaced picture has come in this media type. Many decoders mark a stream as
+	// one that may be interlaced (AMINTERLACE_IsInterlaced) and then flag every picture
+	// progressive -- LAV on an XviD film -- and the chroma replacement waits for the first
+	// picture really interlaced before it gives way (CopySample).
+	bool m_bInterlacedSeen = false;
 	HRESULT UpdateConvertTo444Shader();
 	const wchar_t* ChromaScalingName() const;
 	void ConvertTo444Pass(ID3D11UnorderedAccessView* pUav);

@@ -334,8 +334,9 @@ HRESULT CDX11VideoProcessor::MpvChromaPass()
 // itself (tools/dlssnr_probe playback_test --chroma, --chroma10). So "Replace VP chroma
 // upsampling" has a compute shader rebuild the chroma and hand the processor a 4:4:4
 // picture, which it then converts with nothing left to reconstruct: RTX Video HDR and
-// everything else it does still apply. Only an interlaced source keeps its own chroma:
-// this driver deinterlaces NV12 alone, and 4:4:4 would come out woven.
+// everything else it does still apply. Only interlaced pictures keep their own chroma:
+// this driver deinterlaces NV12 alone, and 4:4:4 would come out woven. A stream only
+// said to be interlaced keeps the replacement until a picture really is (m_bInterlacedSeen).
 bool CDX11VideoProcessor::ChromaToShaders(const FmtConvParams_t& params, const bool interlaced)
 {
 	return m_bVPReplaceChroma && !interlaced
