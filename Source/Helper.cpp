@@ -820,7 +820,12 @@ void ConvertR10G10B10A2toBGR32(const UINT lines, BYTE* dst, UINT dst_pitch, cons
 	// R - 0x00ff0000
 	// X - 0xff000000
 
-	UINT line_pixels = abs(src_pitch) / 4;
+	// As many pixels as the destination's row holds: the source's pitch is a mapped
+	// texture's, rounded up to an alignment (128 bytes on an RTX 4060), and a picture whose
+	// width is not a multiple of it wrote that many pixels past each row of the DIB, the
+	// last row past the end of GetDisplayedImage's allocation: the heap was found corrupt
+	// (0xC0000374) with a 10-bit swap chain 720 and 656 pixels wide.
+	const UINT line_pixels = std::min<UINT>(abs(src_pitch) / 4, dst_pitch / 4);
 
 	for (UINT y = 0; y < lines; ++y) {
 		uint32_t* src32 = (uint32_t*)src;
@@ -844,7 +849,8 @@ void ConvertR10G10B10A2toBGR48(const UINT lines, BYTE* dst, UINT dst_pitch, cons
 	// G - 0x000ffc00
 	// B - 0x3ff00000
 	// A - 0xc0000000
-	UINT line_pixels = abs(src_pitch) / 4;
+	// Six bytes a pixel, the row rounded up to four: dst_pitch / 6 is the width. See above.
+	const UINT line_pixels = std::min<UINT>(abs(src_pitch) / 4, dst_pitch / 6);
 
 	for (UINT y = 0; y < lines; ++y) {
 		uint32_t* src32 = (uint32_t*)src;
@@ -867,7 +873,7 @@ void ConvertR10G10B10A2toBGR64(const UINT lines, BYTE* dst, UINT dst_pitch, cons
 	// G - 0x000ffc00
 	// B - 0x3ff00000
 	// A - 0xc0000000
-	UINT line_pixels = abs(src_pitch) / 4;
+	const UINT line_pixels = std::min<UINT>(abs(src_pitch) / 4, dst_pitch / 8);  // see BGR32
 
 	for (UINT y = 0; y < lines; ++y) {
 		uint32_t* src32 = (uint32_t*)src;
