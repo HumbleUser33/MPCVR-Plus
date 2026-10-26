@@ -1209,7 +1209,8 @@ own size -- while the same film the processor enlarges got it, and two presets s
 different pictures: on that XviD film, highlights up to 790 nits with the processor enlarging,
 under 340 with the shaders. Where the shaders resize and RTX Video HDR is on, the processor now
 enlarges such a picture first, keeping its shape, just past 640x360 (640x270 to 740x312), and
-the shaders enlarge the rest; the Processor step says `to 740x312 for RTX Video HDR`. It costs
+the shaders enlarge the rest; the Processor step says `to 740x312 for RTX Video HDR`, and the
+Scaling step starts from there (`740x312 -> 3840x1620 FSRCNNX 16 AR`). It costs
 some of the shaders' enlargement, measured on Fight Club reduced to 640x266 and enlarged back
 to 1920x800, against the original:
 

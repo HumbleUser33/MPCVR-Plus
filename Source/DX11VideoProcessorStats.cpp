@@ -229,9 +229,13 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	// The resizing, whoever does it, with all it cost: the resize shader, and before it
 	// the processor's second turn, DLSS SR or an mpv prescaler.
 	{
+		// From the size the shaders receive: the source's, or what the processor left
+		// where it enlarged a small picture for RTX Video HDR (the Processor step says so).
+		const UINT fromW = m_bVPPreEnlarged ? m_TexConvertOutput.desc.Width : m_srcRectWidth;
+		const UINT fromH = m_bVPPreEnlarged ? m_TexConvertOutput.desc.Height : m_srcRectHeight;
 		std::wstring text = m_iRotation
-			? std::format(L"{}x{} r{}°> {}x{}", m_srcRectWidth, m_srcRectHeight, m_iRotation, dstW, dstH)
-			: std::format(L"{}x{} -> {}x{}", m_srcRectWidth, m_srcRectHeight, dstW, dstH);
+			? std::format(L"{}x{} r{}°> {}x{}", fromW, fromH, m_iRotation, dstW, dstH)
+			: std::format(L"{}x{} -> {}x{}", fromW, fromH, dstW, dstH);
 		// DLSS SR names itself in the shader names, DLAA included, which runs at no change of size.
 		const auto IsDlssSR = [](const wchar_t* name) { return name && !wcsncmp(name, L"DLSS SR", 7); };
 		const bool bDlssSR = m_bDlssSRActive && m_DlssSR.IsFeatureReady()
