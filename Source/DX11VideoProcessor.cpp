@@ -2304,7 +2304,10 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 	m_TexSrcVideo.Release();
 
 	const bool bHdrPassthrough = m_bHdrDisplayModeEnabled && (SourceIsHDR10orHLG() || (m_bVPUseRTXVideoHDR && params.CDepth == 8));
-	m_D3D11OutputFmt = m_InternalTexFmt;
+	// Eight bits out where Super Resolution would otherwise write HDR10 into ten
+	// (VPSuperResOutputsEightBits); remembered, so that Configure knows when it changes.
+	m_bVPOutEightBitsAsked = VPSuperResOutputsEightBits(params.CDepth);
+	m_D3D11OutputFmt = m_bVPOutEightBitsAsked ? DXGI_FORMAT_B8G8R8A8_UNORM : m_InternalTexFmt;
 	const int deinterlacing = m_bInterlaced ? m_iVPDeinterlacing : DEINT_Disable;
 	HRESULT hr = m_D3D11VP.InitVideoProcessor(dxgiFormat, width, height, m_srcExFmt, deinterlacing, bHdrPassthrough, m_D3D11OutputFmt);
 	if (FAILED(hr)) {
@@ -5148,6 +5151,12 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	if (m_Dovi.bValid) {
 		changeVP = false;
 	}
+	// Super Resolution turned on or off can change what the processor has to write, which
+	// is only chosen as it is made (VPSuperResOutputsEightBits).
+	if (changeSuperRes && m_D3D11VP.IsReady() && VPSuperResOutputsEightBits(m_srcParams.CDepth) != m_bVPOutEightBitsAsked) {
+		changeVP = true;
+	}
+
 	if (changeVP) {
 		InitMediaType(&m_pFilter->m_inputMT);
 		if (m_bVPUseRTXVideoHDR || m_bVPRTXVideoHDR) {

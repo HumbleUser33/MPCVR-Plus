@@ -364,6 +364,8 @@ private:
 	bool VPResizesAfterNR() const { return m_bVPScaling && !m_bDlssSRActive && m_bDlssNRActive && !m_bDlssNRAfterUpscale; }
 	bool VPSuperResAllowed(const int depth) const;
 	void UpdateVPSuperRes(const int depth);
+	bool VPSuperResOutputsEightBits(const int depth);   // not const: SourceIsHDR is not
+	bool m_bVPOutEightBitsAsked = false;   // the first turn was made to write eight bits for it
 
 	// The processor's second turn.
 	CD3D11VP m_D3D11VPScale;

@@ -693,6 +693,23 @@ bool CDX11VideoProcessor::VPSuperResAllowed(const int depth) const
 	return !(m_bACMEnabled && !m_bVPUseRTXVideoHDR && depth == 8 && m_InternalTexFmt != DXGI_FORMAT_B8G8R8A8_UNORM);
 }
 
+// The driver's Super Resolution, on an 8-bit source the processor writes in ten bits on an
+// HDR desktop, writes HDR10 there -- PQ, BT.2020 -- whatever output colour space it was
+// given, and without RTX Video HDR the swap chain is SDR and shows it as such: a picture
+// under 115 nits with a tenth of its colour (playback_test --vpturns, an XviD 640x270 and
+// Fight Club re-encoded in 8 bits, at every size tried; the 10-bit original was right).
+// Given eight bits to write, it writes what it was asked: mean, peak and colour within
+// 0.001 of the processor's without Super Resolution, and its detail kept (0.0168 against
+// 0.0119). Eight bits lose nothing of an 8-bit source. Seen on an HDR desktop only, so
+// asked for there only.
+bool CDX11VideoProcessor::VPSuperResOutputsEightBits(const int depth)
+{
+	const bool bRtxAsked = m_bVPRTXVideoHDR && m_bHdrPassthroughSupport && m_bHdrPassthrough
+		&& m_iTexFormat != TEXFMT_8INT && !SourceIsHDR();
+	return m_bHdrDisplayModeEnabled && !bRtxAsked && depth == 8
+		&& VPResizesFirst() && m_iVPSuperRes != SUPERRES_Disable;
+}
+
 // The driver's Super Resolution on the processor's first turn, asked for in one place.
 // It belongs to the resizing and to nothing else, so it is asked for on the turn that
 // resizes. While a DLSS pass held the first turn at the source's size it stayed asked
