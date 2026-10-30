@@ -443,23 +443,22 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"desktop. Lower latency, but menus and windows drawn over the video may not show, and "
 		"Alt+Tab is slower." },
 	{ IDC_CHECK15,
-		L"Waits for the screen's next refresh before sending each picture. Can reduce tearing on "
-		"some setups, but adds up to one refresh of delay.\n"
-		"Not used while Render ahead schedules the pictures: it already sends each one right "
-		"after a refresh." },
+		L"Upstream's timing, for Render ahead off: waits for the screen's next refresh before "
+		"sending each picture. Adds up to a refresh of delay.\n"
+		"Render ahead never waits for it." },
 	{ IDC_CHECK13,
-		L"Holds each picture until its exact time on the audio clock, instead of showing it as "
-		"soon as it is ready. Keeps the picture in sync with the sound: leave it on.\n"
-		"Not used while Render ahead schedules the pictures." },
+		L"Upstream's timing, for Render ahead off: holds each picture until half a refresh "
+		"before its time on the audio clock, instead of sending it as soon as it is drawn.\n"
+		"Render ahead always holds the pictures it does not schedule this way." },
 	{ IDC_CHECK16,
 		L"Recreates the Direct3D device when the player window moves to another screen. Only "
 		"needed if the picture is wrong after moving the player between monitors." },
 	{ IDC_CHECK26,
 		L"Prepares each picture in advance and shows it on the screen refresh closest to its time "
-		"on the audio clock, so heavy processing (DLSS, neural upscalers) never makes it late.\n"
+		"on the audio clock, whatever the processing costs (DLSS, neural upscalers, Super "
+		"Resolution). Without it a picture reaches the screen a refresh or two after its time.\n"
 		"The statistics then show 'scheduled', and how many pictures were repeated or dropped.\n"
-		"Needs Direct3D 11. Scheduling each picture needs the Flip swap effect (always used for "
-		"HDR)." },
+		"Needs Direct3D 11 and the Flip swap effect (always used for HDR)." },
 	{ IDC_CHECK2,
 		L"Shows the renderer's statistics over the picture: formats, processing steps and their "
 		"cost, sync offset.\n"
@@ -926,6 +925,11 @@ void CVRSettingsPPage::EnableControls()
 	// Render ahead and the chroma replacement belong to the Direct3D 11 processor.
 	Enable(IDC_CHECK26, m_SetsPP.bUseD3D11);
 	Enable(IDC_CHECK27, m_SetsPP.bUseD3D11);
+	// Upstream's two ways of timing Present, which render ahead does not use: it never
+	// waits for a vertical blank, and holds what it does not schedule to its time.
+	const BOOL bUpstreamTiming = !(m_SetsPP.bUseD3D11 && m_SetsPP.bDlssRenderAhead);
+	Enable(IDC_CHECK15, bUpstreamTiming);
+	Enable(IDC_CHECK13, bUpstreamTiming);
 
 	// DLSS. The path boxes stay live even when the feature is off, so a wrong path
 	// can be fixed without enabling it first.
@@ -1202,7 +1206,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK25, &m_SetsPP.bDlssSR,              true  },
 				{ IDC_CHECK28, &m_SetsPP.bDlssSRDlaa,          false },
 				{ IDC_CHECK29, &m_SetsPP.bUpscalingSmall,      true  },
-				{ IDC_CHECK26, &m_SetsPP.bDlssRenderAhead,     false },
+				{ IDC_CHECK26, &m_SetsPP.bDlssRenderAhead,     true  },
 				{ IDC_CHECK27, &m_SetsPP.bVPReplaceChroma,     true  },
 			};
 			for (const auto& c : checks) {
@@ -1611,14 +1615,9 @@ bool CVRSettingsPPage::OnPresetCommand(int nID, int action)
 		if (action == BN_CLICKED) {
 			Settings_t sets;
 			if (S_OK == m_pVideoRenderer->LoadPreset(slot, sets)) {
-				// Where the DLLs are and the toggle key belong to the installation,
-				// and the video delay to the room: a preset saved before there was
-				// one would otherwise bring it back to zero.
-				sets.iDlssNRToggleKey = m_SetsPP.iDlssNRToggleKey;
-				sets.bShowStats = m_SetsPP.bShowStats;
-				sets.iVideoDelay = m_SetsPP.iVideoDelay;
-				wcscpy_s(sets.szDlssNRDllPath, m_SetsPP.szDlssNRDllPath);
-				wcscpy_s(sets.szDlssSRDllPath, m_SetsPP.szDlssSRDllPath);
+				// What belongs to the installation, the room and the screen stays as
+				// the page has it (KeepOutOfPreset), as when a preset's key recalls it.
+				KeepOutOfPreset(sets, m_SetsPP);
 				m_SetsPP = sets;
 				SetControls();
 				EnableControls();

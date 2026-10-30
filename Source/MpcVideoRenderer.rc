@@ -301,10 +301,10 @@ BEGIN
     LTEXT           "Swap effect",IDC_STATIC3,14,32,50,8
     COMBOBOX        IDC_COMBO4,68,30,154,70,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     CONTROL         "Use exclusive fullscreen",IDC_CHECK11,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,50,208,10
-    CONTROL         "Wait for VBlank before Present",IDC_CHECK15,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,64,208,10
-    CONTROL         "Adjust the frame presentation time",IDC_CHECK13,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,78,208,10
-    CONTROL         "Reinitialize device when changing display",IDC_CHECK16,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,92,208,10
-    CONTROL         "Render ahead to keep audio sync",IDC_CHECK26,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,106,208,10
+    CONTROL         "Reinitialize device when changing display",IDC_CHECK16,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,64,208,10
+    CONTROL         "Render ahead: a refresh chosen for each picture",IDC_CHECK26,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,78,208,10
+    CONTROL         "Wait for VBlank before Present",IDC_CHECK15,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,24,92,198,10
+    CONTROL         "Adjust the frame presentation time",IDC_CHECK13,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,24,106,198,10
     GROUPBOX        "Statistics",IDC_STATIC_HEAD_STATS,235,16,218,54
     CONTROL         "Show statistics",IDC_CHECK2,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,242,30,204,10
     LTEXT           "Size",IDC_STATIC,242,50,24,8
@@ -391,7 +391,7 @@ BEGIN
     COMBOBOX        IDC_PRESET_KEY10,279,144,66,160,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     PUSHBUTTON      "Save",IDC_PRESET_SAVE10,353,144,44,12
     PUSHBUTTON      "Load",IDC_PRESET_LOAD10,401,144,44,12
-    LTEXT           "Save stores all options, applied or not. Load puts it back into the page: click Apply to use it. Not part of presets: the DLL paths, the DLSS 5 NR toggle key, the video delay and Show statistics.",IDC_STATIC_PRESETS_NOTE,9,160,444,16
+    LTEXT           "Save stores all options, applied or not. Load puts it back into the page: click Apply to use it. Not part of presets: the DLL paths, the DLSS 5 NR toggle key, Show statistics and the whole Presentation tab.",IDC_STATIC_PRESETS_NOTE,9,160,444,16
 END
 
 /////////////////////////////////////////////////////////////////////////////

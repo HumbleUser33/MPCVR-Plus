@@ -317,15 +317,7 @@ private:
 	uint64_t m_tickOnScreen = 0;        // GetPreciseTick() scale; 0 when DXGI would not say
 	REFERENCE_TIME m_rtOnScreenOffset = 0;
 	bool     m_bOnScreenKnown = false;
-	// Catching up a refresh: how many pictures in a row were due on the screen late,
-	// the one picture that is then not presented, and how often that was done.
 	uint64_t m_tickPresentCall = 0;     // GetPreciseTick() just before Present was called
-	unsigned m_nLateOnScreen = 0;
-	bool     m_bSkipPresent = false;
-	unsigned m_uCaughtUp = 0;
-	bool     m_bCatchUpJudged = false;  // a picture was left out and it is not yet known whether that helped
-	bool     m_bCatchUpFutile = false;  // it did not: no more until the stream is flushed
-	double   m_dWaitAtCatchUp = 0;      // how long pictures waited when the last one was left out, ms
 	uint64_t m_tickSampleStart = 0;     // GetPreciseTick() when ProcessSample began on the current sample
 	uint64_t m_presentWaitTicks = 0;    // of m_RenderStats.presentticks, the wait before Present was called
 	// Time of each step a picture goes through, for the statistics.
@@ -442,6 +434,7 @@ private:
 	bool m_bMpvLumaRan = false;
 	void MarkPictureSubmitted();
 	void HoldUntilPresentTime(const REFERENCE_TIME frameStartTime, const bool bMeasure);
+	uint64_t m_tickPictureDone = 0;     // when the GPU was seen done with the last picture held; 0: not by its Present
 
 	// Each picture given a refresh in advance, and Present called in time for it.
 	CPresentSchedule m_PresentSchedule;

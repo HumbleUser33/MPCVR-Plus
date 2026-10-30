@@ -123,6 +123,7 @@ void CDX11VideoProcessor::WaitForScheduledPresent(const CPresentSchedule::Plan& 
 	if (!tickDone) {
 		m_RenderAhead.CountLate(); // not done at its present time
 	}
+	m_tickPictureDone = tickDone;
 	if (bMeasure) {
 		const uint64_t tickEnd = tickDone ? tickDone : GetPreciseTick();
 		// Present is called this long before the picture's time, to be on its refresh.
@@ -263,6 +264,7 @@ void CDX11VideoProcessor::HoldUntilPresentTime(const REFERENCE_TIME frameStartTi
 	if (!tickDone) {
 		m_RenderAhead.CountLate(); // not done at its present time
 	}
+	m_tickPictureDone = tickDone;
 	if (bMeasure) {
 		// Exact when the GPU was done in time. Otherwise the picture took at least
 		// until now, and the start moves earlier until pictures are done in time.

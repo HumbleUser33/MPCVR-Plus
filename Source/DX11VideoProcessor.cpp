@@ -459,6 +459,9 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_bDlssSRDlaa          = config.bDlssSRDlaa;
 	m_iDlssSRPreset        = config.iDlssSRPreset;
 	m_strDlssSRDllPath     = config.szDlssSRDllPath;
+	// Only Configure() used to take it, so the renderer made for each film had it on
+	// whatever the setting said: unticked, it stayed off until the next file.
+	m_bDlssRenderAhead     = config.bDlssRenderAhead;
 
 	m_nCurrentAdapter = -1;
 
@@ -2870,7 +2873,7 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 	// runs as the sample is copied, is timed with the rest (Render closes the set).
 	if (m_bShowStats) {
 		m_DlssStageTimes.Collect(m_pDeviceContext);
-		m_DlssStageTimes.BeginFrame(m_pDevice, m_pDeviceContext);
+		m_DlssStageTimes.BeginFrame(m_pDevice, m_pDeviceContext, rtStart);
 	}
 
 	HRESULT hr = CopySample(pSample);
@@ -2906,58 +2909,19 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 		m_RenderStats.syncoffset = m_rtScheduledOffset;
 	}
 
-	// With a refresh for every frame, a picture is presented once the one before it
-	// has been shown and is shown a refresh later: a film that starts late stays late
-	// by exactly as much, for as long as it plays. Measured at 24 fps on 24 Hz and at
-	// 25 on 25: 48 to 61 ms after its time, unchanged after 20 s. One picture left
-	// out lets the next take the refresh before, and the film is back within half a
-	// refresh of its time.
-	//
-	// What tells that state from a healthy one is not how late the picture is but
-	// how long it waits: called at its time, Present has it shown on the next
-	// refresh, less than one period away, and in the late chain on the one after.
-	// Lateness alone will not do. A 23.976 fps film on 24 Hz slides through every
-	// phase, and a threshold set on it left out a picture on each pass -- measured,
-	// twenty in ten seconds. The wait must exceed a period by a margin, so that the
-	// picture moved a refresh earlier still has that margin before its refresh, and
-	// must have done so for eight pictures running.
-	{
-		const double period = m_dRefreshPeriodMs * 10000.0;
-		const bool bRefreshPerFrame = period > 0 && rtFrameDur > 0.9 * period && rtFrameDur < 1.5 * period;
-		const double waitMs = ((double)m_tickOnScreen - (double)m_tickPresentCall) * 1000.0 / GetPreciseTicksPerSecond();
-		//
-		// And it is done once, not as a habit. A picture can wait more than a period
-		// for reasons a missing picture does nothing about -- a GPU that has not
-		// finished it, a screen that does not refresh as it says. Leaving pictures out
-		// then costs them and mends nothing: on a television at 25 Hz it went on at
-		// two a second. So the pictures that follow one left out are the judges: if
-		// they wait as long as before eight times running, nothing more is left out
-		// until the stream is flushed. If they wait a refresh less and still too long,
-		// the film was two refreshes behind, and a second picture goes.
-		// None of it applies to a picture that was given its refresh in advance: the
-		// schedule keeps the step itself, and knows a late chain cannot form.
-		const bool bEligible = m_bOnScreenKnown && bRefreshPerFrame && !m_bDoubleFrames && !m_bScheduled
-			&& m_pFilter->m_filterState == State_Running && !m_pFilter->m_bClockStalled;
-		if (!bEligible) {
-			m_nLateOnScreen = 0;
-		} else if (waitMs > 1.15 * m_dRefreshPeriodMs) {
-			if (++m_nLateOnScreen >= 8 && !m_bCatchUpFutile) {
-				m_nLateOnScreen = 0;
-				if (m_bCatchUpJudged && waitMs > m_dWaitAtCatchUp - 0.5 * m_dRefreshPeriodMs) {
-					m_bCatchUpFutile = true;
-				} else {
-					m_bCatchUpJudged = true;
-					m_dWaitAtCatchUp = waitMs;
-					m_bSkipPresent = true;
-				}
-			}
-		} else {
-			m_nLateOnScreen = 0;
-			m_bCatchUpJudged = false;
-		}
-	}
+	// A film that started late used to be caught up here, one picture left out when
+	// eight in a row had waited more than a refresh: with render ahead off, the only
+	// pictures it saw, it left one out every half second at 23.976 fps on a screen at
+	// 23.976 Hz, 245 in 135 s of Fight Club, each a jump and a picture shown twice.
+	// The schedule keeps the step itself, and upstream never had it.
 
 	int so = (int)std::clamp(m_RenderStats.syncoffset, -UNITS, UNITS);
+	// The graph of a scheduled picture shows where DXGI says the last one shown really
+	// was, not where it was meant to be: a picture the compositor took a refresh late is
+	// the one thing worth seeing in it, and the plan cannot show it.
+	if (m_bScheduled && m_PresentSchedule.ShownKnown()) {
+		so = (int)std::clamp((REFERENCE_TIME)(m_PresentSchedule.ShownOffsetMs() * 10000.0), -UNITS, UNITS);
+	}
 #if SYNC_OFFSET_EX
 	m_SyncDevs.Add(so - m_Syncs.Last());
 #endif
@@ -3600,7 +3564,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	// (ProcessSample); a redraw, or a second field, opens its own here.
 	if (m_bShowStats && !m_DlssStageTimes.IsRecording()) {
 		m_DlssStageTimes.Collect(m_pDeviceContext);
-		m_DlssStageTimes.BeginFrame(m_pDevice, m_pDeviceContext);
+		m_DlssStageTimes.BeginFrame(m_pDevice, m_pDeviceContext, frameStartTime);
 	}
 
 	m_tracePasses = 0;
@@ -3677,6 +3641,9 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		m_SRCutReadback.Collect(m_pDeviceContext, [this](long long rtStart, const float* state) {
 			m_PacingTrace.SetCut(rtStart, state);
 		});
+		m_DlssStageTimes.Take([this](const CGpuStageTimes::Measured& measured) {
+			m_PacingTrace.SetGpu(measured.tag, measured.vpMs, measured.allMs);
+		});
 	}
 	const bool bTrace = m_PacingTrace.Enabled() && field && frameStartTime != INVALID_TIME;
 	CPacingTrace::Picture traced;
@@ -3738,6 +3705,8 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		traced.flags |= CPacingTrace::Scheduled | (plan.bRepeat ? CPacingTrace::Repeated : 0)
 			| (plan.bDrop ? CPacingTrace::Dropped : 0);
 		traced.tickTarget = plan.tickRefresh;
+		traced.tickStamp = plan.tickStamp;
+		traced.tickDue = plan.tickDue;
 	}
 
 	if (plan.bValid && plan.bDrop) {
@@ -3758,24 +3727,11 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		return hr;
 	}
 
-	// Catching up a refresh (see ProcessSample): this picture is drawn, so that
-	// everything that keeps a history has seen it, and not presented.
-	if (!plan.bValid && m_bSkipPresent && field == 1 && frameStartTime != INVALID_TIME) {
-		m_bSkipPresent = false;
-		m_uCaughtUp++;
-		m_tickOnScreen = 0;
-		if (bTrace) {
-			traced.flags |= CPacingTrace::NotPresented;
-			ReadShownForTrace(traced.after);
-			m_PacingTrace.Add(traced);
-		}
-		return hr;
-	}
-
 	// Without a refresh to aim at -- DXGI has not said where they are, or the setting
 	// is off -- a picture a DLSS pass or a prescaler worked on is still held for its
 	// time on the reference clock, as before.
 	const bool bHold = !plan.bValid && bTimed && RenderAheadActive();
+	m_tickPictureDone = 0;
 	if (bHold || plan.bValid) {
 		MarkPictureSubmitted();
 	}
@@ -3784,7 +3740,11 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		// Only the first picture of a sample is started early; a second field follows it.
 		WaitForScheduledPresent(plan, field == 1);
 	} else {
-		if (m_bVBlankBeforePresent && m_pDXGIOutput) {
+		// Upstream's two ways of timing Present are for render ahead off. Render ahead
+		// never waits for a vertical blank, which puts the call where a refresh is worst
+		// placed, and holds what it does not schedule -- a film's first pictures, the
+		// Discard swap effect -- to its time.
+		if (m_bVBlankBeforePresent && m_pDXGIOutput && !m_bDlssRenderAhead) {
 			hr = m_pDXGIOutput->WaitForVBlank();
 			DLogIf(FAILED(hr), L"WaitForVBlank failed with error {}", HR2Str(hr));
 			if (bTrace) {
@@ -3794,13 +3754,14 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		}
 		if (bHold) {
 			HoldUntilPresentTime(frameDueTime, field == 1);
-		} else if (m_bAdjustPresentTime) {
+		} else if (m_bAdjustPresentTime || m_bDlssRenderAhead) {
 			SyncFrameToStreamTime(frameDueTime);
 		}
 	}
 
 	if (bTrace) {
 		traced.flags |= bHold ? CPacingTrace::Held : 0;
+		traced.tickGpuDone = (long long)m_tickPictureDone;
 		ReadShownForTrace(traced.before);
 		CRefTime rtClock;
 		if (SUCCEEDED(m_pFilter->StreamTime(rtClock))) {
@@ -3839,6 +3800,14 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 			traced.rtClockAtReturn = rtClock;
 		}
 		ReadShownForTrace(traced.after);
+		if (CComQIPtr<IDXGISwapChainMedia> pMedia = m_pDXGISwapChain1.p) {
+			DXGI_FRAME_STATISTICS_MEDIA media = {};
+			if (SUCCEEDED(pMedia->GetFrameStatisticsMedia(&media))) {
+				traced.flags |= media.CompositionMode == DXGI_FRAME_PRESENTATION_MODE_COMPOSED ? CPacingTrace::Composed
+					: media.CompositionMode == DXGI_FRAME_PRESENTATION_MODE_OVERLAY ? CPacingTrace::Overlay
+					: media.CompositionMode == DXGI_FRAME_PRESENTATION_MODE_NONE ? CPacingTrace::DirectFlip : 0;
+			}
+		}
 		m_PacingTrace.Add(traced);
 	}
 
@@ -5648,11 +5617,7 @@ void CDX11VideoProcessor::Flush()
 	}
 
 	m_rtStart = 0;
-	m_nLateOnScreen = 0;
-	m_bSkipPresent = false;
 	m_bSkipNextSample = false;
-	m_bCatchUpJudged = false;
-	m_bCatchUpFutile = false;
 	m_PresentSchedule.Flush();
 	if (m_PacingTrace.Enabled()) {
 		m_PacingTrace.Note(L"flush");
@@ -5792,11 +5757,15 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 		// before it can draw the next (InitSwapChain, MPCVR_SWAPCHAIN_BUFFERS).
 		m_strStatsPresent += std::format(L", {} buffers", swapchain_desc.BufferCount);
 
-		// With render ahead and a flip model the two settings below are not what times
-		// a Present: each picture is given a refresh, and the line says that instead.
-		if (m_bDlssRenderAhead && swapchain_desc.SwapEffect != DXGI_SWAP_EFFECT_DISCARD
-				&& swapchain_desc.SwapEffect != DXGI_SWAP_EFFECT_SEQUENTIAL) {
-			m_strStatsPresent.append(L"\nFrame sync    : a refresh chosen for each picture");
+		// With render ahead the two settings below are not what times a Present: with a
+		// flip model each picture is given a refresh, without one it is held to its time.
+		if (m_bDlssRenderAhead) {
+			if (swapchain_desc.SwapEffect != DXGI_SWAP_EFFECT_DISCARD
+					&& swapchain_desc.SwapEffect != DXGI_SWAP_EFFECT_SEQUENTIAL) {
+				m_strStatsPresent.append(L"\nFrame sync    : a refresh chosen for each picture");
+			} else {
+				m_strStatsPresent.append(L"\nFrame sync    : held to its time");
+			}
 		} else
 		if ((m_bVBlankBeforePresent && m_pDXGIOutput) || m_bAdjustPresentTime) {
 			m_strStatsPresent.append(L"\nFrame sync    :");

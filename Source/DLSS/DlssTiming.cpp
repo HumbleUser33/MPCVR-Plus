@@ -146,6 +146,28 @@ void CPresentSchedule::Flush()
 	m_bLast = false;
 	m_sinceFlush = 0;
 	m_dropRun = 0;
+	m_bDue = false;
+}
+
+long long CPresentSchedule::SmoothDue(long long tickStamp, double frameMs)
+{
+	const double frameTicks = frameMs * TicksPerMs();
+	double due = (double)tickStamp;
+	if (m_bDue && frameTicks > 0) {
+		// How many frames on from the last picture: one, or more when samples were left out.
+		const double frames = std::round((double)(tickStamp - m_dueStamp) / frameTicks);
+		if (frames >= 1 && frames <= 8) {
+			const double carried = m_dueSmooth + frames * frameTicks;
+			const double error = (double)tickStamp - carried;
+			if (std::abs(error) < kDueResetMs * TicksPerMs()) {
+				due = carried + kDueGain * error;
+			}
+		}
+	}
+	m_bDue = true;
+	m_dueSmooth = due;
+	m_dueStamp = tickStamp;
+	return std::llround(due);
 }
 
 long long CPresentSchedule::RefreshTime(long long index) const
@@ -255,12 +277,14 @@ void CPresentSchedule::Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& s
 	(void)lastPresent;
 }
 
-CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tickDue, double frameMs, double drawMs)
+CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tickStamp, double frameMs, double drawMs)
 {
 	Plan plan;
 	if (!Ready(tickNow) || frameMs <= 0) {
+		m_bDue = false;
 		return plan;
 	}
+	const long long tickDue = SmoothDue(tickStamp, frameMs);
 	const double callPhase = std::min(kCallPhase * m_period, kCallPhaseMaxMs * TicksPerMs());
 	const double guard = std::min(kGuardPhase * m_period, kGuardMaxMs * TicksPerMs());
 
@@ -340,6 +364,7 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 	plan.bValid = true;
 	plan.bDrop = bDrop;
 	plan.tickDue = tickDue;
+	plan.tickStamp = tickStamp;
 	if (bDrop) {
 		m_dropRun++;
 		// The pictures a film loses as it starts are the price of starting on time and
@@ -471,6 +496,19 @@ void CPacingTrace::SetCut(long long rtStart, const float* state)
 	}
 }
 
+void CPacingTrace::SetGpu(long long rtStart, float vpMs, float allMs)
+{
+	const size_t n = m_pictures.size();
+	for (size_t i = 0; i < n && i < 32; i++) {
+		Picture& p = m_pictures[n - 1 - i];
+		if (p.rtStart == rtStart && p.gpuAllUs < 0) {
+			p.gpuVpUs = vpMs >= 0 ? (int)std::lround(vpMs * 1000.0f) : -1;
+			p.gpuAllUs = allMs >= 0 ? (int)std::lround(allMs * 1000.0f) : -1;
+			return;
+		}
+	}
+}
+
 void CPacingTrace::Write()
 {
 	if (!m_bEnabled || (m_pictures.empty() && m_notes.empty())) {
@@ -491,18 +529,19 @@ void CPacingTrace::Write()
 			"tickPresentReturn,tickTarget,renderAhead,flags,"
 			"lastPresent0,presentCount0,presentRefresh0,syncRefresh0,syncQpc0,"
 			"lastPresent1,presentCount1,presentRefresh1,syncRefresh1,syncQpc1,"
-			"nrWaitUs,nrRecordUs,nrGpuUs,cutHist,cutRatio,cutResid,cutCorr\n");
+			"nrWaitUs,nrRecordUs,nrGpuUs,cutHist,cutRatio,cutResid,cutCorr,tickGpuDone,tickStamp,tickDue,gpuVpUs,gpuAllUs\n");
 	}
 	for (const std::wstring& note : m_notes) {
 		fprintf(file, "# %ls\n", note.c_str());
 	}
 	for (const Picture& p : m_pictures) {
-		fprintf(file, "%llu,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%u,%u,%u,%u,%u,%lld,%u,%u,%u,%u,%lld,%d,%d,%d,%d,%d,%d,%d\n",
+		fprintf(file, "%llu,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%u,%u,%u,%u,%u,%lld,%u,%u,%u,%u,%lld,%d,%d,%d,%d,%d,%d,%d,%lld,%lld,%lld,%d,%d\n",
 			m_written++, p.rtStart, p.rtClockAtCall, p.rtClockAtReturn, p.tickSample, p.tickDrawn, p.tickAfterVBlank,
 			p.tickPresentCall, p.tickPresentReturn, p.tickTarget, p.renderAhead, p.flags,
 			p.before.lastPresent, p.before.presentCount, p.before.presentRefresh, p.before.syncRefresh, p.before.syncQpc,
 			p.after.lastPresent, p.after.presentCount, p.after.presentRefresh, p.after.syncRefresh, p.after.syncQpc,
-			p.nrWaitUs, p.nrRecordUs, p.nrGpuUs, p.cutHist, p.cutRatio, p.cutResid, p.cutCorr);
+			p.nrWaitUs, p.nrRecordUs, p.nrGpuUs, p.cutHist, p.cutRatio, p.cutResid, p.cutCorr,
+			p.tickGpuDone, p.tickStamp, p.tickDue, p.gpuVpUs, p.gpuAllUs);
 	}
 	fclose(file);
 	m_pictures.clear();
@@ -560,7 +599,7 @@ void CGpuStageTimes::Release()
 	}
 }
 
-void CGpuStageTimes::BeginFrame(ID3D11Device* pDevice, ID3D11DeviceContext* pContext)
+void CGpuStageTimes::BeginFrame(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, long long tag)
 {
 	if (m_iRecording >= 0) {
 		EndFrame(pContext);
@@ -592,6 +631,7 @@ void CGpuStageTimes::BeginFrame(ID3D11Device* pDevice, ID3D11DeviceContext* pCon
 		std::fill(std::begin(set.bOpen), std::end(set.bOpen), false);
 		std::fill(std::begin(set.bUsed), std::end(set.bUsed), false);
 		set.picture = m_pictures;
+		set.tag = tag;
 		pContext->Begin(set.pDisjoint);
 		m_iRecording = i;
 		return;
@@ -649,16 +689,27 @@ void CGpuStageTimes::Collect(ID3D11DeviceContext* pContext)
 			return;
 		}
 		if (hr == S_OK && !disjoint.Disjoint && disjoint.Frequency) {
+			Measured measured = { pSet->tag, -1.0f, -1.0f };
 			for (int s = 0; s < StageCount; s++) {
 				UINT64 t0 = 0, t1 = 0;
 				if (pSet->bUsed[s]
 						&& S_OK == pContext->GetData(pSet->pBegin[s], &t0, sizeof(t0), D3D11_ASYNC_GETDATA_DONOTFLUSH)
 						&& S_OK == pContext->GetData(pSet->pEnd[s], &t1, sizeof(t1), D3D11_ASYNC_GETDATA_DONOTFLUSH)
 						&& t1 >= t0) {
-					m_times[s].Add((double)(t1 - t0) * 1000.0 / (double)disjoint.Frequency);
+					const double ms = (double)(t1 - t0) * 1000.0 / (double)disjoint.Frequency;
+					m_times[s].Add(ms);
 					m_lastSeen[s] = pSet->picture;
+					if (s == VP) {
+						measured.vpMs = (float)ms;
+					}
+					measured.allMs = std::max(measured.allMs, 0.0f) + (float)ms;
 				}
 			}
+			if (m_nMeasured == kMeasured) {
+				std::copy(m_measured + 1, m_measured + kMeasured, m_measured);
+				m_nMeasured--;
+			}
+			m_measured[m_nMeasured++] = measured;
 		}
 		pSet->bPending = false;
 	}

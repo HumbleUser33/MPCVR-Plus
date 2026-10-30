@@ -196,6 +196,21 @@ public:
 	// And whatever the reason, never more than this many drawn and left out in a row:
 	// the screen moves.
 	static constexpr int kMaxDropRun = 8;
+	// A picture's time is its stamp, and a stamp is not exact: Matroska keeps them to the
+	// millisecond, so a 23.976 fps film steps 41, 42, 42, 41... ms, half a millisecond
+	// either way of the truth. Where a frame lasts a whole number of refreshes that is
+	// nothing. Where it does not -- 2.5025 refreshes at 60 Hz -- the pictures' times cross
+	// half way between two refreshes once every 8.3 s, the nearest refresh flips between
+	// the two for as long as the rounding straddles it, and the 3:2 cadence breaks five or
+	// six times in half a second where once was all it needed: 78 breaks in 116 s of Fight
+	// Club, measured on the screen itself. So the time the schedule goes by is the stamp
+	// carried forward a frame at a time and drawn a thirty-second of the way towards each
+	// new stamp (kDueGain), which leaves a few hundredths of a millisecond of the rounding:
+	// 18 breaks in the same 116 s, one each time the cadence has to change step. A stamp
+	// further than kDueResetMs from where the frames put it is a clock or a stream that
+	// moved, and is taken as it is.
+	static constexpr double kDueGain = 1.0 / 32.0;
+	static constexpr double kDueResetMs = 4.0;
 
 	struct Plan {
 		bool bValid = false;       // a refresh was chosen; otherwise present as before
@@ -206,7 +221,8 @@ public:
 		long long tickCall = 0;    // when to call Present
 		long long tickWanted = 0;  // when it would have been called, had the picture come in time
 		long long tickRefresh = 0; // when that refresh is
-		long long tickDue = 0;     // when the picture's own time is
+		long long tickDue = 0;     // when the picture's own time is, as the schedule goes by it
+		long long tickStamp = 0;   // and when its stamp is
 	};
 
 	void Reset();   // another swap chain or another display mode
@@ -217,10 +233,11 @@ public:
 	void Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& stats, double nominalPeriodMs);
 	bool Ready(long long tickNow) const;
 
-	// tickDue: when the reference clock reaches the picture's time, on the performance
+	// tickStamp: when the reference clock reaches the picture's stamp, on the performance
 	// counter. frameMs: how long a picture of this film lasts. drawMs: how long one
-	// takes from its sample to being ready to present.
-	Plan Choose(long long tickNow, long long tickDue, double frameMs, double drawMs);
+	// takes from its sample to being ready to present. The plan's tickDue is the
+	// picture's time as the schedule went by it (kDueGain).
+	Plan Choose(long long tickNow, long long tickStamp, double frameMs, double drawMs);
 	// A sample was left out before it was drawn, as a Plan asked.
 	void LeftOut();
 	// msInside: how long Present took to return.
@@ -239,6 +256,7 @@ public:
 private:
 	long long RefreshTime(long long index) const;
 	double RefreshIndex(long long tick) const;   // fractional
+	long long SmoothDue(long long tickStamp, double frameMs);
 
 	// The refreshes: the last one DXGI timed, and how long one lasts.
 	bool m_bClock = false;
@@ -271,6 +289,11 @@ private:
 
 	bool m_bLast = false;          // a picture has been given a refresh since the last flush
 	long long m_lastRefresh = 0;
+
+	// The pictures' times as the schedule goes by them (kDueGain).
+	bool m_bDue = false;
+	double m_dueSmooth = 0;        // ticks
+	long long m_dueStamp = 0;      // the last stamp's own time, ticks
 	int m_sinceFlush = 0;          // how many, up to kSettling
 	int m_dropRun = 0;             // pictures left out since the last one presented
 
@@ -318,6 +341,12 @@ public:
 		Skipped     = 65536, // left out before it was drawn, as the scheduler asked
 		VPAfterNR   = 131072, // the video processor enlarged what DLSS 5 NR left
 		SceneCut    = 262144, // cs_dlss_scene_cut.hlsl called it a cut: DLSS SR's history was dropped
+		// How the last picture shown went on the screen (IDXGISwapChainMedia): put
+		// together with the desktop by the compositor, scanned out from a plane of its
+		// own, or flipped straight to the screen. None of the three: DXGI did not say.
+		Composed    = 524288,
+		Overlay     = 1048576,
+		DirectFlip  = 2097152,
 	};
 
 	// DXGI's account of the swap chain at one moment.
@@ -350,6 +379,14 @@ public:
 		// the pictures before in tenths, the residual in millionths, the median correlation
 		// in thousandths. -1: not measured.
 		int cutHist = -1, cutRatio = -1, cutResid = -1, cutCorr = -1;
+		// When the GPU was seen done with it, waiting for its Present; 0 when it was not
+		// done by then, or nothing waited.
+		long long tickGpuDone = 0;
+		long long tickStamp = 0;          // its stamp on the performance counter, as scheduled
+		long long tickDue = 0;            // and the time the schedule went by (kDueGain)
+		// GPU time, microseconds, while the statistics show (CGpuStageTimes): the video
+		// processor's turn, and every stage timed. -1: not measured.
+		int gpuVpUs = -1, gpuAllUs = -1;
 	};
 
 	CPacingTrace();
@@ -361,6 +398,8 @@ public:
 	void Add(const Picture& picture);
 	// The cut measures of a picture already added, found by its time.
 	void SetCut(long long rtStart, const float* state);
+	// Its GPU times (CGpuStageTimes::Take), likewise.
+	void SetGpu(long long rtStart, float vpMs, float allMs);
 	void Write();
 
 private:
@@ -438,7 +477,8 @@ public:
 
 	void Release();
 
-	void BeginFrame(ID3D11Device* pDevice, ID3D11DeviceContext* pContext);
+	// tag: the picture's time, which the pacing trace finds the picture by (Take).
+	void BeginFrame(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, long long tag = 0);
 	// A picture is being timed: a query set is open.
 	bool IsRecording() const { return m_iRecording >= 0; }
 	void Begin(ID3D11DeviceContext* pContext, Stage stage);
@@ -450,6 +490,18 @@ public:
 
 	// Mean time of a stage over its recent pictures; negative when it has not run lately.
 	double MeanMs(Stage stage) const;
+
+	// For the pacing trace: each picture read back since the last call, oldest first --
+	// its tag, the video processor's time and that of every stage together, in ms
+	// (negative: did not run).
+	struct Measured { long long tag; float vpMs; float allMs; };
+	template<class F> void Take(F&& found)
+	{
+		for (int i = 0; i < m_nMeasured; i++) {
+			found(m_measured[i]);
+		}
+		m_nMeasured = 0;
+	}
 
 private:
 	static constexpr int kSets = 8;
@@ -463,6 +515,7 @@ private:
 		bool bUsed[StageCount] = {};
 		bool bPending = false;
 		uint64_t picture = 0;
+		long long tag = 0;
 	};
 
 	QuerySet m_sets[kSets];
@@ -471,5 +524,8 @@ private:
 	bool m_bFailed = false;
 
 	CRollingMs m_times[StageCount];
+	static constexpr int kMeasured = 16;
+	Measured m_measured[kMeasured] = {};
+	int m_nMeasured = 0;
 	uint64_t m_lastSeen[StageCount] = {};
 };

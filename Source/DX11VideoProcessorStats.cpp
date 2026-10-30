@@ -433,9 +433,6 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	} else
 	if (m_bOnScreenKnown) {
 		str += std::format(L"\nOn screen     : {:+6.1f} ms, queue {}", m_rtOnScreenOffset / 10000.0, m_uPresentQueue);
-		if (m_uCaughtUp) {
-			str += std::format(L", caught up {}{}", m_uCaughtUp, m_bCatchUpFutile ? L" (no use, stopped)" : L"");
-		}
 	}
 
 #if SYNC_OFFSET_EX

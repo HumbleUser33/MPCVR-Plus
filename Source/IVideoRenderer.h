@@ -434,6 +434,30 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 	// the prescalers as much as for DLSS.
 }
 
+// What a preset does not carry, because it belongs to the installation, the room or the
+// screen rather than to a taste: where the two DLLs are, the DLSS toggle key, how late the
+// room's sound is, the Measured method's tuning (registry only, as upstream has it),
+// whether the statistics are up, and the whole of the Presentation tab. Presets saved by
+// earlier versions hold a Discard swap effect and the wait for a vertical blank, and
+// recalling one turned the scheduled presentation off for every SDR picture.
+inline void KeepOutOfPreset(Settings_t& sets, const Settings_t& current)
+{
+	sets.iDlssNRToggleKey     = current.iDlssNRToggleKey;
+	sets.iSdrPeakWindowMs     = current.iSdrPeakWindowMs;
+	sets.iSdrPeakFloorNits    = current.iSdrPeakFloorNits;
+	sets.bSdrPeakSceneCuts    = current.bSdrPeakSceneCuts;
+	wcscpy_s(sets.szDlssNRDllPath, current.szDlssNRDllPath);
+	wcscpy_s(sets.szDlssSRDllPath, current.szDlssSRDllPath);
+	sets.iVideoDelay          = current.iVideoDelay;
+	sets.bShowStats           = current.bShowStats;
+	sets.iSwapEffect          = current.iSwapEffect;
+	sets.bExclusiveFS         = current.bExclusiveFS;
+	sets.bVBlankBeforePresent = current.bVBlankBeforePresent;
+	sets.bAdjustPresentTime   = current.bAdjustPresentTime;
+	sets.bReinitByDisplay     = current.bReinitByDisplay;
+	sets.bDlssRenderAhead     = current.bDlssRenderAhead;
+}
+
 constexpr int PRESET_COUNT = 10;
 
 // The key that recalls a preset: a virtual key in the low byte and, above it, the

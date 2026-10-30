@@ -405,20 +405,6 @@ static std::wstring PresetKeyPath(int slot)
 	return std::format(L"{}\\Presets\\{}", OPT_REGKEY_VIDEORENDERER, slot + 1);
 }
 
-// What belongs to the installation and not to a taste stays out of a preset:
-// where the two DLLs are, the DLSS toggle key, how late the room's sound is, and
-// the Measured method's tuning, which upstream keeps in the registry only.
-static void KeepInstallation(Settings_t& sets, const Settings_t& current)
-{
-	sets.iDlssNRToggleKey = current.iDlssNRToggleKey;
-	sets.iSdrPeakWindowMs = current.iSdrPeakWindowMs;
-	sets.iSdrPeakFloorNits = current.iSdrPeakFloorNits;
-	sets.bSdrPeakSceneCuts = current.bSdrPeakSceneCuts;
-	wcscpy_s(sets.szDlssNRDllPath, current.szDlssNRDllPath);
-	wcscpy_s(sets.szDlssSRDllPath, current.szDlssSRDllPath);
-	sets.iVideoDelay = current.iVideoDelay;
-}
-
 
 static const wchar_t g_szClassName[] = L"VRWindow";
 
@@ -648,8 +634,7 @@ void CMpcVideoRenderer::RecallPreset(int slot)
 	if (S_OK != LoadPreset(slot, sets)) {
 		return;
 	}
-	KeepInstallation(sets, m_Sets);
-	sets.bShowStats = m_Sets.bShowStats;   // recalled with the statistics as they are, up or not
+	KeepOutOfPreset(sets, m_Sets);   // the statistics among them, up or not as they are
 
 	// The name goes up before the settings go in. A film that is paused is drawn again
 	// by the settings themselves and by nothing after: with the name posted afterwards
