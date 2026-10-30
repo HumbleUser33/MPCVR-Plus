@@ -1,8 +1,8 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 26 October 2026, on an
-RTX 4060 (driver 32.0.16.1742) with the Windows desktop in HDR, all twenty-five steps green.
-The filter is `6e6ceb5`, build 2746, and filter and tools are built by MSVC 14.44. It is the thing
+`run_all_report.txt` here is what the whole battery measured on 30 October 2026, on an
+RTX 4060 (driver 32.0.16.1742) with the Windows desktop in HDR, all twenty-six steps green.
+The filter is `223984b`, build 2787, and filter and tools are built by MSVC 14.44. It is the thing
 a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
@@ -252,3 +252,42 @@ fail when it does not run passed.
 `DXGI_ERROR_UNSUPPORTED` in every run before `a622873`, and the stills came from the old
 duplication instead. The two steps that compare stills, "the processor enlarging after DLSS 5
 NR" and its PQ twin, give the same rows read either way.
+
+## 30 October 2026: upstream 0.11.1, OSD Plus, and the presentation put in order
+
+The report of 26 October, at `6e6ceb5`, is in the history. Since then upstream's 0.11.1 was
+merged (`00d7d36`) and eight commits followed (`6ba93c0` to `223984b`): the HDR tab shows
+0.11's settings; RTX Video HDR runs again on an 8-bit picture when the player gives its
+window after connecting the filter (`8277455`); rampageX's OSD Plus came in (`ca90f5d`,
+`a12c199`); HDR output turned off while an HDR film plays gives an SDR swap chain; and the
+presentation was put in order, with `cadence_watch` and the manual. The battery has one step
+more, "the audio input the statistics follow" (`osd_audio_test`, OSD Plus's own test):
+eighteen checks that answer ok or not, so it adds a verdict and no row.
+
+It was taken with the settings in the registry at the time: Upscaling FSRCNNX 16 AR,
+Adaptive-Sharpen at 4, the DLSS 5 NR style cinematic, Jinc chroma upsampling, *Swap effect*
+on Flip, render ahead on, and the video processor resizing with Super Resolution at 4.
+
+Of the 2669 rows the two reports share, 2 moved, none is gone and none is new. Both are the
+pipeline's "frame, upload to done", printed bare as mean / 95th percentile / maximum:
+
+- with DLSS SR alone, 9.53 / 16.02 / 16.70 ms then, 9.69 / 11.02 / 16.07 now: the flip of the
+  95th percentile between about 10.5 and 16.5 noted on the 25th;
+- with Catmull-Rom alone, a maximum of 0.57 ms then, 0.78 now.
+
+Three batteries ran on the way, in the worktree `E:\MPCVR-0.11`:
+
+- at `00d7d36`, the merge: 5 moved. Two were the chroma suite's pictures with RTX Video HDR
+  on, 30.00 and 30.03 dB (the second with the 4:4:4 pre-pass) read 46.82 and 52.72: the
+  picture without RTX Video HDR. Upstream's fix for #293 had left the bench's processor
+  writing eight bits, as the bench gives its window after connecting the filter, and RTX
+  Video HDR then did nothing. `8277455` fixes it, and the two rows came back to the
+  hundredth. The other three were the pipeline row and two *On screen* counts, one and two
+  pictures more;
+- at `d6f602a`, and with the presentation's changes before they were committed: 2 moved each
+  time, the two rows above.
+
+Each of those three counted 26 rows new, none of them a measurement: the report prints the
+paths of the DLLs and the pictures it loads, and the comparison reads the `0.11` of
+`E:\MPCVR-0.11` in them as a number. This report, run in the main folder, has none. NGX's
+lines about `nvngx_dlssnr.dll`'s signature are the eleven of the report before.
