@@ -12,6 +12,7 @@ rendering is bit-identical to upstream.
 | **DLSS 5 NR** | NVIDIA neural reconstruction (NGX feature 18) with a temporal stabilizer made for video |
 | **DLSS SR** | DLSS Super Resolution 4.5 for enlarging, and DLAA at native size (experimental) |
 | **Presentation** | render ahead, so none of it drifts off the audio clock |
+| **Statistics** | each step and what it costs, and with rampageX's OSD Plus the codec, the audio path and the machine's load |
 | **Settings** | one page, seven tabs, in the order the picture travels through them |
 
 It was called MPCVR-DLSS5 until 1.7, when DLSS 5 stopped being the whole of it. The branch is
@@ -1894,6 +1895,38 @@ as they change:
 
 The sync offset graph, bottom right, draws the *Sync offset* of the last pictures.
 
+### Source, audio and hardware (OSD Plus)
+
+Three seconds after the statistics first come up, they also say what the film is made of and
+what the machine is doing. This is **OSD Plus**, by **rampageX** (`github.com/rampageX/MPCVR-Plus`),
+taken into MPCVR-Plus with his thanks. Labels are white and each section's values have a colour
+of their own, kept at the *Subtitle and OSD brightness* over an HDR picture. Fight Club through
+LAV in the bench (`playback_test --file <film> --stats 1`):
+
+    Codec         : AV01
+    Video bitrate : avg 2.39 Mb/s, current 1.96 Mb/s
+    File avg      : 3.02 Mb/s (all streams + container)
+    -- Audio -----------------------------------------------------------------------
+    Audio input   : Opus, 48000 Hz, 6 ch, 32-bit, 221 kb/s
+    Audio decoded : Float PCM, 48000 Hz, 6 ch, 32-bit, 9216 kb/s
+    Audio render  : Float PCM, 48000 Hz, 6 ch, 32-bit, 9216 kb/s
+    -- Hardware --------------------------------------------------------------------
+    CPU           : 3.8% total, 1.8% player
+    GPU           : 22.6% busiest engine, decode 0.0%
+    VRAM (player) : 462 MiB
+
+- *Codec* is the coded format the decoder reads, and *Video bitrate* the video stream's own,
+  as the splitter counts it, or as the stream declares it where the splitter does not say.
+  *File avg* is the file's size over its length, every stream and the container in it, for a
+  file on a local disk only. *Source info* says why one of them is missing.
+- *Audio* follows the sound actually heard, from the decoder's input to the audio renderer's,
+  across a change of track with MPC-BE's audio switcher; where several inputs are connected and
+  none says which one plays, it does not guess. A depth the stream does not declare stays N/A.
+- *Hardware* is sampled once a second on a thread of its own: the CPU, the player's share of it,
+  the busiest engine of the GPU the picture is rendered on and its video decoder, and the video
+  memory the player uses. The sampling pauses while the statistics are hidden, and starts again
+  three seconds after a new film, so that opening one is not slowed by it.
+
 ---
 
 ## Known limitations
@@ -2217,6 +2250,10 @@ will need regenerating.
 
 MPC Video Renderer is by **Aleksoid1978** and contributors and is licensed **GPLv3**; see
 `LICENSE.txt`. This fork is a derivative work and carries the same licence.
+
+**OSD Plus**, the statistics' source, audio and hardware lines and their colours
+(`Source/OsdPlus/`), is by **rampageX** (`github.com/rampageX/MPCVR-Plus`, GPLv3), taken from
+his release 1.0.5 with thanks.
 
 The NGX ABI declarations in `Source/DLSS/NGXTypes.h` are hand-written from the publicly
 documented shape of the interface. NVIDIA DLSS, NGX and the `nvngx_*` / `_nvngx.dll`

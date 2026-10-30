@@ -11,7 +11,6 @@ class COsdPlusOverlay {
     bool m_sourcePending = true;
     LUID m_luid = {};
 public:
-    static constexpr bool ShowSyncGraph() { return false; }
     void Stop() { m_telemetry.Stop(); }
     const std::wstring& Text() const { return m_text; }
     void InvalidateSource() {

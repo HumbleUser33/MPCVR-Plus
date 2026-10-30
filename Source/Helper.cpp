@@ -19,7 +19,6 @@
 */
 
 #include "stdafx.h"
-#include "OsdPlus/Version.h"
 #include <memory>
 #include <wincodec.h>
 #include "Utils/CPUInfo.h"
@@ -39,7 +38,6 @@ std::wstring GetVersionStr()
 		_CRT_WIDE(_CRT_STRINGIZE(REV_HASH))
 	);
 #endif
-	version.append(L" | OSD-Plus " OSD_PLUS_VERSION_W);
 #ifdef _WIN64
 	version.append(L" x64");
 #else

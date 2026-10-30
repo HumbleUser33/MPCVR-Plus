@@ -5982,7 +5982,7 @@ HRESULT CDX11VideoProcessor::DrawStats(ID3D11Texture2D* pRenderTarget)
 		m_Rect3D.Draw(pRenderTargetView, rtSize);
 
 
-		if (m_OsdPlus.ShowSyncGraph() && CheckGraphPlacement()) {
+		if (CheckGraphPlacement()) {
 			m_Underlay.Draw(pRenderTargetView, rtSize);
 
 			m_Lines.Draw();

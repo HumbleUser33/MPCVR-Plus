@@ -23,7 +23,6 @@
 // upstream's file meets as little of ours as possible (MERGING-UPSTREAM.md).
 
 #include "stdafx.h"
-#include "OsdPlus/Version.h"
 #include "Helper.h"
 #include "Times.h"
 #include "resource.h"
@@ -50,7 +49,6 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	std::wstring str;
 	str.reserve(1600);
 	str.assign(m_strStatsHeader);
-	if (str.find(L"OSD-Plus ") == std::wstring::npos) str.append(L" | OSD-Plus " OSD_PLUS_VERSION_W);
 	str.append(m_strStatsDispInfo);
 	str += std::format(L"\nGraph. Adapter: {}", m_strAdapterDescription);
 
