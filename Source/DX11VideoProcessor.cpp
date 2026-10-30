@@ -2643,15 +2643,25 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 	// the two cannot settle on then recurses through InitMediaType until the stack runs
 	// out -- 0xC00000FD, seen here for real. One retry is all it ever legitimately
 	// takes, measured: the picture is the same whether one is allowed or two.
-	// Not before the player has given a window: the swap chain is made when it does (upstream #293).
-	if (m_hWnd && ((m_bVPUseRTXVideoHDR && !m_pDXGISwapChain4)
-			|| (!m_bVPUseRTXVideoHDR && m_pDXGISwapChain4 && !SourceIsHDR()))) {
+	//
+	// Before the player has given a window there is no swap chain to make (upstream
+	// #293, which leaves the whole retry out then). The media type is set up again all
+	// the same: the format the steps work in is chosen there, and only that second turn
+	// knows whether RTX Video HDR runs. A player that gives its window after connecting
+	// the filter otherwise had an 8-bit picture worked on in eight bits under RTX Video
+	// HDR, which then did nothing to it (playback_test --chroma: 46.8 dB from the
+	// picture without it, where 30.0 is the extension at work). The swap chain follows
+	// when the window comes, from Init.
+	if ((m_bVPUseRTXVideoHDR && !m_pDXGISwapChain4)
+			|| (!m_bVPUseRTXVideoHDR && m_pDXGISwapChain4 && !SourceIsHDR())) {
 		if (m_nHdrSwapChainRetry) {
 			DLog(L"CDX11VideoProcessor::InitializeD3D11VP() : RTX Video HDR {} and the swap chain {} will not agree; left as they are",
 				m_bVPUseRTXVideoHDR ? L"on" : L"off", m_pDXGISwapChain4 ? L"HDR" : L"SDR");
 		} else {
 			m_nHdrSwapChainRetry++;
-			InitSwapChain(false);
+			if (m_hWnd) {
+				InitSwapChain(false);
+			}
 			InitMediaType(pmt);
 			m_nHdrSwapChainRetry--;
 			return S_OK;
