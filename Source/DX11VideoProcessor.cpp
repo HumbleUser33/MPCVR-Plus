@@ -2488,6 +2488,15 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 		if (!ret && ((m_bHdrPassthrough || m_bHdrLocalToneMapping) && m_bHdrPassthroughSupport && SourceIsHDR10orHLG() && !m_pDXGISwapChain4)) {
 			ret = true;
 		}
+		// And the other way: HDR output turned off while an HDR film plays. Upstream made
+		// the swap chain again only on the way into HDR, so the one made for it stayed,
+		// PQ and BT.2020, and took the picture now converted to SDR for PQ: colours far too
+		// bright and too vivid until something else made the swap chain again (unticking
+		// and ticking Convert to SDR did, with RTX Video HDR ticked).
+		if (!ret && SourceIsHDR() && m_pDXGISwapChain4
+				&& !((m_bHdrPassthrough || m_bHdrLocalToneMapping) && m_bHdrPassthroughSupport)) {
+			ret = true;
+		}
 		if (ret) {
 			ReleaseSwapChain();
 			Init(m_hWnd, false);

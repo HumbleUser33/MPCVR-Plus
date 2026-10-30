@@ -2167,7 +2167,10 @@ waiting for. `--gpu` sends the pictures as D3D11 textures, the way a hardware de
 which makes the renderer run on the decoder's device; `--hdr` asks for HDR passthrough, which
 only means something while the desktop is already in HDR, and never switches the display
 itself; `--switch` walks the video processor's own extras -- RTX Video HDR, Super Resolution --
-as the chroma moves to the shaders and back; `--file <path> [--seek <seconds>]` plays a real
+as the chroma moves to the shaders and back; `--hdroff --file <HDR chart>` turns HDR output off
+and on while an HDR picture plays and reads the screen each time against the state that unticking
+and ticking *Convert to SDR* gives, which caught HDR output left in PQ for an SDR picture (meant
+for a still chart: a grey window of a Calman set); `--file <path> [--seek <seconds>]` plays a real
 film through LAV Splitter and LAV Video, the ones the installed player carries, with the sound
 rendered silently so the graph is clocked as the player clocks it. The program
 carries a Windows 10 manifest, without which the version helpers answer 6.2 and the pages grey

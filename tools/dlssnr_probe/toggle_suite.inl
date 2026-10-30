@@ -74,6 +74,23 @@ static const Toggle g_togglesSwitch[] = {
 	{ "RTX Video HDR off then on",              [](Settings_t& s) { s.bVPRTXVideoHDR = !s.bVPRTXVideoHDR; } },
 };
 
+// --toggle --hdroff, on an HDR film: HDR output turned off while it plays. The swap
+// chain made for HDR stayed, PQ and BT.2020, and took the picture now converted to SDR
+// for PQ -- far too bright and too vivid -- until unticking and ticking Convert to SDR
+// made it again. So the screen after each "off" is read against the screen that way
+// round gives, which is the right one.
+static const Toggle g_togglesHdrOff[] = {
+	{ "HDR output off",                         [](Settings_t& s) { s.bHdrPassthrough = false; s.bHdrLocalToneMapping = false; } },
+	{ "Convert to SDR off",                     [](Settings_t& s) { s.bConvertToSdr = false; } },
+	{ "Convert to SDR on (the way round)",      [](Settings_t& s) { s.bConvertToSdr = true; } },
+	{ "HDR output back to passthrough",         [](Settings_t& s) { s.bHdrPassthrough = true; } },
+	{ "HDR output to tone mapping, BT.2390",    [](Settings_t& s) { s.bHdrPassthrough = false; s.bHdrLocalToneMapping = true; s.iHdrLocalToneMappingType = 5; } },
+	{ "HDR output off again",                   [](Settings_t& s) { s.bHdrPassthrough = false; s.bHdrLocalToneMapping = false; } },
+};
+// Which of them are compared, and with which: an "off" against the way round.
+static const int kHdrOffChecked[] = { 0, 5 };
+static const int kHdrOffReference = 2;
+
 static const Toggle g_toggles[] = {
 	{ "NV12 off (hardware processor dropped)",  [](Settings_t& s) { s.VPFmts.bNV12 = false; } },
 	{ "NV12 back on",                           [](Settings_t& s) { s.VPFmts.bNV12 = true; } },
@@ -133,6 +150,14 @@ static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, 
 	sets.iChromaScaling = g_bToggleHdr ? CHROMA_RAVU : CHROMA_CatmullRom;
 	sets.bVPRTXVideoHDR = false;
 	sets.bVPScaling = false;
+	if (g_bToggleHdrOff) {
+		sets.bHdrLocalToneMapping = false;
+		sets.bConvertToSdr = true;
+		// Ticked, as the maintainer has it, though it does nothing to an HDR film: it is
+		// what makes the way round (Convert to SDR off and on) make the swap chain again,
+		// and so the reference the "off"s are read against.
+		sets.bVPRTXVideoHDR = true;
+	}
 	pVR->SetSettings(sets);
 
 	CComQIPtr<IVideoWindow> pVW(pRenderer.p);
@@ -226,9 +251,11 @@ static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, 
 	printf("  %-38s %8s %7s %8s  %s\n", "setting changed", "call (s)", "fps", "screen", "what the picture goes through");
 
 	int failures = 0;
-	const Toggle* toggles = g_bToggleSwitch ? g_togglesSwitch : g_bToggleHdr ? g_togglesHdr : g_toggles;
-	const size_t toggleCount = g_bToggleSwitch ? std::size(g_togglesSwitch)
+	const Toggle* toggles = g_bToggleHdrOff ? g_togglesHdrOff : g_bToggleSwitch ? g_togglesSwitch
+		: g_bToggleHdr ? g_togglesHdr : g_toggles;
+	const size_t toggleCount = g_bToggleHdrOff ? std::size(g_togglesHdrOff) : g_bToggleSwitch ? std::size(g_togglesSwitch)
 		: g_bToggleHdr ? std::size(g_togglesHdr) : std::size(g_toggles);
+	CScreenWatch::Reading hdrOffReadings[std::size(g_togglesHdrOff)];
 	for (size_t t = 0; t < toggleCount; t++) {
 		const Toggle& toggle = toggles[t];
 		toggle.apply(sets);
@@ -295,6 +322,29 @@ static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, 
 			fps > 1.0 && bScreenMoves ? "" : "   FAIL");
 		if (fps <= 1.0 || !bScreenMoves) {
 			failures++;
+		}
+		if (g_bToggleHdrOff) {
+			// What the window shows, in scRGB on an HDR desktop: SDR white is 1.0.
+			hdrOffReadings[t] = watch.Measure(hwnd);
+			const auto& r = hdrOffReadings[t];
+			printf("  %-38s screen mean %.4f, p99 %.3f, peak %.3f, colour %.4f%s\n", "", r.mean, r.p99, r.peak,
+				r.colour, r.ok ? "" : " (no reading)");
+		}
+	}
+	if (g_bToggleHdrOff) {
+		// Meant for a still picture, a grey window of a test chart: the readings then
+		// differ by the statistics' changing figures and nothing else.
+		const auto& ref = hdrOffReadings[kHdrOffReference];
+		printf("\n  each \"off\" against \"%s\" (mean, p99 within 10 %%):\n", g_togglesHdrOff[kHdrOffReference].name);
+		for (const int t : kHdrOffChecked) {
+			const auto& r = hdrOffReadings[t];
+			const bool bSame = r.ok && ref.ok && ref.mean > 0 && ref.p99 > 0
+				&& std::abs(r.mean / ref.mean - 1.0) < 0.10 && std::abs(r.p99 / ref.p99 - 1.0) < 0.10;
+			printf("  %-38s mean %.4f against %.4f, p99 %.3f against %.3f%s\n", g_togglesHdrOff[t].name,
+				r.mean, ref.mean, r.p99, ref.p99, bSame ? "" : "   FAIL");
+			if (!bSame) {
+				failures++;
+			}
 		}
 	}
 

@@ -88,6 +88,7 @@ static bool g_bChroma = false;
 static bool g_bChroma444 = false;      // this run feeds AYUV, the reference
 static bool g_bToggle = false;         // --toggle: settings changed while the film plays
 static bool g_bToggleHdr = false;      // --toggle --hdr: with HDR passthrough, the case that freezes
+static bool g_bToggleHdrOff = false;   // --toggle --hdroff --file <HDR film>: HDR output off while it plays
 static bool g_bToggleThread = false;   // --toggle --thread: applied from another thread, as the player's page does
 static bool g_bToggleSwitch = false;   // --toggle --switch: the processor's extras as the chroma moves to the shaders and back
 static const wchar_t* g_filmFile = nullptr;  // --file <path>: a real film, split and decoded as the player does
@@ -2405,6 +2406,9 @@ int wmain(int argc, wchar_t* argv[])
 			g_bInterlaced = true;
 		} else if (!wcscmp(argv[i], L"--hdr")) {
 			g_bToggleHdr = true;
+		} else if (!wcscmp(argv[i], L"--hdroff")) {
+			g_bToggleHdr = true;      // it starts in passthrough
+			g_bToggleHdrOff = true;
 		} else if (!wcscmp(argv[i], L"--switch")) {
 			g_bToggleSwitch = true;
 		} else if (!wcscmp(argv[i], L"--gpu")) {
