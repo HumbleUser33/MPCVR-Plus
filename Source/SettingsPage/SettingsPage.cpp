@@ -307,7 +307,7 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Negligible cost: leave it on." },
 
 	// DLSS 5 NR
-	{ IDC_CHECK20,
+	{ IDC_DLSSNR_ENABLE,
 		L"Runs NVIDIA DLSS 5 neural rendering on every picture: the network rebuilds detail, "
 		"texture and local contrast, in the style chosen on the right.\n"
 		"It works at the source's size, before resizing (unless 'Apply after upscaling'); the "
@@ -797,7 +797,7 @@ void CVRSettingsPPage::SetControls()
 	Send(IDC_SLIDER8, TBM_SETPOS, TRUE, (LPARAM)(m_SetsPP.iVideoDelay / VIDEO_DELAY_STEP));
 	SetText(IDC_EDIT10, DelayText(m_SetsPP.iVideoDelay).c_str());
 
-	SetCheck(IDC_CHECK20, m_SetsPP.bDlssNR);
+	SetCheck(IDC_DLSSNR_ENABLE, m_SetsPP.bDlssNR);
 	SetCheck(IDC_CHECK21, m_SetsPP.bDlssNRAutoMask);
 	SetCheck(IDC_CHECK23, m_SetsPP.bDlssNRAfterUpscale);
 	Combo_SelectData(Item(IDC_COMBO11), m_SetsPP.iDlssNRStyle);
@@ -844,7 +844,7 @@ void CVRSettingsPPage::EnableControls()
 		// Super Resolution is settled below, with the rest of what the processor is
 		// really doing: asking for it is not enough to make it happen.
 #ifdef _WIN64
-		Enable(IDC_CHECK19, bEnable && m_SetsPP.bHdrPassthrough);
+		Enable(IDC_CHECK19, bEnable && (m_SetsPP.bHdrPassthrough || m_SetsPP.bHdrLocalToneMapping));
 #endif
 	}
 
@@ -888,7 +888,7 @@ void CVRSettingsPPage::EnableControls()
 	// can be fixed without enabling it first.
 	const BOOL bD3D11 = m_SetsPP.bUseD3D11;
 	const BOOL bNROn  = bD3D11 && m_SetsPP.bDlssNR;
-	for (const int id : { IDC_CHECK20, IDC_STATIC27, IDC_EDIT7, IDC_BUTTON2, IDC_STATIC29, IDC_COMBO13 }) {
+	for (const int id : { IDC_DLSSNR_ENABLE, IDC_STATIC27, IDC_EDIT7, IDC_BUTTON2, IDC_STATIC29, IDC_COMBO13 }) {
 		Enable(id, bD3D11);
 	}
 	for (const int id : { IDC_CHECK21, IDC_CHECK23, IDC_COMBO11, IDC_COMBO12,
@@ -1095,7 +1095,7 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 			if (bToggled) {
 				m_bDlssNRSeen = current.bDlssNR;
 				m_SetsPP.bDlssNR = current.bDlssNR;
-				SetCheck(IDC_CHECK20, m_SetsPP.bDlssNR);
+				SetCheck(IDC_DLSSNR_ENABLE, m_SetsPP.bDlssNR);
 			}
 			EnableControls();
 		}
@@ -1151,7 +1151,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK17, &m_SetsPP.bDeintBlend,          false },
 				{ IDC_CHECK18, &m_SetsPP.bHdrPreferDoVi,       false },
 				{ IDC_CHECK19, &m_SetsPP.bVPRTXVideoHDR,       false },
-				{ IDC_CHECK20, &m_SetsPP.bDlssNR,              true  },
+				{ IDC_DLSSNR_ENABLE, &m_SetsPP.bDlssNR,        true  },
 				{ IDC_CHECK21, &m_SetsPP.bDlssNRAutoMask,      false },
 				{ IDC_CHECK23, &m_SetsPP.bDlssNRAfterUpscale,  false },
 				{ IDC_CHECK25, &m_SetsPP.bDlssSR,              true  },
@@ -1291,7 +1291,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 					m_SetsPP.iTexFormat = value;
 					SetDirty();
 #ifdef _WIN64
-					Enable(IDC_CHECK19, m_SetsPP.bUseD3D11 && m_SetsPP.bHdrPassthrough
+					Enable(IDC_CHECK19, m_SetsPP.bUseD3D11 && (m_SetsPP.bHdrPassthrough || m_SetsPP.bHdrLocalToneMapping)
 						&& m_SetsPP.iTexFormat != TEXFMT_8INT);
 #endif
 				}

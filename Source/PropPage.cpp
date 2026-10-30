@@ -106,8 +106,11 @@ void CVRMainPPage::SetControls()
 		ComboBox_SelectByItemData(m_hWnd, IDC_COMBO10, -1);
 	}
 
+	ComboBox_SelectByItemData(m_hWnd, IDC_COMBO_DVTM, m_SetsPP.iHdrDoviToneMappingType);
+	CheckDlgButton(IDC_CHECK20, m_SetsPP.bHdrLocalMeasurePeak ? BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(IDC_CHECK18, m_SetsPP.bHdrPreferDoVi       ? BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(IDC_CHECK14, m_SetsPP.bConvertToSdr        ? BST_CHECKED : BST_UNCHECKED);
+	ComboBox_SelectByItemData(m_hWnd, IDC_COMBO_SDRTM, m_SetsPP.iSdrToneMappingType);
 
 	SendDlgItemMessageW(IDC_COMBO7, CB_SETCURSEL, m_SetsPP.iHdrToggleDisplay, 0);
 	SendDlgItemMessageW(IDC_SLIDER1, TBM_SETPOS, 1, m_SetsPP.iHdrOsdBrightness);
@@ -164,10 +167,12 @@ void CVRMainPPage::EnableControls()
 		// Super Resolution is settled below, with the rest of what the processor is
 		// really doing: asking for it is not enough to make it happen.
 #ifdef _WIN64
-		GetDlgItem(IDC_CHECK19).EnableWindow(bEnable && m_SetsPP.bHdrPassthrough);
+		GetDlgItem(IDC_CHECK19).EnableWindow(bEnable && (m_SetsPP.bHdrPassthrough || m_SetsPP.bHdrLocalToneMapping));
 #endif
 	}
 
+	GetDlgItem(IDC_STATIC_SDRTM).EnableWindow(m_SetsPP.bConvertToSdr);
+	GetDlgItem(IDC_COMBO_SDRTM).EnableWindow(m_SetsPP.bConvertToSdr);
 	GetDlgItem(IDC_STATIC8).EnableWindow(m_SetsPP.bConvertToSdr);
 	GetDlgItem(IDC_EDIT1).EnableWindow(m_SetsPP.bConvertToSdr);
 	GetDlgItem(IDC_SLIDER2).EnableWindow(m_SetsPP.bConvertToSdr);
@@ -243,6 +248,10 @@ void CVRMainPPage::EnableControls()
 	// Render ahead and the chroma replacement belong to the Direct3D 11 processor.
 	GetDlgItem(IDC_CHECK26).EnableWindow(m_SetsPP.bUseD3D11);
 	GetDlgItem(IDC_CHECK27).EnableWindow(m_SetsPP.bUseD3D11);
+	const BOOL bLocal = m_SetsPP.bUseD3D11 && m_SetsPP.bHdrLocalToneMapping && IsWindows10OrGreater();
+	GetDlgItem(IDC_STATIC_DVTM).EnableWindow(bLocal);
+	GetDlgItem(IDC_COMBO_DVTM).EnableWindow(bLocal);
+	GetDlgItem(IDC_CHECK20).EnableWindow(bLocal);
 }
 
 HRESULT CVRMainPPage::OnConnect(IUnknown *pUnk)
@@ -393,7 +402,15 @@ HRESULT CVRMainPPage::OnActivate()
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO10, L"Reinhard", 2);
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO10, L"Hable", 3);
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO10, L"Mobius", 4);
-	ComboBox_AddStringData(m_hWnd, IDC_COMBO10, L"BT2390/ST 2094-10", 5);
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO10, L"BT2390", 5);
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO10, L"Spline", 7);
+
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO_DVTM, L"ST 2094-10", 6);
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO_DVTM, L"Same as HDR", 0);
+
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO_SDRTM, L"Fixed", SDRTM_Fixed);
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO_SDRTM, L"Metadata", SDRTM_Metadata);
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO_SDRTM, L"Measured", SDRTM_Measured);
 
 	SetControls();
 
@@ -423,6 +440,20 @@ HRESULT CVRMainPPage::OnActivate()
 		"10-bit 4:2:0 36.7, 4:4:4 37.7.\n"
 		"Needs HDR passthrough and an HDR display. The statistics\n"
 		"carry a star while the driver is really doing it.");
+	AddHint(IDC_COMBO10,
+		L"Available for Direct3D 11.\n"
+		"Applies to HDR10, HLG and Dolby Vision.\n"
+		"Passthrough sends the video to the display as it is.\n"
+		"A method tone maps it to the nits set on the right.\n"
+		"Ignore leaves it to the settings below.");
+	AddHint(IDC_COMBO_DVTM,
+		L"Tone mapping method for Dolby Vision\n"
+		"with dynamic metadata.\n"
+		"Same as HDR uses the method above.");
+	AddHint(IDC_CHECK20,
+		L"Available for Direct3D 11.\n"
+		"Tone map from the measured peak of each frame\n"
+		"instead of the peak in the metadata.");
 	AddHint(IDC_COMBO5,
 		L"For YUV 4:2:0/4:2:2 when the video processor does not\n"
 		"convert them; greyed while it does, but still used for what\n"
@@ -632,6 +663,12 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				SetDirty();
 				return (LRESULT)1;
 			}
+			if (nID == IDC_CHECK20) {
+				m_SetsPP.bHdrLocalMeasurePeak = IsDlgButtonChecked(IDC_CHECK20) == BST_CHECKED;
+				SetDirty();
+				return (LRESULT)1;
+			}
+
 			if (nID == IDC_CHECK19) {
 				m_SetsPP.bVPRTXVideoHDR = IsDlgButtonChecked(IDC_CHECK19) == BST_CHECKED;
 				SetDirty();
@@ -662,7 +699,7 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 					m_SetsPP.iTexFormat = lValue;
 					SetDirty();
 #ifdef _WIN64
-					GetDlgItem(IDC_CHECK19).EnableWindow(m_SetsPP.bUseD3D11 && m_SetsPP.bHdrPassthrough && m_SetsPP.iTexFormat != TEXFMT_8INT);
+					GetDlgItem(IDC_CHECK19).EnableWindow(m_SetsPP.bUseD3D11 && (m_SetsPP.bHdrPassthrough || m_SetsPP.bHdrLocalToneMapping) && m_SetsPP.iTexFormat != TEXFMT_8INT);
 #endif
 				}
 				return (LRESULT)1;
@@ -732,6 +769,22 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				}
 				return (LRESULT)1;
 			}
+			if (nID == IDC_COMBO_DVTM) {
+				lValue = ComboBox_GetCurItemData(m_hWnd, IDC_COMBO_DVTM);
+				if (lValue != m_SetsPP.iHdrDoviToneMappingType) {
+					m_SetsPP.iHdrDoviToneMappingType = lValue;
+					SetDirty();
+				}
+				return (LRESULT)1;
+			}
+			if (nID == IDC_COMBO_SDRTM) {
+				lValue = ComboBox_GetCurItemData(m_hWnd, IDC_COMBO_SDRTM);
+				if (lValue != m_SetsPP.iSdrToneMappingType) {
+					m_SetsPP.iSdrToneMappingType = lValue;
+					SetDirty();
+				}
+				return (LRESULT)1;
+			}
 			if (nID == IDC_COMBO10) {
 				lValue = SendDlgItemMessageW(IDC_COMBO10, CB_GETCURSEL, 0, 0);
 				switch (lValue) {
@@ -767,6 +820,11 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 						m_SetsPP.bHdrPassthrough = false;
 						m_SetsPP.bHdrLocalToneMapping = true;
 						m_SetsPP.iHdrLocalToneMappingType = 5;
+						break;
+					case 7:
+						m_SetsPP.bHdrPassthrough = false;
+						m_SetsPP.bHdrLocalToneMapping = true;
+						m_SetsPP.iHdrLocalToneMappingType = 7;
 						break;
 					default:
 						break;

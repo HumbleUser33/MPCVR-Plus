@@ -33,6 +33,7 @@
 #define IDF_HLSL_ST2084                 501
 #define IDF_HLSL_HLG                    502
 #define IDF_HLSL_HDR_TONE_MAPPING       503
+#define IDF_HLSL_HDR_TONE_MAPPING_SPLINE 504
 #define IDF_PS_9_CONVERT_COLOR          610
 #define IDF_PS_9_CONVERT_YUY2           613
 #define IDF_PS_9_CONVERT_BIPLANAR       616
@@ -40,6 +41,12 @@
 #define IDF_PS_9_CONVERT_PLANAR_YV      620
 #define IDF_PS_9_FIXCONVERT_PQ_TO_SDR   630
 #define IDF_PS_9_FIXCONVERT_HLG_TO_SDR  631
+#define IDF_PS_9_FIXCONVERT_PQ_TO_SDR_TM 634
+#define IDF_PS_9_FIXCONVERT_HLG_TO_SDR_TM 635
+#define IDF_PS_9_FIXCONVERT_PQ_TO_SDR_TM_MEASURED 636
+#define IDF_PS_9_HDR_PEAK_FIRST         637
+#define IDF_PS_9_HDR_PEAK_DOWN          638
+#define IDF_PS_9_HDR_PEAK_STATE         639
 #define IDF_PS_9_FIX_YCGCO              632
 #define IDF_PS_9_FIX_BT2020             633
 #define IDF_PS_9_INTERP_MITCHELL4_X     640
@@ -80,6 +87,8 @@
 #define IDF_PS_11_FIXCONVERT_HLG_TO_SDR 831
 #define IDF_PS_11_FIX_YCGCO             832
 #define IDF_PS_11_FIX_BT2020            833
+#define IDF_PS_11_CONVERT_PQ_TO_SDR_TM  834
+#define IDF_PS_11_FIXCONVERT_PQ_TO_SDR_TM 839
 #define IDF_PS_11_CONVERT_HLG_TO_PQ     835
 #define IDF_PS_11_CONVERT_BITMAP_TO_PQ  836
 #define IDF_PS_11_CONVERT_BITMAP_TO_PQ1 837
@@ -109,6 +118,12 @@
 #define IDF_PS_11_FINAL_PASS            880
 #define IDF_PS_11_FINAL_PASS_10         881
 #define IDF_PS_11_HDR10_TONEMAP         882
+#define IDF_PS_11_HDR10_TONEMAP_MEASURED 883
+#define IDF_CS_11_HDR_HIST              884
+#define IDF_CS_11_HDR_RESOLVE           885
+#define IDF_PS_11_CONVERT_PQ_TO_SDR_TM_MEASURED 886
+#define IDF_PS_11_FIXCONVERT_PQ_TO_SDR_TM_MEASURED 887
+#define IDF_PS_11_FIXCONVERT_HLG_TO_SDR_TM 888
 #define IDF_CS_11_DLSS_GLOBAL_STEP      1900
 #define IDF_CS_11_DLSS_GLOBAL_SOLVE     1901
 #define IDF_CS_11_DLSS_SCENE_CUT       1902
@@ -178,6 +193,7 @@
 #define IDC_CHECK17                     1037
 #define IDC_CHECK18                     1038
 #define IDC_CHECK19                     1039
+#define IDC_CHECK20                     1040
 #define IDC_COMBO1                      1041
 #define IDC_COMBO2                      1042
 #define IDC_COMBO3                      1043
@@ -193,7 +209,8 @@
 #define IDC_COMBO10                     1063
 #define IDC_STATIC99                    1064
 #define IDC_STATIC100                   1065
-#define IDC_CHECK20                     1200
+// Ours was IDC_CHECK20 until upstream 0.11 gave that name to its Measured peak box.
+#define IDC_DLSSNR_ENABLE               1200
 #define IDC_CHECK21                     1201
 #define IDC_COMBO11                     1202
 #define IDC_COMBO12                     1203
@@ -333,6 +350,11 @@
 #define IDC_PRESET_MOD8                    1347
 #define IDC_PRESET_MOD9                    1348
 #define IDC_PRESET_MOD10                   1349
+#define IDC_STATIC_SDRTM                1066
+#define IDC_COMBO_SDRTM                 1067
+#define IDC_STATIC_DVTM                 1068
+#define IDC_COMBO_DVTM                  1069
+
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED

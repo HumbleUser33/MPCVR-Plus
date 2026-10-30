@@ -3,6 +3,7 @@
 *.bak
 /.vs
 /_bin
+/_obj
 /revision.h
 /signinfo.txt
 

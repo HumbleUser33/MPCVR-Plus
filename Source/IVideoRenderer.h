@@ -107,6 +107,22 @@ enum :int {
 #define SDR_NITS_MAX 400
 #define SDR_NITS_STEP  5
 
+// HDR to SDR conversion method
+enum :int {
+	SDRTM_Fixed = 0, // fixed curve
+	SDRTM_Metadata,  // curve built from the HDR metadata and the SDR display nits
+	SDRTM_Measured,  // the same curve, from the peak measured in each frame
+	SDRTM_COUNT
+};
+
+// Tuning of SDRTM_Measured. Registry only: SdrPeakWindowMs, SdrPeakFloorNits and SdrPeakSceneCuts.
+#define SDR_PEAK_WINDOW_DEF 3000 // ms
+#define SDR_PEAK_WINDOW_MIN    0
+#define SDR_PEAK_WINDOW_MAX 10000
+#define SDR_PEAK_FLOOR_DEF   640 // nits
+#define SDR_PEAK_FLOOR_MIN     0
+#define SDR_PEAK_FLOOR_MAX 10000
+
 constexpr inline auto HDR_NITS_DEF = 1000;
 constexpr inline auto HDR_NITS_MIN = 100;
 constexpr inline auto HDR_NITS_MAX = 10000;
@@ -213,9 +229,15 @@ struct Settings_t {
 	int  iHdrToggleDisplay;
 	int  iHdrOsdBrightness;
 	bool bConvertToSdr;
+	int  iSdrToneMappingType;
+	int  iSdrPeakWindowMs;
+	int  iSdrPeakFloorNits;
+	bool bSdrPeakSceneCuts;
 	int  iSDRDisplayNits;
 	bool bHdrLocalToneMapping;
 	int  iHdrLocalToneMappingType;
+	bool bHdrLocalMeasurePeak;
+	int  iHdrDoviToneMappingType; // 6 = ST 2094-10, 0 = the HDR method
 	int iHdrDisplayMaxNits;
 	// DLSS 5 Neural Rendering. Strengths are stored x100 so the whole struct
 	// stays integral and round-trips through the DWORD-only registry.
@@ -335,15 +357,23 @@ struct Settings_t {
 			bHdrPassthrough             = true;
 			bHdrLocalToneMapping        = false;
 			iHdrLocalToneMappingType    = 1;
+			bHdrLocalMeasurePeak        = false;
+			iHdrDoviToneMappingType     = 6;
 			iHdrDisplayMaxNits          = 1000;
 		} else {
 			bHdrPassthrough             = false;
 			bHdrLocalToneMapping        = false;
 			iHdrLocalToneMappingType    = 1;
+			bHdrLocalMeasurePeak        = false;
+			iHdrDoviToneMappingType     = 6;
 			iHdrDisplayMaxNits          = 1000;
 		}
 		iHdrToggleDisplay               = HDRTD_Disabled;
 		bConvertToSdr                   = true;
+		iSdrToneMappingType             = SDRTM_Metadata;
+		iSdrPeakWindowMs                = SDR_PEAK_WINDOW_DEF;
+		iSdrPeakFloorNits               = SDR_PEAK_FLOOR_DEF;
+		bSdrPeakSceneCuts               = false;
 		iHdrOsdBrightness               = 0;
 		iSDRDisplayNits                 = SDR_NITS_DEF;
 		bDlssNR                         = false;

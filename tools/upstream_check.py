@@ -18,7 +18,7 @@ Read it top to bottom:
   3. the risk table: where their work and ours meet
   4. a trial merge: the conflicts you will get, without creating any
   5. resource identifiers used by both sides, which would compile in silence and
-     load the wrong resource
+     load the wrong resource, and names both sides gave to different controls
   6. whether the generated files will need regenerating afterwards
   7. whether the batch files of this working folder have the line endings cmd.exe
      needs to find its labels
@@ -75,11 +75,16 @@ def fetch_age():
 
 def resource_ids(ref):
     """number -> symbol, from a revision's Source/resource.h."""
+    return {n: name for name, n in reversed(list(resource_names(ref).items()))}
+
+
+def resource_names(ref):
+    """symbol -> number, from a revision's Source/resource.h."""
     text = git("show", "%s:Source/resource.h" % ref, allow_fail=True)
-    ids = {}
+    names = {}
     for m in re.finditer(r"^#define\s+(ID[A-Z]_\w+)\s+(\d+)", text, re.M):
-        ids.setdefault(int(m.group(2)), m.group(1))
-    return ids
+        names.setdefault(m.group(1), int(m.group(2)))
+    return names
 
 
 def main():
@@ -203,6 +208,28 @@ def main():
         print("  reserved ranges at the head of Source/resource.h:")
         for n, a, b in clashes:
             print("    %-6d ours %-32s theirs %s" % (n, a, b))
+
+    # The other way round: a name of ours that upstream later gives to a control of its
+    # own. Upstream 0.11 took IDC_CHECK20 for its Measured peak box, which was our DLSS 5
+    # NR box; the numbers were apart and nothing above saw it. The merge then has two
+    # #defines to choose from, and every use of the name on each side means the other's
+    # control as soon as one of them is kept. A name whose number upstream itself moved is
+    # left out: ours is still the common point's, and the merge takes theirs.
+    ournames, theirnames = resource_names("HEAD"), resource_names(theirs)
+    basenames = resource_names(base)
+    renamed = [(name, ournames[name], theirnames[name])
+               for name in sorted(set(ournames) & set(theirnames))
+               if ournames[name] != theirnames[name] and basenames.get(name) != ournames[name]]
+    if renamed:
+        print()
+        print("  %d name(s) given to a different control on each side. Rename ours, and"
+              % len(renamed))
+        print("  every use of it in this fork's files, before resolving resource.h:")
+        for name, a, b in renamed:
+            print("    %-32s ours %-6d theirs %d" % (name, a, b))
+    else:
+        print()
+        print("  no name of ours is given by upstream to a control of its own.")
 
     # ---------------------------------------------------------------- 6 ------
     rule("6. Generated files")

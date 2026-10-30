@@ -225,7 +225,7 @@ static ColorFormat_t fourcc_to_cformat(const DWORD fourcc)
 	case FCC('P216'): cformat = CF_P216; break;
 	case FCC('Y210'): cformat = CF_Y210; break;
 	case FCC('Y216'): cformat = CF_Y216; break;
-	case FCC('v210'): cformat = CF_V210; break;
+	case FCC('v210'): cformat = CF_v210; break;
 	case FCC('AYUV'): cformat = CF_AYUV; break;
 	case FCC('Y410'): cformat = CF_Y410; break;
 	case FCC('Y416'): cformat = CF_Y416; break;
@@ -252,9 +252,10 @@ static ColorFormat_t fourcc_to_cformat(const DWORD fourcc)
 	case FCC('b48r'):
 	case MAKEFOURCC('R','G','B',48):    cformat = CF_RGB48;     break;
 	case MAKEFOURCC('B','G','R',48):    cformat = CF_BGR48;     break;
-	case FCC('b64a'): cformat = CF_B64A; break;
+	case FCC('b64a'):                   cformat = CF_B64A;      break;
 	case MAKEFOURCC('B','R','A',64):    cformat = CF_BGRA64;    break;
-	case FCC('r210'): cformat = CF_r210; break;
+	case FCC('r210'):                   cformat = CF_r210;      break;
+	case FCC('R10k'):                   cformat = CF_R10k;      break;
 	default: cformat = CF_NONE;
 	}
 
@@ -322,7 +323,7 @@ static const FmtConvParams_t s_FmtConvMapping[] = {
 	{CF_P216,      L"P216",      D3DFMT_P216,     D3DFMT_P216,     &DX9PlanesP21x, DXGI_FORMAT_UNKNOWN,        DXGI_FORMAT_PLANAR,        &DX11PlanesP21x,       2, 4,        CS_YUV,  422,       16 },
 	{CF_Y210,      L"Y210",      D3DFMT_UNKNOWN,  D3DFMT_UNKNOWN,         nullptr, DXGI_FORMAT_Y210,           DXGI_FORMAT_Y210,        &DX11Plane_RGBA16,       4, 2,        CS_YUV,  422,       10 },
 	{CF_Y216,      L"Y216",      D3DFMT_UNKNOWN,  D3DFMT_UNKNOWN,         nullptr, DXGI_FORMAT_Y216,           DXGI_FORMAT_Y216,        &DX11Plane_RGBA16,       4, 2,        CS_YUV,  422,       16 },
-	{CF_V210,      L"v210",      D3DFMT_UNKNOWN,  D3DFMT_UNKNOWN,         nullptr, DXGI_FORMAT_Y210,           DXGI_FORMAT_Y210,        &DX11Plane_RGBA16,     8/3, 2,        CS_YUV,  422,       10},
+	{CF_v210,      L"v210",      D3DFMT_UNKNOWN,  D3DFMT_UNKNOWN,         nullptr, DXGI_FORMAT_Y210,           DXGI_FORMAT_Y210,        &DX11Plane_RGBA16,     8/3, 2,        CS_YUV,  422,       10},
 	{CF_AYUV,      L"AYUV",      D3DFMT_UNKNOWN,  D3DFMT_X8R8G8B8,        nullptr, DXGI_FORMAT_AYUV,           DXGI_FORMAT_AYUV,         &DX11Plane_RGBA8,       4, 2,        CS_YUV,  444,        8 },
 	{CF_Y410,      L"Y410",      D3DFMT_Y410,     D3DFMT_A2B10G10R10,     nullptr, DXGI_FORMAT_Y410,           DXGI_FORMAT_Y410,       &DX11Plane_RGB10A2,       4, 2,        CS_YUV,  444,       10 },
 	{CF_Y416,      L"Y416",      D3DFMT_Y416,     D3DFMT_A16B16G16R16,    nullptr, DXGI_FORMAT_Y416,           DXGI_FORMAT_Y416,        &DX11Plane_RGBA16,       8, 2,        CS_YUV,  444,       16 },
@@ -351,6 +352,7 @@ static const FmtConvParams_t s_FmtConvMapping[] = {
 	{CF_ARGB32,    L"ARGB32",    D3DFMT_A8R8G8B8, D3DFMT_A8R8G8B8,        nullptr, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM,        nullptr,       4, 2,        CS_RGB,  444,        8 },
 
 	{CF_r210,      L"r210",      D3DFMT_UNKNOWN,  D3DFMT_A2B10G10R10,     nullptr, DXGI_FORMAT_UNKNOWN,        DXGI_FORMAT_R10G10B10A2_UNORM,     nullptr,       4, 2,        CS_RGB,  444,       10 },
+	{CF_R10k,      L"R10k",      D3DFMT_UNKNOWN,  D3DFMT_A2B10G10R10,     nullptr, DXGI_FORMAT_UNKNOWN,        DXGI_FORMAT_R10G10B10A2_UNORM,     nullptr,       4, 2,        CS_RGB,  444,       10 },
 
 	{CF_RGB48,     L"RGB48",     D3DFMT_UNKNOWN,  D3DFMT_A16B16G16R16,    nullptr, DXGI_FORMAT_UNKNOWN,        DXGI_FORMAT_R16G16B16A16_UNORM,    nullptr,       6, 2,        CS_RGB,  444,       16 },
 	{CF_BGR48,     L"BGR48",     D3DFMT_UNKNOWN,  D3DFMT_A16B16G16R16,    nullptr, DXGI_FORMAT_UNKNOWN,        DXGI_FORMAT_R16G16B16A16_UNORM,    nullptr,       6, 2,        CS_RGB,  444,       16 },
@@ -381,7 +383,7 @@ const FmtConvParams_t& GetFmtConvParams(const CMediaType* pmt)
 CopyFrameDataFn GetCopyPlaneFunction(const FmtConvParams_t& params, const int vp)
 {
 	switch (params.cformat) {
-	case CF_V210:
+	case CF_v210:
 		return CopyFrameV210;
 	case CF_YV12:
 		if (vp == VP_DXVA2) {
@@ -402,6 +404,8 @@ CopyFrameDataFn GetCopyPlaneFunction(const FmtConvParams_t& params, const int vp
 		}
 	case CF_r210:
 		return CopyFrameR210;
+	case CF_R10k:
+		return CopyFrameR10k;
 	case CF_RGB48:
 		return CopyFrameRGB48;
 	case CF_BGR48:
@@ -780,9 +784,29 @@ void CopyFrameR210(const UINT lines, BYTE* dst, UINT dst_pitch, const BYTE* src,
 		uint32_t* dst32 = (uint32_t*)dst;
 		for (UINT i = 0; i < line_pixels; i++) {
 			const uint32_t t = src32[i];
-			uint32_t r = ((t & 0x0000003f) << 4) | ((t & 0x0000f000) >> 12);
-			uint32_t g = ((t & 0x00fc0000) >> 8) | ((t & 0x00000f00) << 8);
-			uint32_t b = ((t & 0xff000000) >> 4) | ((t & 0x00030000) << 12);
+			uint32_t r = ((t & 0x0000003f) << 4)  | ((t & 0x0000f000) >> 12);
+			uint32_t g = ((t & 0x00000f00) << 8)  | ((t & 0x00fc0000) >> 8);
+			uint32_t b = ((t & 0x00030000) << 12) | ((t & 0xff000000) >> 4);
+			dst32[i] = r | g | b;
+		}
+		src += src_pitch;
+		dst += dst_pitch;
+	}
+}
+
+void CopyFrameR10k(const UINT lines, BYTE* dst, UINT dst_pitch, const BYTE* src, int src_pitch)
+{
+	ASSERT(src_pitch > 0);
+	UINT line_pixels = src_pitch / 4;
+
+	for (UINT y = 0; y < lines; ++y) {
+		uint32_t* src32 = (uint32_t*)src;
+		uint32_t* dst32 = (uint32_t*)dst;
+		for (UINT i = 0; i < line_pixels; i++) {
+			const uint32_t t = src32[i];
+			uint32_t r = ((t & 0x000000ff) << 2)  | ((t & 0x0000c000) >> 14);
+			uint32_t g = ((t & 0x00003f00) << 6)  | ((t & 0x00f00000) >> 10);
+			uint32_t b = ((t & 0x000f0000) << 10) | ((t & 0xfc000000) >> 6);
 			dst32[i] = r | g | b;
 		}
 		src += src_pitch;

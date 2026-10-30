@@ -725,7 +725,8 @@ CSize CDX11VideoProcessor::VPConvertTexSize() const
 // asked for there only.
 bool CDX11VideoProcessor::VPSuperResOutputsEightBits(const int depth)
 {
-	const bool bRtxAsked = m_bVPRTXVideoHDR && m_bHdrPassthroughSupport && m_bHdrPassthrough
+	// The same question as the rtxHDR of InitializeD3D11VP, local tone mapping included.
+	const bool bRtxAsked = m_bVPRTXVideoHDR && m_bHdrPassthroughSupport && (m_bHdrPassthrough || m_bHdrLocalToneMapping)
 		&& m_iTexFormat != TEXFMT_8INT && !SourceIsHDR();
 	return m_bHdrDisplayModeEnabled && !bRtxAsked && depth == 8
 		&& VPResizesFirst() && m_iVPSuperRes != SUPERRES_Disable;

@@ -42,7 +42,8 @@ python tools\upstream_check.py
 
 The report is read-only — no fetch of its own, no merge, no file written. It gives you:
 where we stand, the upstream commits that touch our files, a risk table, a **trial merge**
-with the conflicts you will actually get, a check for resource numbers used by both sides,
+with the conflicts you will actually get, a check for resource numbers used by both sides
+and for names each side gave to a different control,
 whether the generated files will need regenerating, and whether the batch files of this
 working folder have the line endings cmd.exe needs.
 
@@ -197,6 +198,14 @@ notice its absence.
 - **Resource numbers.** Ours live in reserved ranges (see the head of `Source/resource.h`)
   precisely so a merge can never give two resources the same number. Section 5 of the
   pre-flight checks it. Never number a new resource inside upstream's range.
+- **Resource names.** The ranges keep the numbers apart, not the names. We had called our
+  DLSS 5 NR box `IDC_CHECK20` (1200) when upstream's numbering stopped at 1065; 0.11 gave
+  the same name to its Measured peak box (1040). `resource.h` then conflicted on two
+  `#define`s of one name, and keeping either would have made every use of the name on the
+  other side drive the wrong control, with no error anywhere. Ours became
+  `IDC_DLSSNR_ENABLE`. Section 5 of the pre-flight now lists such names too: rename ours,
+  and every use of it in our files, before resolving `resource.h`. A new control of ours
+  takes a name that says what it is, never the next free `IDC_CHECKnn`.
 - **Generated files.** `Source/Upscale/MpvShaderTables.h` and the marked blocks of
   `compile_shaders.cmd` and `MpcVideoRenderer.rc2` are written by
   `Shaders/mpv/mpv_shaders.py`. Regenerate, never merge them by hand.

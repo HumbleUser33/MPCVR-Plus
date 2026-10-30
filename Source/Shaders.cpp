@@ -250,7 +250,7 @@ void ShaderGetPixels(
 	const bool packed422 = (fmtParams.cformat == CF_YUY2 || fmtParams.cformat == CF_UYVY
 		|| fmtParams.cformat == CF_Y210
 		|| fmtParams.cformat == CF_Y216
-		|| fmtParams.cformat == CF_V210);
+		|| fmtParams.cformat == CF_v210);
 	const bool blendDeint420 = (blendDeinterlace && fmtParams.Subsampling == 420);
 
 	const char* strChromaPos = "";
@@ -763,6 +763,7 @@ HRESULT GetShaderConvertColor(
 	const int chromaScaling,
 	const int convertType,
 	const bool blendDeinterlace,
+	const bool bSdrToneMapping,
 	ID3DBlob** ppCode)
 {
 	DLog(L"GetShaderConvertColor() started for {} {}x{} extfmt:{:#010x} chroma:{}", fmtParams.str, texW, texH, exFmt.value, chromaScaling);
@@ -812,12 +813,19 @@ HRESULT GetShaderConvertColor(
 			code.append((LPCSTR)data, size);
 			code += '\n';
 		}
+		if (bSdrToneMapping) {
+			hr = GetDataFromResource(data, size, IDF_HLSL_HDR_TONE_MAPPING_SPLINE);
+			if (S_OK == hr) {
+				code.append((LPCSTR)data, size);
+				code += '\n';
+			}
+		}
 	}
 
 	const bool packed422 = (fmtParams.cformat == CF_YUY2 || fmtParams.cformat == CF_UYVY
 		|| fmtParams.cformat == CF_Y210
 		|| fmtParams.cformat == CF_Y216
-		|| fmtParams.cformat == CF_V210);
+		|| fmtParams.cformat == CF_v210);
 	const bool fix422 = (packed422 && texW * 2 == width);
 
 	code += std::format("#define w {}\n", fix422 ? width : texW);
@@ -1038,11 +1046,13 @@ HRESULT GetShaderConvertColor(
 				"if (L2Enabled) color = DolbyVisionTrims(color);\n"
 			);
 		}
-		code.append(
-			"color = ST2084ToLinear(color, LuminanceScale);\n"
-			"color.rgb = ToneMappingHable(color.rgb);\n"
-			"color.rgb = mul(matrix_conv_prim, color.rgb);\n"
-		);
+		code.append("color = ST2084ToLinear(color, LuminanceScale);\n");
+		if (bSdrToneMapping) {
+			code.append("color.rgb = ToneMappingSdr(color.rgb, LuminanceScale, param2, matrix_conv_prim);\n");
+		} else {
+			code.append("color.rgb = ToneMappingHable(color.rgb);\n");
+		}
+		code.append("color.rgb = mul(matrix_conv_prim, color.rgb);\n");
 		isLinear = true;
 	}
 	else if (bConvertHLGtoPQ) {
@@ -1107,7 +1117,7 @@ HRESULT GetShaderConvertTo444(
 	const bool packed422 = (fmtParams.cformat == CF_YUY2 || fmtParams.cformat == CF_UYVY
 		|| fmtParams.cformat == CF_Y210
 		|| fmtParams.cformat == CF_Y216
-		|| fmtParams.cformat == CF_V210);
+		|| fmtParams.cformat == CF_v210);
 	const bool fix422 = (packed422 && texW * 2 == width);
 
 	std::string code;

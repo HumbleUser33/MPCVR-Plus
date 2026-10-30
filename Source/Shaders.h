@@ -70,6 +70,7 @@ HRESULT GetShaderConvertColor(
 	const int chromaScaling,
 	const int convertType,
 	const bool blendDeinterlace,
+	const bool bSdrToneMapping,
 	ID3DBlob** ppCode);
 
 // A compute shader that rebuilds the chroma the same way and writes the picture as

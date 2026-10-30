@@ -66,6 +66,8 @@
 #define OPT_HdrPassthrough                 L"HdrPassthrough"
 #define OPT_HdrLocaLToneMapping            L"HdrLocalToneMapping"
 #define OPT_HdrLocaLToneMappingType        L"HdrLocalToneMappingType"
+#define OPT_HdrLocalMeasurePeak            L"HdrLocalMeasurePeak"
+#define OPT_HdrDoviToneMappingType         L"HdrDoviToneMappingType"
 #define OPT_HdrDisplayNits                 L"HdrDisplayNits"
 #define OPT_HdrToggleDisplay               L"HdrToggleDisplay"
 #define OPT_HdrOsdBrightness               L"HdrOsdBrightness"
@@ -94,6 +96,11 @@
 #define OPT_UpscalingSmallFilter           L"UpscalingSmallFilter"
 #define OPT_DlssRenderAhead                L"DlssRenderAhead"
 #define OPT_VideoDelay                     L"VideoDelay"
+#define OPT_SdrToneMappingType             L"SdrToneMappingType"
+// registry only, not saved
+#define OPT_SdrPeakWindowMs                L"SdrPeakWindowMs"
+#define OPT_SdrPeakFloorNits               L"SdrPeakFloorNits"
+#define OPT_SdrPeakSceneCuts               L"SdrPeakSceneCuts"
 
 static std::atomic_int g_nInstance = 0;
 
@@ -210,7 +217,13 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 		sets.bHdrLocalToneMapping = !!dw;
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrLocaLToneMappingType, dw)) {
-		sets.iHdrLocalToneMappingType = discard<int>(dw, 1, 1, 5);
+		sets.iHdrLocalToneMappingType = discard<int>(dw, 1, 1, 7);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrLocalMeasurePeak, dw)) {
+		sets.bHdrLocalMeasurePeak = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrDoviToneMappingType, dw)) {
+		sets.iHdrDoviToneMappingType = dw == 0 ? 0 : 6;
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrDisplayNits, dw)) {
 		sets.iHdrDisplayMaxNits = discard<int>(dw, HDR_NITS_DEF, HDR_NITS_MIN, HDR_NITS_MAX);
@@ -223,6 +236,9 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ConvertToSdr, dw)) {
 		sets.bConvertToSdr = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SdrToneMappingType, dw)) {
+		sets.iSdrToneMappingType = discard<int>(dw, SDRTM_Metadata, SDRTM_Fixed, SDRTM_COUNT - 1);
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DisplayNits, dw)) {
 		sets.iSDRDisplayNits = discard<int>(dw, SDR_NITS_DEF, SDR_NITS_MIN, SDR_NITS_MAX);
@@ -348,10 +364,13 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_HdrPassthrough,      sets.bHdrPassthrough);
 	key.SetDWORDValue(OPT_HdrLocaLToneMapping, sets.bHdrLocalToneMapping);
 	key.SetDWORDValue(OPT_HdrLocaLToneMappingType, sets.iHdrLocalToneMappingType);
+	key.SetDWORDValue(OPT_HdrLocalMeasurePeak, sets.bHdrLocalMeasurePeak);
+	key.SetDWORDValue(OPT_HdrDoviToneMappingType, sets.iHdrDoviToneMappingType);
 	key.SetDWORDValue(OPT_HdrDisplayNits,      sets.iHdrDisplayMaxNits);
 	key.SetDWORDValue(OPT_HdrToggleDisplay,    sets.iHdrToggleDisplay);
 	key.SetDWORDValue(OPT_HdrOsdBrightness,    sets.iHdrOsdBrightness);
 	key.SetDWORDValue(OPT_ConvertToSdr,        sets.bConvertToSdr);
+	key.SetDWORDValue(OPT_SdrToneMappingType,  sets.iSdrToneMappingType);
 	key.SetDWORDValue(OPT_DisplayNits,         sets.iSDRDisplayNits);
 #ifdef _WIN64
 	key.SetDWORDValue(OPT_DlssNR,              sets.bDlssNR);
@@ -387,10 +406,14 @@ static std::wstring PresetKeyPath(int slot)
 }
 
 // What belongs to the installation and not to a taste stays out of a preset:
-// where the two DLLs are, the DLSS toggle key, and how late the room's sound is.
+// where the two DLLs are, the DLSS toggle key, how late the room's sound is, and
+// the Measured method's tuning, which upstream keeps in the registry only.
 static void KeepInstallation(Settings_t& sets, const Settings_t& current)
 {
 	sets.iDlssNRToggleKey = current.iDlssNRToggleKey;
+	sets.iSdrPeakWindowMs = current.iSdrPeakWindowMs;
+	sets.iSdrPeakFloorNits = current.iSdrPeakFloorNits;
+	sets.bSdrPeakSceneCuts = current.bSdrPeakSceneCuts;
 	wcscpy_s(sets.szDlssNRDllPath, current.szDlssNRDllPath);
 	wcscpy_s(sets.szDlssSRDllPath, current.szDlssSRDllPath);
 	sets.iVideoDelay = current.iVideoDelay;
@@ -506,6 +529,18 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 	CRegKey key;
 	if (ERROR_SUCCESS == key.Open(HKEY_CURRENT_USER, OPT_REGKEY_VIDEORENDERER, KEY_READ)) {
 		ReadSettings(key, m_Sets);
+		// Upstream's registry-only tuning of the Measured method: read here and nowhere
+		// else, never written, never in a preset.
+		DWORD dw;
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SdrPeakWindowMs, dw)) {
+			m_Sets.iSdrPeakWindowMs = discard<int>(dw, SDR_PEAK_WINDOW_DEF, SDR_PEAK_WINDOW_MIN, SDR_PEAK_WINDOW_MAX);
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SdrPeakFloorNits, dw)) {
+			m_Sets.iSdrPeakFloorNits = discard<int>(dw, SDR_PEAK_FLOOR_DEF, SDR_PEAK_FLOOR_MIN, SDR_PEAK_FLOOR_MAX);
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SdrPeakSceneCuts, dw)) {
+			m_Sets.bSdrPeakSceneCuts = !!dw;
+		}
 	}
 	ReadPresetKeys();
 

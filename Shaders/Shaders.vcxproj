@@ -25,6 +25,9 @@
     <None Include="convert\hdr_tone_mapping.hlsl">
       <FileType>Document</FileType>
     </None>
+    <None Include="convert\hdr_tone_mapping_spline.hlsl">
+      <FileType>Document</FileType>
+    </None>
     <None Include="convert\conv_matrix.hlsl">
       <FileType>Document</FileType>
     </None>
@@ -86,12 +89,44 @@
       <ShaderModel>4.0</ShaderModel>
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
+    <FxCompile Include="d3d11\ps_convert_pq_to_sdr_tonemap.hlsl">
+      <ShaderModel>4.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d11\ps_fixconvert_pq_to_sdr_tonemap.hlsl">
+      <ShaderModel>4.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d11\ps_fixconvert_hlg_to_sdr_tonemap.hlsl">
+      <ShaderModel>4.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d11\ps_convert_pq_to_sdr_tonemap_measured.hlsl">
+      <ShaderModel>5.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d11\ps_fixconvert_pq_to_sdr_tonemap_measured.hlsl">
+      <ShaderModel>5.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d11\cs_hdr_hist.hlsl">
+      <ShaderModel>5.0</ShaderModel>
+      <ShaderType>Compute</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d11\cs_hdr_resolve.hlsl">
+      <ShaderModel>5.0</ShaderModel>
+      <ShaderType>Compute</ShaderType>
+    </FxCompile>
     <FxCompile Include="d3d11\ps_fix_bt2020.hlsl">
       <ShaderModel>4.0</ShaderModel>
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
     <FxCompile Include="d3d11\ps_hdr10_tonemap.hlsl">
       <ShaderModel>4.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d11\ps_hdr10_tonemap_measured.hlsl">
+      <ShaderModel>5.0</ShaderModel>
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
     <FxCompile Include="d3d11\ps_fix_ycgco.hlsl">
@@ -167,6 +202,30 @@
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
     <FxCompile Include="d3d9\fixconvert_pq_to_sdr.hlsl">
+      <ShaderModel>3.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d9\fixconvert_pq_to_sdr_tonemap.hlsl">
+      <ShaderModel>3.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d9\fixconvert_hlg_to_sdr_tonemap.hlsl">
+      <ShaderModel>3.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d9\fixconvert_pq_to_sdr_tonemap_measured.hlsl">
+      <ShaderModel>3.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d9\hdr_peak_first.hlsl">
+      <ShaderModel>3.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d9\hdr_peak_down.hlsl">
+      <ShaderModel>3.0</ShaderModel>
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="d3d9\hdr_peak_state.hlsl">
       <ShaderModel>3.0</ShaderModel>
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
@@ -261,7 +320,7 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <OutDir>$(SolutionDir)_bin\shaders\</OutDir>
-    <IntDir>$(SolutionDir)_bin\obj\$(Configuration)_$(PlatformName)\$(ProjectName)\</IntDir>
+    <IntDir>$(SolutionDir)_obj\$(Configuration)_$(PlatformName)\$(ProjectName)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
