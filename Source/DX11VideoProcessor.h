@@ -29,6 +29,7 @@
 #include "DX11Helper.h"
 #include "D3D11VP.h"
 #include "D3DUtil/D3D11Font.h"
+#include "OsdPlus/Overlay.h"
 #include "D3DUtil/D3D11Geometry.h"
 #include "DLSS/DlssStabilizer.h"
 #include "DLSS/DlssCompose.h"
@@ -521,6 +522,8 @@ private:
 	HMONITOR m_lastFullscreenHMonitor = nullptr;
 
 	D3DCOLOR m_dwStatsTextColor = D3DCOLOR_XRGB(255, 255, 255);
+	COsdPlusOverlay m_OsdPlus;
+	LUID m_OsdAdapterLuid = {};
 
 	// SubPic
 	CComPtr<CDX11SubPicAllocator> m_pSubPicAllocator;

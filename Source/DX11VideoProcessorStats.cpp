@@ -23,6 +23,7 @@
 // upstream's file meets as little of ours as possible (MERGING-UPSTREAM.md).
 
 #include "stdafx.h"
+#include "OsdPlus/Version.h"
 #include "Helper.h"
 #include "Times.h"
 #include "resource.h"
@@ -49,6 +50,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	std::wstring str;
 	str.reserve(1600);
 	str.assign(m_strStatsHeader);
+	if (str.find(L"OSD-Plus ") == std::wstring::npos) str.append(L" | OSD-Plus " OSD_PLUS_VERSION_W);
 	str.append(m_strStatsDispInfo);
 	str += std::format(L"\nGraph. Adapter: {}", m_strAdapterDescription);
 
@@ -140,6 +142,8 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	const wchar_t frametype = (m_SampleFormat != D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE) ? 'i' : 'p';
 	str += std::format(L"\nFrame rate    : {:7.3f}{} in, {:7.3f} drawn",
 		m_pFilter->m_FrameStats.GetAverageFps(), frametype, m_pFilter->m_DrawStats.GetAverageFps());
+
+	str.append(m_OsdPlus.Text());
 
 	// -- Each step, in the order the picture goes through them.
 	Rule(std::format(L"Pipeline, in {}", DXGIFormatToString(m_InternalTexFmt)), L"GPU ms");
