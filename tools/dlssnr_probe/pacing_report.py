@@ -36,8 +36,8 @@ COLUMNS = ("n rtStart rtClockAtCall rtClockAtReturn tickSample tickDrawn tickAft
            "last0 count0 refresh0 sync0 qpc0 last1 count1 refresh1 sync1 qpc1").split()
 # What the trace gained later; a file written before has none of them, and reads as zeros,
 # or for the cut measures as -1, not measured.
-MORE = "nrWaitUs nrRecordUs nrGpuUs cutHist cutRatio cutResid cutCorr".split()
-UNMEASURED = dict(cutHist=-1, cutRatio=-1, cutResid=-1, cutCorr=-1)
+MORE = "nrWaitUs nrRecordUs nrGpuUs cutHist cutRatio cutResid cutCorr tickGpuDone tickStamp tickDue gpuVpUs gpuAllUs".split()
+UNMEASURED = dict(cutHist=-1, cutRatio=-1, cutResid=-1, cutCorr=-1, gpuVpUs=-1, gpuAllUs=-1)
 
 HELD, VBLANK, FIELD2, NOT_PRESENTED, VP, RTX_HDR, HDR, EXCLUSIVE, SCHEDULED, REPEATED, DROPPED = (
     1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
