@@ -1319,7 +1319,8 @@ DLSS 5 NR and DLSS SR — and DLSS SR's GPU time comes on top, since the GPU run
 Present has returned. The delay also varied by several ms from picture to picture, enough to
 move some pictures to the next refresh of a 60 Hz screen.
 
-**Render ahead to keep audio sync** (Presentation tab, on by default) measures each picture from
+**Render ahead: a refresh chosen for each picture** (Presentation tab, on by default; *Render
+ahead to keep audio sync* before 2.5) measures each picture from
 the start of its processing to the GPU being done with it, and starts the next pictures earlier
 by the slowest of the last 32 plus 3 ms. Each picture then waits, while the GPU finishes it,
 for the moment the renderer presents at without DLSS: half a refresh before its time, on the
@@ -1332,6 +1333,10 @@ had.
 That was all it did, and only while DLSS or a luma prescaler ran. It now also chooses the
 refresh each picture is shown on, for every film: see *A refresh chosen for every picture*
 below, which is where the numbers that matter on a television are.
+
+Until 2.5 the box could not really be unticked: the renderer made for each film never read it,
+only an Apply while a film played did, and the next file had render ahead on again whatever the
+settings said.
 
 Measured in a DirectShow graph with the filter itself (`playback_test.exe`): an 800×450 film in
 a 1280×720 window on an RTX 3050 and a 60 Hz screen, with DLSS 5 NR and DLSS SR (NR 23 ms,
@@ -1399,25 +1404,14 @@ on a screen at the film's own rate (`playback_test --hz 24 --fps 24 --jolt`, and
 two runs each): queue 1 and nothing skipped, but the picture on screen **48 to 61 ms** after
 its time, the same after 20 s as at the start, with the Sync offset reading +8 to +19.
 
-So the renderer now leaves one picture out when that has lasted: when eight pictures running
-have waited more than a refresh and a margin between `Present` and the refresh they are due
-on, the next is drawn and not presented, and the one after takes the refresh before. Same
-tests: on screen **+1 to +20 ms**, steady, Sync offset -7. The statistics count it:
-
-    On screen     :  +3 ms, queue 1, caught up 1
-
-One or two at the start of a film and one after an option was changed is what the tests show.
-It is done once and judged: if the pictures that follow wait as long as before, leaving one out
-was no use -- the GPU is not finishing them in time, or the screen does not refresh as it says
--- and nothing more is left out until the next seek; the line then reads `caught up 2 (no use,
-stopped)`. Without that judge a television at 25 Hz lost two pictures a second. That case has
-not been reproduced on the bench, so the judge is reasoned and not measured.
-The measure is the wait and not the lateness, because a 23.976 fps film on 24 Hz slides through
-every phase by a millisecond a second: in 75 s of it the offset slid down to -4, jumped
-to +36 and slid down again, which is the picture a 24 Hz screen has to repeat, and nothing was
-left out beyond the start and the option change. At 60 Hz none of this is reached with a film
-(sync offset -7.0 and -6.5 ms, nothing skipped, as before); a 60 fps film on a 59.94 Hz
-screen was caught up once in 40 s.
+For a while the renderer then left one picture out when that had lasted -- eight pictures
+running waiting more than a refresh -- and counted it in the statistics as *caught up*. It is
+gone since 2.5. It only ever saw pictures render ahead did not schedule, and there it did harm:
+measured in MPC-HC on Fight Club at 23.976 Hz with render ahead off, it left a picture out every
+half second, 245 in 135 s, each a jump followed by a picture shown twice; upstream's own filter
+showed 1 to 4 pictures twice in the same two minutes. Without it the same run shows one. A film
+that starts late with render ahead off now stays late, as it does upstream; render ahead keeps
+the step itself (below).
 
 What is left is geometry: a picture can only appear on a refresh, the audio clock and the
 screen's scan are not in step, and where a film lands between two refreshes is drawn afresh
@@ -1480,6 +1474,11 @@ So with **Render ahead** on, the renderer now gives every picture a refresh in a
   and is only moved -- a picture given a refresh more, or left out -- when the two clocks have
   drifted three quarters of a refresh apart. The nearest refresh alone would flicker between
   two whenever a picture's time fell half way.
+- A film without one -- 23.976 fps at 60 Hz, 2.5025 refreshes a picture -- takes the nearest
+  refresh, which makes the 3:2 cadence, and the time it goes by is not the picture's stamp but
+  the stamp smoothed: Matroska keeps stamps to the millisecond, 41, 42, 42, 41... ms, and each
+  time the cadence had to change step, every 8.3 s at 60.000 Hz, the rounding made the nearest
+  refresh flip five or six times in half a second. See *What the screen shows* below.
 - A redraw the player asks for while the film plays -- its message over the picture after a
   change of track -- is no longer a `Present` of its own: it landed in the same refresh as a
   picture's, which then waited a refresh, and so did every picture after it.
@@ -1520,7 +1519,12 @@ What it cannot do:
   in seven minutes with the video processor doing Super Resolution and RTX Video HDR at 4K,
   20 ms of GPU a picture out of 40. The schedule then calls the following pictures a refresh
   later, or leaves one out when that would put them too far from their time, and is back in
-  step within two pictures. It used to stay a refresh late for good.
+  step within two pictures. It used to stay a refresh late for good. The trace now says when
+  the GPU was done with each picture and how DXGI put it on the screen: on Fight Club at
+  23.976 Hz, three such pictures in 305 s, two with the statistics hidden, every one finished
+  by the GPU 3.5 to 7.6 ms before its `Present` and every picture of the film composed by the
+  desktop. It is the compositor's, and upstream's filter shows it as often (see *What the
+  screen shows*).
 - **A picture that costs most of a frame to draw** cannot be left out to any purpose: it has
   been drawn by then, and the next one is no sooner for it. With DLSS 5 NR on a 25 fps film
   that turned the rule against itself, twice. At 52 ms a picture, every one came behind its
@@ -1562,8 +1566,43 @@ starts. So an SDR picture gets three, and an HDR one keeps upstream's six.
 `MPCVR_SWAPCHAIN_BUFFERS=2` in the player's environment gives the two back, to measure it
 again.
 
-With *Render ahead* off nothing of this is used and the renderer times its `Present` as it
-did; *Wait for VBlank before Present* and *Adjust the frame presentation time* only apply then.
+With *Render ahead* off nothing of this is used and the renderer times its `Present` as
+upstream does, by *Wait for VBlank before Present* and *Adjust the frame presentation time*,
+which the page greys while render ahead is on. Render ahead never waits for a vertical blank --
+it puts the call on the one moment a refresh is worst placed -- and holds the pictures it does
+not schedule, a film's first ones and those of the *Discard* swap effect, to their time.
+
+### What the screen shows
+
+The renderer's own figures stop at the swap chain, so the screen itself was read:
+`cadence_watch` (see *Diagnostic tools*) takes every image Windows put on it through the desktop
+duplication, with the time it went there, and `cadence_report.py` says on how many refreshes
+each picture of the film stayed. Fight Club, 4K HDR output on the Panasonic television, the
+video processor resizing with Super Resolution and RTX Video HDR, in MPC-HC, two minutes of film
+for each line, on an RTX 4060:
+
+| 60.000 Hz, 23.976 fps | breaks in the 3:2 cadence | a picture shown 4 refreshes, the next 1 | on the screen against its time |
+|---|---|---|---|
+| render ahead, before 2.5 | 78 to 90, five or six in half a second every 8.3 s | 0 to 2 | −8 to +8 ms |
+| **render ahead, 2.5** | **18**, one every 8.3 s | 1 | −8 to +8 ms |
+| render ahead off, VBlank and Adjust in any of their four combinations | 108 to 140 | 2 to 4 | **+24 to +44 ms** |
+| upstream 0.10.10, VBlank off | 109 to 115 | 0 to 1 | not measured |
+| upstream 0.10.10, VBlank on | 105 to 126 | 3 to 11 | not measured |
+
+| 23.976 Hz, 23.976 fps | pictures shown twice | on the screen against its time |
+|---|---|---|
+| **render ahead** | 2 or 3 (each followed by one left out to keep the step) | **+6 to +12 ms** |
+| render ahead off, before 2.5 (the catch-up) | 32 to 241 | +51 to +96 ms |
+| render ahead off, 2.5, Adjust on | 1 | +92 to +94 ms |
+| upstream 0.10.10, any combination | 1 to 4 | not measured |
+
+A screen at 60.000 Hz needs one break in the 3:2 cadence every 8.3 s for a 23.976 fps film, and
+no renderer can do with fewer; at 59.94 Hz it needs none, and at the film's own rate the cadence
+is one refresh a picture. A player that switches the screen to the film's rate (MPC-HC's *Auto change fullscreen monitor
+mode*, 23.976 fps on 23 Hz) gets that.
+
+The duplication itself costs the compositor work: the same film at 23.976 Hz showed a picture
+twice 2 or 3 times in two minutes watched, 3 times in five minutes unwatched.
 
 ### A video delay, for a sound that arrives late
 
@@ -1761,13 +1800,15 @@ key, both DLL paths, and the working size, which is what the card can carry.
 |---|---|---|
 | Swap effect | Flip (recommended) | How pictures are handed to Windows. Render ahead needs Flip to give each picture a refresh. *Discard* is the older mode, for drivers that misbehave with Flip. HDR output always uses Flip |
 | Use exclusive fullscreen | off | In fullscreen the filter takes the display directly instead of going through the desktop: less latency, but menus drawn over the film may not show and Alt+Tab is slower |
-| Wait for VBlank before Present | off | Waits for the next refresh before each picture. Not used while render ahead schedules the pictures |
-| Adjust the frame presentation time | on | Holds each picture until its time on the audio clock. Not used while render ahead schedules the pictures |
 | Reinitialize device when changing display | off | Creates the Direct3D device again when the window moves to another screen |
-| Render ahead to keep audio sync | on | See *Render ahead*. Gives every picture a refresh chosen in advance, and starts each early enough for it. Needs Direct3D 11, and the flip model for the first of the two. Registry `DlssRenderAhead` |
+| Render ahead: a refresh chosen for each picture | on | See *Render ahead* and *A refresh chosen for every picture*. Gives every picture a refresh chosen in advance, and starts each early enough for it. Needs Direct3D 11, and the flip model for the first of the two. Registry `DlssRenderAhead` |
+| Wait for VBlank before Present | off | Upstream's timing, with render ahead off: waits for the next refresh before each picture. Greyed while render ahead is on, which never waits for it |
+| Adjust the frame presentation time | on | Upstream's timing, with render ahead off: holds each picture until half a refresh before its time. Greyed while render ahead is on, which always holds the pictures it does not schedule |
 | Show statistics | off | The statistics over the picture; Ctrl+J in MPC-HC |
 | Size | Fixed size | Whether the statistics keep their size or grow with the window |
-| Video delay | 0 ms | See *A video delay, for a sound that arrives late*. Every picture shown that long after its time, −200 to +500 ms, to the nearest refresh. Applies as the slider is dragged; kept out of the presets |
+| Video delay | 0 ms | See *A video delay, for a sound that arrives late*. Every picture shown that long after its time, −200 to +500 ms, to the nearest refresh. Applies as the slider is dragged |
+
+Nothing on this tab is part of a preset (see *Presets*).
 
 ### Presets
 
@@ -1790,10 +1831,13 @@ The **Presets** tab holds ten sets of settings. Each line has a name, a key, *Sa
   and neither is 1: the filter swallows the exact combination and leaves the rest to the
   player. While a text box is being typed in, it swallows nothing.
 
-A preset is every setting there is, with four exceptions that belong to the installation or
-to the moment and not to a taste: the two DLL paths, the DLSS 5 NR toggle key, the video
-delay, and whether the statistics are showing -- a preset saved while they were up used to bring them up with it. Recalling one that changes
-Direct3D 11, the swap effect, exclusive fullscreen or the texture format restarts the
+A preset is every setting there is, with exceptions that belong to the installation, the
+room or the screen and not to a taste: the two DLL paths, the DLSS 5 NR toggle key, whether the
+statistics are showing -- a preset saved while they were up used to bring them up with it --
+and the whole Presentation tab, the video delay with it. The presentation options went out in
+2.5: presets saved before hold the *Discard* swap effect and the wait for a vertical blank, and
+recalling one turned the scheduled presentation off for every SDR picture. Recalling one that
+changes Direct3D 11 or the texture format restarts the
 rendering, the same short break those options cause from the page; between two presets that
 differ only in the picture, the change is immediate. Measured with `playback_test --presets`,
 which saves a Catmull-Rom preset on F6 in the first slot and a Lanczos3 one with
@@ -1893,7 +1937,11 @@ as they change:
   and *turns late* when a picture's turn in the renderer was taken away or came late, the
   last late one's details on the line under.
 
-The sync offset graph, bottom right, draws the *Sync offset* of the last pictures.
+The sync offset graph, bottom right, draws the *Sync offset* of the last pictures. With a
+refresh chosen for each picture it draws instead where DXGI says the last picture shown really
+was, the *On screen* figure: the plan cannot show a picture the compositor took a refresh late,
+and that is the one thing worth seeing there. The green block along the bottom of the
+statistics moves a pixel for every picture drawn.
 
 ### Source, audio and hardware (OSD Plus)
 
@@ -2123,6 +2171,34 @@ evaluation of DLSS 5 NR give up (see *An evaluation that fails*).
 The first note of a trace is the swap chain: its size, how many buffers it has and whether it
 is exclusive. `MPCVR_SWAPCHAIN_BUFFERS=n` forces that count (see *A refresh chosen for every
 picture*).
+
+Each line also has, since 2.5: when the GPU was seen done with the picture while it waited for
+its `Present` (0 when it was not done by then), the picture's stamp and the time the schedule
+went by (see *What the screen shows*), the GPU time of the video processor's turn and of every
+step together while the statistics show (−1 otherwise), and in its flags how DXGI put the last
+picture shown on the screen: composed with the desktop, from an overlay plane, or flipped
+straight.
+
+**`cadence_watch.exe` and `cadence_report.py`** — what the screen showed, image by image, in any
+player and with any renderer, upstream's included. The watch takes every image Windows puts on
+the screen through the desktop duplication, with the time it went there, and writes for each a
+signature of the film's picture in 64 small tiles (away from the statistics and the subtitles)
+and where the statistics' green block is, which moves a pixel for every picture drawn. Times are
+on the performance counter, as in the pacing trace, so the two files line up to the
+microsecond.
+
+```
+cadence_watch.exe --out C:\temp\screen.csv --seconds 120 [--delay 8] [--shot C:\temp\osd.bmp]
+python cadence_report.py C:\temp\screen.csv [--hz 23.976] [--fps 23.976] [--list 40]
+```
+
+The report gives the screen's measured rate, on how many refreshes each new picture of the film
+stayed, and each fault with its time and how long after a cut it came: a picture held longer or
+shorter than the film's rate on that screen allows, two held alike in a 3:2 cadence (a break),
+a picture that is the one before again, or the one before that (a single-frame flash in the
+film does that too), and the green block moving other than one pixel. `--shot` keeps a picture
+of the statistics as the watch starts. The duplication is work for the compositor: it doubled
+the rare refreshes the compositor missed at 23.976 Hz.
 
 **`freeze_dump.exe`** — run against a player that hangs (by name, by process id, or with no
 argument at all), it asks Windows what every thread is waiting for, names any cycle as the
