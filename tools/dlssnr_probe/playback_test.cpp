@@ -34,6 +34,9 @@
 //                                     with MPCVR_PACING_TRACE set, pacing_report.py says where the pictures went
 //   playback_test.exe --nrscale N [--nrscaleto M]   DLSS 5 NR's working size, per cent, and moved while it plays
 //   playback_test.exe --letterbox       the picture keeps its shape in the window, with bars, instead of filling it
+//   playback_test.exe --file <film> --hdrtm N   HDR output: -1 off, 0 passthrough, 1..7 a tone mapping method;
+//                                     --measurepeak 0|1, --dovitm 0|6, --sdrtm 0..2 (Fixed, Metadata,
+//                                     Measured), --tosdr 0|1, --prefdovi 0|1: upstream 0.11's HDR settings
 //                                     which processor then converts the picture
 
 #include <windows.h>
@@ -98,6 +101,14 @@ static int g_filmPrepass = -1;    // --prepass 0|1
 static int g_filmHdrOut = -1;     // --hdrout 0|1
 static int g_filmVPScale = -1;    // --vpscale 0|1
 static int g_filmStats = -1;      // --stats 0|1
+// Upstream 0.11's HDR settings. --hdrtm: -1 off, 0 passthrough, 1..7 a tone mapping
+// method (6 is Dolby Vision's and not offered); the others are the fields themselves.
+static int g_filmHdrTm = -2;      // --hdrtm -1..7
+static int g_filmMeasurePeak = -1; // --measurepeak 0|1
+static int g_filmDoviTm = -1;     // --dovitm 0|6
+static int g_filmSdrTm = -1;      // --sdrtm 0 Fixed, 1 Metadata, 2 Measured
+static int g_filmToSdr = -1;      // --tosdr 0|1
+static int g_filmPreferDovi = -1; // --prefdovi 0|1
 // --asis: leave the settings exactly as the registry has them. The only way to drive a
 // renderer this bench did not build: Settings_t has grown fields since, so SetSettings
 // on the stock filter writes a layout it does not know and it ignores the lot. Both
@@ -1234,6 +1245,28 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		if (g_filmStats >= 0) {
 			sets.bShowStats = g_filmStats != 0;
 		}
+		if (g_filmHdrTm >= -1) {
+			sets.bHdrPassthrough = g_filmHdrTm == 0;
+			sets.bHdrLocalToneMapping = g_filmHdrTm > 0;
+			if (g_filmHdrTm > 0) {
+				sets.iHdrLocalToneMappingType = g_filmHdrTm;
+			}
+		}
+		if (g_filmMeasurePeak >= 0) {
+			sets.bHdrLocalMeasurePeak = g_filmMeasurePeak != 0;
+		}
+		if (g_filmDoviTm >= 0) {
+			sets.iHdrDoviToneMappingType = g_filmDoviTm;
+		}
+		if (g_filmSdrTm >= 0) {
+			sets.iSdrToneMappingType = g_filmSdrTm;
+		}
+		if (g_filmToSdr >= 0) {
+			sets.bConvertToSdr = g_filmToSdr != 0;
+		}
+		if (g_filmPreferDovi >= 0) {
+			sets.bHdrPreferDoVi = g_filmPreferDovi != 0;
+		}
 		// --afternr: who resizes is each run's own business.
 		if (config.iVPScale >= 0) {
 			sets.bVPScaling = config.iVPScale != 0;
@@ -1261,6 +1294,14 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		printf("   settings kept: stats %d, rtxhdr %d, superres %d, prepass %d, hdrout %d, vpscale %d, nrscale %d\n",
 			(int)back.bShowStats, (int)back.bVPRTXVideoHDR, back.iVPSuperRes,
 			(int)back.bVPReplaceChroma, (int)back.bHdrPassthrough, (int)back.bVPScaling, back.iDlssNRWorkingScale);
+		// On a line of its own, asked for or not, so that the line above reads as it always has.
+		if (g_filmHdrTm >= -1 || g_filmMeasurePeak >= 0 || g_filmDoviTm >= 0 || g_filmSdrTm >= 0
+				|| g_filmToSdr >= 0 || g_filmPreferDovi >= 0) {
+			printf("   hdr kept     : passthrough %d, tone mapping %d type %d, measured peak %d, dovi %d, to sdr %d method %d, prefer dovi %d\n",
+				(int)back.bHdrPassthrough, (int)back.bHdrLocalToneMapping, back.iHdrLocalToneMappingType,
+				(int)back.bHdrLocalMeasurePeak, back.iHdrDoviToneMappingType, (int)back.bConvertToSdr,
+				back.iSdrToneMappingType, (int)back.bHdrPreferDoVi);
+		}
 	}
 	}
 
@@ -2311,6 +2352,18 @@ int wmain(int argc, wchar_t* argv[])
 			g_filmVPScale = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--stats")) {
 			g_filmStats = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--hdrtm")) {
+			g_filmHdrTm = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--measurepeak")) {
+			g_filmMeasurePeak = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--dovitm")) {
+			g_filmDoviTm = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--sdrtm")) {
+			g_filmSdrTm = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--tosdr")) {
+			g_filmToSdr = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--prefdovi")) {
+			g_filmPreferDovi = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--chroma") || !wcscmp(argv[i], L"--chroma10")) {
 			g_bChroma = true;
 			g_bChroma10 = !wcscmp(argv[i], L"--chroma10");

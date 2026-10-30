@@ -1743,13 +1743,16 @@ key, both DLL paths, and the working size, which is what the card can carry.
 | Setting | Default | What it does |
 |---|---|---|
 | Prefer Dolby Vision over PQ and HLG | off | For a file that carries Dolby Vision and an HDR10 or HLG layer: the Dolby Vision layer is played, adapted to the output. Dolby Vision is processed whole by the shaders, without the video processor (see *The exception: Dolby Vision*). Off, the HDR10 or HLG layer is played |
-| HDR output | Passthrough (Windows 10 and later) | *Passthrough* sends HDR video unchanged and the display tone maps it. *Tone map* adapts it to the peak in *Nits* and outputs HDR; BT.2390 uses Dolby Vision's dynamic metadata when the film has it. *Off (SDR)* outputs SDR. Needs Windows 10, Direct3D 11 and an HDR display with Windows HDR on, or allowed to turn on below. RTX Video HDR needs Passthrough |
+| HDR output | Passthrough (Windows 10 and later) | *Passthrough* sends HDR video unchanged and the display tone maps it. *Tone map* adapts it to the peak in *Nits* and outputs HDR: ACES, Reinhard, Hable, Mobius, BT.2390, or Spline, the curve of the SDR conversion's *Metadata* method brought to the display's peak. *Off (SDR)* outputs SDR. Needs Windows 10, Direct3D 11 and an HDR display with Windows HDR on, or allowed to turn on below. RTX Video HDR needs Passthrough or a tone map method |
 | Nits | 1000 | The display's real peak, 100 to 10000, for the tone mapping methods |
+| Measured peak | off | The tone mapping takes the content's peak from each picture, measured on the GPU and smoothed over a few seconds, instead of the one the file carries (MaxCLL), for every method: for files whose metadata is missing or wrong. Needs a tone map method. The statistics add an `HDR measured` line, the brightest of the last picture measured and the peak used; the measurement's time is in Finish |
+| Dolby Vision | ST 2094-10 | For Dolby Vision with dynamic metadata, while a tone map method is chosen. *ST 2094-10* is Dolby Vision's own curve, scene by scene from the metadata, whatever the method above; *Same as HDR* is the method above. Up to upstream 0.10.9 only BT.2390 turned into ST 2094-10, so a film tone mapped with another method now changes unless this is set to *Same as HDR* |
 | Windows HDR | Don't change | Whether the filter may turn Windows HDR on by itself when HDR video, or RTX Video HDR, starts: in fullscreen only, or always. *On/off* turns it back off afterwards |
 | Subtitle and OSD brightness | the leftmost | How bright subtitles, the player's messages and the statistics are drawn over an HDR picture |
-| RTX Video HDR | off | The NVIDIA driver turns SDR video into HDR. Needs HDR output on Passthrough, an HDR display with Windows HDR on, an RTX card, the 64-bit filter, a bit depth other than 8-bit and a format the video processor converts. The statistics star it (`RTX Video HDR*`) while it runs. The driver leaves out a picture the processor writes in fewer than 640x360 pixels, and the line then adds `left out by the driver under 640x360`; where the shaders resize, the processor first enlarges such a picture just past that, which the Processor step says (`to 740x312 for RTX Video HDR`) -- see *RTX Video HDR on a small picture* |
 | Convert to SDR | on | HDR video not output in HDR is converted to SDR, so that it does not look washed out |
+| Method | Metadata | How that conversion is done. *Fixed*: one curve for every film, the only one up to upstream 0.10.9. *Metadata*: a curve made for the content's peak (MaxCLL, else the mastering display's, else 1000 nits) and the SDR brightness. *Measured*: the same curve, from the peak of each picture, measured on the GPU and smoothed. Where the shaders convert the picture rather than the video processor (Dolby Vision among them), *Measured* works as *Metadata*. Its window, its floor and whether it starts over at a cut are upstream's registry-only values (`SdrPeakWindowMs`, 3000; `SdrPeakFloorNits`, 640; `SdrPeakSceneCuts`, off), which no preset holds |
 | SDR brightness | 125 nits | The target of that conversion, 25 to 400. Applies as the slider is dragged |
+| RTX Video HDR | off | The NVIDIA driver turns SDR video into HDR. Needs HDR output on Passthrough or a tone map method, an HDR display with Windows HDR on, an RTX card, the 64-bit filter, a bit depth other than 8-bit and a format the video processor converts. The statistics star it (`RTX Video HDR*`) while it runs. The driver leaves out a picture the processor writes in fewer than 640x360 pixels, and the line then adds `left out by the driver under 640x360`; where the shaders resize, the processor first enlarges such a picture just past that, which the Processor step says (`to 740x312 for RTX Video HDR`) -- see *RTX Video HDR on a small picture* |
 
 ### Presentation
 
@@ -1861,7 +1864,10 @@ whose total comes near the frame has no room left.
 Under the total, unnumbered, **HDR** says what becomes of HDR: passthrough, tone mapping or
 conversion to SDR, and RTX Video HDR. It is not a pass of its own and has no time: passthrough
 computes nothing, RTX Video HDR is in the processor's time, and a tone mapping or a conversion
-to SDR is in Finish's.
+to SDR is in Finish's. **HDR measured** follows it while the peak is measured (*Measured peak*,
+or the *Measured* method of the conversion to SDR): the brightest of the last picture measured
+and the peak the curve was given, smoothed over the window. The GPU measures the picture just
+before the correction or the tone mapping reads it, so that time is in Finish's too.
 
 **The timing**, in the order it happens to a picture. Its figures change with every picture,
 so each keeps its width -- the offsets to a tenth of a millisecond -- and a line does not move
@@ -2141,6 +2147,7 @@ playback_test.exe --scalers       each Upscaling and Chroma upsampling method (-
 playback_test.exe --greying       what the page greys, for every state the renderer can be in and each DLSS box
 playback_test.exe --afternr --file <mkv> --seek 1740   who enlarges after DLSS 5 NR, on one still of a real film
 playback_test.exe --vpturns --file <film> --rtxhdr 1 --hdrout 1   the shaders, the processor, the processor with Super Resolution: one still each, read off the desktop unclipped (vpturns_N.pfm)
+playback_test.exe --file <film> --hdrtm 7 --measurepeak 1   HDR output: -1 off, 0 passthrough, 1..7 a tone mapping; --dovitm 0|6, --sdrtm 0..2, --tosdr, --prefdovi
 playback_test.exe --hz 30 --fps 30 --jolt   a film at the screen's own rate, and the queue it builds
 playback_test.exe --presets     two presets saved, each recalled by its key while it plays
 playback_test.exe --rewindow    the video window made again from another thread, and whose it is
