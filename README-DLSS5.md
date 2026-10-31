@@ -1948,8 +1948,19 @@ statistics moves a pixel for every picture drawn.
 Three seconds after the statistics first come up, they also say what the film is made of and
 what the machine is doing. This is **OSD Plus**, by **rampageX** (`github.com/rampageX/MPCVR-Plus`),
 taken into MPCVR-Plus with his thanks. Labels are white and each section's values have a colour
-of their own, kept at the *Subtitle and OSD brightness* over an HDR picture. Fight Club through
-LAV in the bench (`playback_test --file <film> --stats 1`):
+of their own, kept at the *Subtitle and OSD brightness* over an HDR picture.
+
+The whole of the statistics goes out in six calls at most, the labels in one and each section's
+values in one, with spaces where the rest is: every printable ASCII character of Consolas
+advances as a space does. Two calls a line made 64 to 70 a picture, each setting the pipeline
+again. Fight Club in the bench, statistics shown, two runs of each alternated: the render
+thread's drawing a picture went from a median of 0.74 and 0.76 ms to 0.70 and 0.71 without DLSS,
+and from 2.04 to 2.00 with DLSS 5 NR and DLSS SR, about half of what OSD Plus had added. A label
+with any other character keeps a call of its own for its value. `osd_draw_test` (see
+*Diagnostic tools*) requires the same pixels both ways.
+
+The lines OSD Plus adds, Fight Club through LAV in the bench
+(`playback_test --file <film> --stats 1`):
 
     Codec         : AV01
     Video bitrate : avg 2.29 Mb/s, current 1.44 Mb/s
@@ -2117,6 +2128,15 @@ picture, which is what used to show a green frame when DLSS was toggled while pa
 replacement, for each source format and each chroma method, since a compute shader has rules a
 pixel shader has not. One that does not compile leaves the picture to the video processor
 without a word, so nothing on screen says it happened.
+
+**`osd_audio_test.exe` and `osd_draw_test.exe`** — the statistics' own checks. The first takes
+rampageX's cases for which audio input the statistics follow and the bit depth they show. The
+second draws the statistics with the filter's own font and `COsdPlusText`, in one call a colour,
+and the way they were drawn before, two calls a line, at eleven font sizes from 14 to 48 points,
+on 8-bit, 10-bit and half-float pictures, in SDR and in PQ at the three OSD brightnesses, with
+characters outside ASCII and a line longer than the font draws in one go: it requires the same
+bytes every time, and that every printable ASCII character advances as a space does, which is
+what the one call a colour stands on.
 
 **`vp444_probe.exe`** — asks the driver, through the renderer's own `CD3D11VP`, what the
 video processor really does with each input format: which it takes, how its conversion

@@ -1,0 +1,8 @@
+// The font's shaders, embedded the way the filter embeds them
+// (Source\res\MpcVideoRenderer.rc2), so osd_draw_test runs CD3D11Font unchanged.
+// build.cmd compiles the .cso files next to this script first.
+
+#include "..\\..\\Source\\resource.h"
+
+IDF_VS_11_SIMPLE                FILE    "vs_simple.cso"
+IDF_PS_11_FONT                  FILE    "ps_font.cso"

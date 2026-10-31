@@ -134,6 +134,16 @@ ECHO Building the OSD audio test (which input the statistics follow, rampageX's 
 cl /nologo /EHsc /std:c++20 /O2 /MT osd_audio_test.cpp ^
    /Fe:osd_audio_test.exe || EXIT /B 1
 
+ECHO Building the OSD draw test (the statistics in one call a colour, with the filter's font)...
+fxc /nologo /O2 /T vs_4_0 /Fo vs_simple.cso "%SH%\vs_simple.hlsl" >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_font.cso "%SH%\ps_font.hlsl" >NUL || EXIT /B 1
+rc /nologo /fo osd_draw_shaders.res osd_draw_shaders.rc || EXIT /B 1
+REM /wd4838 as common.props has it for the filter: FontBitmap.h narrows its rectangles.
+cl /nologo /EHsc /std:c++20 /O2 /MT /wd4838 /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
+   /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" osd_draw_test.cpp ^
+   "%SRC%\D3DUtil\D3D11Font.cpp" "%SRC%\DX11Helper.cpp" "%SRC%\Utils\Util.cpp" ^
+   osd_draw_shaders.res /Fe:osd_draw_test.exe || EXIT /B 1
+
 ECHO Building the cadence watch (what the screen showed, image by image)...
 cl /nologo /EHsc /std:c++20 /O2 /MT /DUNICODE /D_UNICODE cadence_watch.cpp ^
    /Fe:cadence_watch.exe || EXIT /B 1

@@ -74,6 +74,8 @@ CALL :Run "DLSS through the filter, five graphs" "playback_test.exe --seconds 20
 REM The rules of the page alone, with no film: what greys with each DLSS box ticked.
 CALL :Run "what the Settings page greys"       "playback_test.exe --greying"
 CALL :Run "the audio input the statistics follow" "osd_audio_test.exe"
+REM The statistics' text in one call a colour, against two calls a line: the same pixels.
+CALL :Run "the statistics drawn in one call a colour" "osd_draw_test.exe"
 REM "Use the video processor for resizing" with DLSS 5 NR: the processor's second turn,
 REM against the shaders on the same still of a real film, as an SDR picture and as a PQ
 REM one. Nothing above reaches it -- the bench's own film is RGB, which never brings the
