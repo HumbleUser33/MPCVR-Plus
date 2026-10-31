@@ -1523,8 +1523,11 @@ What it cannot do:
   the GPU was done with each picture and how DXGI put it on the screen: on Fight Club at
   23.976 Hz, three such pictures in 305 s, two with the statistics hidden, every one finished
   by the GPU 3.5 to 7.6 ms before its `Present` and every picture of the film composed by the
-  desktop. It is the compositor's, and upstream's filter shows it as often (see *What the
-  screen shows*).
+  desktop. Upstream's filter shows it as often (see *What the screen shows*). The compositor
+  only carries it: with RTX Video Super Resolution or DLSS SR on an NVIDIA card, Windows'
+  hardware-accelerated GPU scheduling turned off, a service of NVIDIA's holds the GPU's work up
+  now and then and the compositor's flip with it. Turned on, none in thirteen minutes (see
+  *Known limitations*).
 - **A picture that costs most of a frame to draw** cannot be left out to any purpose: it has
   been drawn by then, and the next one is no sooner for it. With DLSS 5 NR on a 25 fps film
   that turned the rule against itself, twice. At 52 ms a picture, every one came behind its
@@ -1602,7 +1605,10 @@ is one refresh a picture. A player that switches the screen to the film's rate (
 mode*, 23.976 fps on 23 Hz) gets that.
 
 The duplication itself costs the compositor work: the same film at 23.976 Hz showed a picture
-twice 2 or 3 times in two minutes watched, 3 times in five minutes unwatched.
+twice 2 or 3 times in two minutes watched, 3 times in five minutes unwatched. Those were measured
+with Windows' hardware-accelerated GPU scheduling off; they come from the GPU being held up by a
+service of NVIDIA's, and with the scheduling on there were none in thirteen minutes (see *Known
+limitations*).
 
 ### A video delay, for a sound that arrives late
 
@@ -2011,6 +2017,31 @@ at 2160p, plus what the Optical Flow engine allocates.
 **Cost.** Two CPU stalls per frame for the cross-device synchronisation, plus the network
 itself and the stabilizer. Fine for video framerates; this is not a low-latency design. Render
 ahead keeps pictures on time as long as a picture takes less than about a frame.
+
+**With RTX Video Super Resolution or DLSS SR on an NVIDIA card, turn on Windows'
+hardware-accelerated GPU scheduling** (Settings, System, Display, Graphics, the default
+graphics settings; it takes a restart). Without it a picture is shown twice now and then and
+the next one never, a jolt the sync offset graph shows as a spike. NVIDIA's display service
+(`NVDisplay.Container.exe`) has a thread, started in `_nvtopps.dll`, that wakes about once a
+second and works some 3 ms. While an AI upscaler runs it works 10 to 50 ms now and then, and
+for as long the driver reports no GPU work done and Windows' scheduler sends none: the
+compositor's flip waits behind it, and one that goes more than about 40 ms after the vertical
+blank loses the refresh. Every hold-up fell on that thread's period, 1.006 s; without an AI
+upscaler its turns never passed 3.5 ms and nothing was held up. Hardware decoding, the
+statistics and the film's cuts had nothing to do with it. Fight Club from 15:27 to 21:27 at
+23.976 Hz in MPC-HC 2.8.4, 4K HDR, the video processor resizing with RTX Video Super
+Resolution and RTX Video HDR, RTX 4060 (driver 32.0.16.1742), traced with ETW (xperf: the GPU
+scheduler, the compositor, DXGI, thread switches) beside the pacing trace:
+
+| GPU scheduling | GPU held up 8 ms or more | the compositor's flip, after the blank | pictures shown twice |
+|---|---|---|---|
+| hardware-accelerated off, 7 runs of 6.5 min | 5 to 11 a run (none in one), up to 41 ms | median 8 ms; at worst 32 to 41 ms in six runs | 4 in all, 0 to 2 a run |
+| **hardware-accelerated on**, 2 runs of 6.5 min | **none** | **median 1.5 ms, at worst 5.3** | **none** |
+
+NVIDIA's thread was just as slow with the scheduling on, up to 49.9 ms; it no longer holds the
+GPU up. Going round the compositor is no way out: with RTX Video Super Resolution Windows
+composes every picture of the swap chain whatever its window, where without it the same swap
+chain goes on an overlay plane of its own, and the hold-up stops the whole GPU anyway.
 
 **Settings change while the film plays.** They all take effect on the picture that follows,
 with no restart: the formats the processor may take, RTX Video HDR, Super Resolution, the
