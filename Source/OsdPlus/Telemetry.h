@@ -2,6 +2,7 @@
 #pragma once
 #include <pdh.h>
 #include <pdhmsg.h>
+#include <psapi.h>
 #include <dxgi1_4.h>
 #include <thread>
 #include <mutex>
@@ -43,6 +44,27 @@ class COsdTelemetry {
         ~QueryScope() { if (handle) PdhCloseQuery(handle); }
     };
     static ULONGLONG Ticks(FILETIME t) { return (ULONGLONG(t.dwHighDateTime) << 32) | t.dwLowDateTime; }
+
+    // PROCESS_MEMORY_COUNTERS_EX2, which psapi.h declares only for a build that targets
+    // Windows 10 past NTDDI_WIN10_CU, where the filter targets Windows 7.
+    struct ProcessMemoryCountersEx2 {
+        DWORD cb, PageFaultCount;
+        SIZE_T PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage, QuotaPagedPoolUsage,
+            QuotaPeakNonPagedPoolUsage, QuotaNonPagedPoolUsage, PagefileUsage, PeakPagefileUsage,
+            PrivateUsage, PrivateWorkingSetSize;
+        ULONG64 SharedCommitUsage;
+    };
+    // The player's own memory in RAM, what Task Manager's Memory column shows: its private
+    // working set, the pages in RAM that belong to it alone, without the DLLs it shares
+    // with other programs and without what is paged out. A Windows that does not know the
+    // larger structure refuses its size or leaves the field empty, and the line says N/A.
+    static double PlayerRamMiB() {
+        ProcessMemoryCountersEx2 counters = {};
+        counters.cb = sizeof(counters);
+        if (!GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters), sizeof(counters))
+            || !counters.PrivateWorkingSetSize) return -1;
+        return counters.PrivateWorkingSetSize / 1048576.0;
+    }
 
     // Sum processes on each physical engine, then take the busiest engine.
     // Adding independent engines would incorrectly exceed Task Manager's GPU usage.
@@ -304,12 +326,14 @@ class COsdTelemetry {
             }
             DXGI_QUERY_VIDEO_MEMORY_INFO memory = {};
             const bool hasMemory = adapter && SUCCEEDED(adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &memory));
+            const double ram = PlayerRamMiB();
             DWORD average = bitrate ? bitrate->GetAverageBitRate() : 0;
             const DWORD current = bitrate ? bitrate->GetCurrentBitRate() : 0;
             if (!average) average = declaredRate;
-            std::wstring text = std::format(L"\nCodec         : {}\nVideo bitrate : avg {}, current {}\n-- Hardware --------------------------------------------------------------------\nCPU           : {} total, {} player\nGPU           : {} busiest engine, decode {}\nVRAM (player) : {}",
+            std::wstring text = std::format(L"\nCodec         : {}\nVideo bitrate : avg {}, current {}\n-- Hardware --------------------------------------------------------------------\nCPU           : {} total, {} player\nGPU           : {} busiest engine, decode {}\nVRAM / DRAM   : {} / {} (player only)",
                 codec, Rate(average), Rate(current), Percent(cpu), Percent(process), Percent(usage), Percent(decode),
-                hasMemory ? std::format(L"{:.0f} MiB", memory.CurrentUsage / 1048576.0) : L"N/A");
+                hasMemory ? std::format(L"{:.0f} MiB", memory.CurrentUsage / 1048576.0) : L"N/A",
+                ram >= 0 ? std::format(L"{:.0f} MiB", ram) : L"N/A");
             if (!gpuStatus.empty()) text += L"\nMonitor status: " + gpuStatus;
             if (!hasUtility) text += L"\nCPU metric    : busy time (Utility unavailable)";
             if (fileAverage > 0 || !sourceStatus.empty()) {

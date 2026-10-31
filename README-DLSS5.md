@@ -1952,16 +1952,16 @@ of their own, kept at the *Subtitle and OSD brightness* over an HDR picture. Fig
 LAV in the bench (`playback_test --file <film> --stats 1`):
 
     Codec         : AV01
-    Video bitrate : avg 2.39 Mb/s, current 1.96 Mb/s
+    Video bitrate : avg 2.29 Mb/s, current 1.44 Mb/s
     File avg      : 3.02 Mb/s (all streams + container)
     -- Audio -----------------------------------------------------------------------
-    Audio input   : Opus, 48000 Hz, 6 ch, 32-bit, 221 kb/s
+    Audio input   : Opus, 48000 Hz, 6 ch, 32-bit, 211 kb/s
     Audio decoded : Float PCM, 48000 Hz, 6 ch, 32-bit, 9216 kb/s
     Audio render  : Float PCM, 48000 Hz, 6 ch, 32-bit, 9216 kb/s
     -- Hardware --------------------------------------------------------------------
-    CPU           : 3.8% total, 1.8% player
-    GPU           : 22.6% busiest engine, decode 0.0%
-    VRAM (player) : 462 MiB
+    CPU           : 4.9% total, 4.0% player
+    GPU           : 22.8% busiest engine, decode 0.0%
+    VRAM / DRAM   : 462 MiB / 216 MiB (player only)
 
 - *Codec* is the coded format the decoder reads, and *Video bitrate* the video stream's own,
   as the splitter counts it, or as the stream declares it where the splitter does not say.
@@ -1971,9 +1971,15 @@ LAV in the bench (`playback_test --file <film> --stats 1`):
   across a change of track with MPC-BE's audio switcher; where several inputs are connected and
   none says which one plays, it does not guess. A depth the stream does not declare stays N/A.
 - *Hardware* is sampled once a second on a thread of its own: the CPU, the player's share of it,
-  the busiest engine of the GPU the picture is rendered on and its video decoder, and the video
-  memory the player uses. The sampling pauses while the statistics are hidden, and starts again
-  three seconds after a new film, so that opening one is not slowed by it.
+  the busiest engine of the GPU the picture is rendered on and its video decoder, and the memory
+  the player uses, its own and no other program's. *VRAM* is what it holds in the GPU's memory,
+  as DXGI counts it. *DRAM* is its private working set, the figure of Task Manager's *Memory*
+  column: the pages in RAM that are the player's alone, without the DLLs it shares with other
+  programs and without what Windows has paged out. In the bench it read 216 and 397 MiB where
+  Windows' own counter of the same (`Win32_PerfFormattedData_PerfProc_Process`) read 215-216
+  and 395-396, without DLSS and with DLSS 5 NR and DLSS SR. A Windows that does not give that
+  figure shows N/A. The sampling pauses while the statistics are hidden, and starts again three
+  seconds after a new film, so that opening one is not slowed by it.
 
 ---
 
