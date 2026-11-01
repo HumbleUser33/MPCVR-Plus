@@ -8,7 +8,7 @@ rendering is bit-identical to upstream.
 |---|---|
 | **Scaling** | six upscalers chosen by measurement — ArtCNN C4F16 DS, FSRCNNX 8/16, RAVU-zoom and the anti-ringing versions — with both lists ordered best first |
 | **Chroma** | three more methods, and a 4:4:4 pre-pass that hands the hardware video processor a full picture: +7 dB of colour on 10-bit film |
-| **Detail** | sharpening after the resize, two methods and five calibrated levels |
+| **Detail** | deblocking and debanding on the decoded planes, and sharpening after the resize, each with five calibrated levels |
 | **DLSS 5 NR** | NVIDIA neural reconstruction (NGX feature 18) with a temporal stabilizer made for video |
 | **DLSS SR** | DLSS Super Resolution 4.5 for enlarging, and DLAA at native size (experimental) |
 | **Presentation** | render ahead, so none of it drifts off the audio clock |
@@ -1234,6 +1234,154 @@ space it was asked for, and the SDR swap chain showed a dim, grey picture, every
 
 ---
 
+## Deblocking and debanding
+
+A codec short of bits leaves two kinds of damage a renderer can still take out. Block codecs
+without a loop filter -- MPEG-2 (DVDs, standard-definition TV), MPEG-4 part 2 (XviD, DivX) --
+show their 8 x 8 blocks and ring along contours. The codecs that smooth their own blocks --
+H.264, HEVC, AV1 -- flatten slow gradients into steps instead: bands across a sky, a wall, a
+fade. madVR has an *artifact removal* for both, with an algorithm of its own that is not
+public; this one is made of two that are, written again for Direct3D and measured against
+FFmpeg's own implementations of them.
+
+**Both work on the decoded planes, before anything converts or resizes the picture.** That
+is where the codec made the damage: luma in 8 x 8 blocks at its own size, chroma in 8 x 8
+blocks at its own, the steps in the code values it coded. Whatever converts the picture then
+reads the cleaned planes in place of the decoder's -- the conversion shader, the 4:4:4
+pre-pass, or the hardware video processor, whose own input they are written back into, in
+its own format. So nothing changes who resizes, RTX Video HDR in the processor gets the
+cleaned picture, and the chroma is upsampled after the cleaning by whoever upsamples it. That
+order was measured, not assumed: the chroma deblocked at its own size and then upsampled
+keeps 0.2 dB more of the picture's own full-size chroma than the other way round, with
+bilinear and with Catmull-Rom alike, on every case (MPEG-2 q8 with Catmull-Rom: 50.54 dB
+against 50.35, 49.52 untouched; `dlssnr_harness --tclean --study`) -- an upsampler that
+sharpens sharpens the block edges first.
+
+Progressive video in planes (NV12, P010, P016, YV12 and the other planar formats), Direct3D
+11. RGB sources have no codec planes, packed formats (YUY2, v210, AYUV...) hold luma and
+chroma in one texture, and an interlaced picture is two fields woven, so those three pass
+untouched, and the statistics say why. **With RTX Video Super Resolution chosen, both step
+aside**: it cleans the picture itself, in its own network, and it is not cleaned twice.
+
+### Deblocking: PP7
+
+The shipped method is **PP7** (MPlayer, FFmpeg's `pp7`): for each pixel, the 7 x 7 window
+around it is transformed, the coefficients under the quantizer the codec is assumed to have
+used are dropped, and only the centre is rebuilt. It needs neither the codec's quantizers nor
+its grid, so a cropped or rescaled source is no different from another: on blocks moved four
+pixels off the grid it gives the same figures to the hundredth.
+
+It was chosen against **SPP**, the same idea over 8 x 8 blocks on shifted grids averaged
+together (FFmpeg's `spp`), on 16 pictures made from nine film frames, their planes coded as
+MPEG-2 intra blocks. Each method at the strength that suits each case best, psnr of luma and
+chroma together, and `block` the luma's steps across the codec's grid over its steps
+elsewhere (the truth reads 1.00):
+
+| | MPEG-2 q4 | | MPEG-2 q8 | | JPEG 0.72 | | 1080p | 2160p |
+|---|---|---|---|---|---|---|---|---|
+| | psnr | block | psnr | block | psnr | block | ms | ms |
+| untouched | 47.32 | 2.04 | 44.45 | 2.89 | 46.89 | 1.81 | — | — |
+| **PP7** | 48.26 | 1.22 | 45.56 | 1.28 | 47.72 | 1.16 | **0.28** | **1.09** |
+| SPP, 4 grids | 48.67 | 1.19 | 45.84 | 1.30 | 47.99 | 1.17 | 0.46 | 1.83 |
+| SPP, 8 grids | 48.85 | 1.02 | 46.02 | 1.09 | 48.14 | 1.01 | 0.88 | 3.46 |
+| SPP, 64 grids | 48.91 | 1.03 | 46.06 | 1.02 | 48.18 | 1.02 | 6.53 | 25.80 |
+
+The time is one picture's three planes in 4:2:0 on an RTX 4060. PP7 keeps about two thirds of
+the gain of SPP over 8 grids for a third of its cost, and the cleaning had a budget: half a
+millisecond for deblocking and debanding together at 1080p on this card, so that it stays
+light on a small one. PP7 is the only one that fits it.
+
+Through the real encoders the same pictures went through (`clean_refs.py`, FFmpeg 9.0),
+against FFmpeg's own filters at each one's best setting:
+
+| Encode | untouched | **PP7 here** | FFmpeg `pp7` | FFmpeg `spp`, 64 grids | FFmpeg `deblock` |
+|---|---|---|---|---|---|
+| MPEG-2 q4 | 47.23 | **47.90** | 47.37 | 47.66 | 47.22 |
+| MPEG-2 q8 | 44.65 | **45.46** | 45.11 | 45.38 | 45.06 |
+| MPEG-2 q12 | 43.23 | **44.09** | 43.86 | 44.04 | 43.79 |
+| XviD q12 | 41.85 | **42.88** | 42.67 | 42.88 | 42.57 |
+| x264 CRF 38 | 38.39 | 38.57 | — | — | — |
+| x265 CRF 40 | 38.73 | 38.88 | — | — | — |
+
+The method is FFmpeg's `pp7`; what differs here is that it computes in floating point and
+keeps 16 bits until the conversion reads them, where FFmpeg works in integers and writes 8.
+On the codecs with a loop filter there is little left to take out: 0.15 to 0.2 dB.
+
+### The five deblocking levels
+
+Each level is the strength that does best on one rung of a ladder of damage: MPEG-2 intra
+blocks at quantiser_scale_code 2, 4, 8, 12 and 16 (`--tclean --ladder`). The thresholds are
+FFmpeg's *medium* ones, its default for pp7: *soft* ones reach one to two tenths of a decibel
+more at their best and leave more of the blocks there, and at equal blocking the two are
+within 0.1 dB.
+
+| Level | assumed quantizer | made for | psnr there, untouched -> cleaned | block |
+|---|---|---|---|---|
+| 1 | 1.5 | MPEG-2 q2 | 49.88 -> 50.99 | 1.57 -> 1.10 |
+| 2 | 2.5 | MPEG-2 q4 | 47.32 -> 48.28 | 2.04 -> 1.17 |
+| **3** (default) | 4 | MPEG-2 q8 | 44.45 -> 45.56 | 2.89 -> 1.28 |
+| 4 | 6 | MPEG-2 q12 | 42.90 -> 44.04 | 3.78 -> 1.35 |
+| 5 | 8 | MPEG-2 q16 | 41.81 -> 43.00 | 4.60 -> 1.40 |
+
+On a clean picture every level costs detail -- level 1 takes it from 59.06 to 55.89 dB, level 3
+to 50.75 -- so it is for the sources that need it, and off for a Blu-ray.
+
+### Debanding: libplacebo's
+
+The shipped debanding is **libplacebo's**, the one mpv runs and FFmpeg's `libplacebo` filter
+too, translated function for function: for each iteration, four samples a quarter turn apart
+round the pixel, at a random distance up to the radius times the iteration, averaged; the pixel
+takes the average when it is within the threshold of it, divided by the iteration. A step one
+or two code levels high is under the threshold and is smoothed away; an edge is not. Its random
+numbers are libplacebo's own pcg3d, seeded by the picture's time, so that a picture paused or
+drawn again stays as it was. The shader is checked against a double-precision reference written
+from libplacebo's code, to within 0.6 of an R16 step (`dlssnr_harness --tclean`).
+
+Measured with **CAMBI**, Netflix's banding score in libvmaf (0: no banding to see), on 88
+pictures that went through x264, x265 and SVT-AV1 at the strengths a starved stream has
+(`clean_refs.py --cambi`). The untouched pictures, read at the 10 bits the cleaning writes,
+score 10.0 (x264 CRF 38) and 11.5 (SVT-AV1 CRF 60). psnr and detail are the change against the
+untouched picture, averaged over the eight encodes:
+
+| Level | iterations / threshold / radius | CAMBI | psnr | detail |
+|---|---|---|---|---|
+| 1 | 1 / 2 / 16 | 0.56 | +0.01 | 0.00 |
+| 2 | 1 / 4 / 16 | 0.33 | +0.02 | -0.01 |
+| **3** (default) | 2 / 4 / 16 | 0.10 | +0.01 | -0.01 |
+| 4 | 2 / 6 / 20 | 0.05 | -0.04 | -0.03 |
+| 5 | 3 / 8 / 24 | 0.02 | -0.15 | -0.06 |
+
+Up to level 3 it takes nothing measurable from the picture. The threshold is in thousandths
+of the plane's range, as libplacebo's, so a level means the same on 8 and on 10 bits.
+FFmpeg's own `deband` and `gradfun`, on the same encodes written at 8 bits (6.47 untouched
+there), leave 0.87 and 1.76.
+
+**No grain.** libplacebo adds a fine grain after the smoothing, to hide what is left, and with
+it every level reads 0 on CAMBI. It was measured and left out: at libplacebo's default amount it
+costs 1.5 dB on a clean picture, and it makes the smooth parts of a still picture move from one
+picture to the next by half as much again (1.38 to 2.02 thousandths of the range; `--tclean
+--study`, section 5), where the smoothing alone already takes out 93 to 99.8 % of the banding.
+
+### What they cost
+
+One picture's three planes in 4:2:0 on the RTX 4060 (`dlssnr_harness --tclean`): the
+deblocking 0.28 ms at 1080p and 1.10 ms at 2160p, whatever the level; the debanding 0.10,
+0.13, 0.18, 0.19 and 0.31 ms over its five levels at 1080p (0.39 to 1.33 at 2160p). Both at
+their default levels, 0.46 and 1.80 ms; both at level 5, 0.59 and 2.43. The statistics give
+the figure for the film playing, on the *Artifacts* step.
+
+### With DLSS 5 NR and with RTX Video Super Resolution
+
+DLSS 5 NR does not take the blocks out by itself: on the MPEG-2 pictures at q8 it leaves the
+blocking at 3.45 times the steps elsewhere, where it was 3.76, and the deblocking before it
+brings that to 1.32, 1.4 dB closer to the clean picture (`--tclean --withnr`; every row through
+RGB, as the network works). Against banding, the debanding before the network measured nothing
+more. The two are meant to be used together on a damaged source.
+
+RTX Video Super Resolution does its own cleaning, at 1:1 as well: on the same picture through
+the filter it took the blocking from 1.67 to 1.18 by itself (`playback_test --clean`), which is
+why the two boxes step aside for it.
+
 ## Sharpening
 
 A sharpener restores nothing: it exaggerates. The whole question is *where it is allowed to*,
@@ -1756,6 +1904,10 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 
 | Setting | Default | What it does |
 |---|---|---|
+| Deblocking | off | Takes out the 8x8 blocks and the ringing of MPEG-2 and XviD-like sources, on the decoded planes before anything converts or resizes the picture. See *Deblocking and debanding*. Greyed with RTX Video Super Resolution chosen, and without Direct3D 11 |
+| Strength | 3 | Five levels, each made for one strength of damage: level 3 for MPEG-2 at quantizer 8. Greyed while Deblocking is off |
+| Debanding | off | Smooths the steps compression leaves in gradients, on the decoded planes. Same conditions as Deblocking |
+| Strength | 3 | Five levels; see *Deblocking and debanding*. Greyed while Debanding is off |
 | Sharpening: Method | Off | *Adaptive-Sharpen* or *Unsharp + Clamp*, run after the resize, so it also reaches a film already at the screen's size. See *Sharpening* for what each is worth. Needs Direct3D 11 |
 | Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Off |
 | Use dithering | on | A very fine noise before output, so that skies and fades to black show no banding |
@@ -1899,6 +2051,7 @@ steps work in.
 
 | Step | What it says |
 |---|---|
+| Artifacts | The deblocking and debanding, their levels, and where the cleaned planes go: `on the planes`, which the conversion or the chroma replacement then reads, or `back into the processor's planes`. Asked for and not done, it says why: RTX Video Super Resolution chosen, interlaced pictures, an RGB or packed source |
 | Chroma | The chroma replacement: the shaders rebuild 4:2:0 or 4:2:2 colour with the Chroma upsampling method and hand the processor a 4:4:4 picture, a prescaler's time included |
 | Processor | The video processor converts the picture, its chroma too unless the step above took it. When it is the one resizing it does that in the same call, the step says `resizes`, and its time is the resizing's too: the Scaling step then has none of its own. RTX Video Super Resolution and RTX Video HDR run inside it and are in its time. The processor works on an engine of its own, which the timestamps around it once missed altogether -- 0.0 ms with Super Resolution and RTX Video HDR at 4K, of 21.6 for the picture; it is now timed from its call to its output being ready, 17.4 ms of 20.8 there |
 | Convert | The shaders convert the picture instead, with the chroma method named, a chroma prescaler's time included |
@@ -2334,6 +2487,11 @@ playback_test.exe --frame 10      the page in a real property frame, as a player
 playback_test.exe --frame 10 --themed   and with a player painting its controls over it
 playback_test.exe --chroma <png>  each chroma upsampler, the hardware one included, against 4:4:4
 playback_test.exe --chroma10 <png> the same in 10 bits: P010 against Y410 (--interlaced: who converts)
+playback_test.exe --clean <png>   the picture coded as MPEG-2 intra blocks, deblocked by each path (--clean10: P010)
+playback_test.exe --file <film> --deblock 3 --deband 2   a real film with the artifact removal at those levels
+dlssnr_harness.exe --tclean       deblocking and debanding at their five levels, and their shaders against the reference
+dlssnr_harness.exe --tclean --study   the comparison the methods were chosen on (--ladder, --cost, --withnr: parts of it)
+python clean_refs.py              real encodes and FFmpeg's filters on them, then --tclean --files clean_refs and --cambi
 playback_test.exe --toggle       each setting changed in full playback, as the player does
 playback_test.exe --toggle --gpu --hdr --switch   as a hardware decoder feeds it, in HDR
 playback_test.exe --toggle --file <mkv> --seek 1740   a real film, split and decoded
@@ -2410,6 +2568,14 @@ The **Adaptive-Sharpen** pass in `Shaders/d3d11/ps_sharpen.hlsl` is translated f
 Copyright (c) 2015-2021 bacondither, under the **BSD 2-clause** licence; its notice travels
 with the pass. The three-line contrast-adaptive kernel measured beside it comes from AMD's
 FidelityFX (MIT) and is not shipped.
+
+The **debanding** in `Shaders/d3d11/cs_deband.hlsl` is a translation of **libplacebo**'s
+`pl_shader_deband` (v7.351.0, `code.videolan.org/videolan/libplacebo`), Copyright its authors,
+under the **GNU Lesser General Public License 2.1 or later**, which allows it to be offered
+under the GPL as the rest of the renderer; its notice travels with the pass. The **deblocking**
+in `Shaders/d3d11/cs_deblock.hlsl` follows FFmpeg's `pp7` filter and, for the SPP variant the
+study measured, the grid table of its `spp` filter (both MPlayer's, by Michael Niedermayer,
+GPL 2 or later).
 
 `Source/DLSS/NvOF/` holds the two interface headers of the NVIDIA Optical Flow SDK 5.0.7,
 copied unchanged. Each carries its own permission notice ("This copyright notice applies to
