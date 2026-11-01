@@ -1,8 +1,10 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 30 October 2026, on an
-RTX 4060 (driver 32.0.16.1742) with the Windows desktop in HDR, all twenty-six steps green.
-The filter is `223984b`, build 2787, and filter and tools are built by MSVC 14.44. It is the thing
+`run_all_report.txt` here is what the whole battery measured on 1 November 2026, on an
+RTX 4060 (driver 32.0.16.1742) with the Windows desktop in HDR and Windows' hardware-accelerated
+GPU scheduling on, all thirty steps green. The filter is the code of `3337c74` (built as 2791
+before it was committed, the report's commit line saying `6ebcf9b`) with the tools of
+`c6cfa1d`, and filter and tools are built by MSVC 14.44. It is the thing
 a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
@@ -35,6 +37,15 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## With the artifact removal
+
+Against the report it replaces (`223984b`, 30 October), 2669 rows compared, 214 new and
+none gone: the new rows are the four steps of the deblocking and debanding -- `--tclean`,
+`--clean`, `--clean10` and the Detail tab -- and their toggles in the three steps that change
+settings while a film plays. Two rows moved by more than 0.1, both the pipeline's bare
+times ("frame, upload to done"), the first after hardware-accelerated GPU scheduling was
+turned on (31 October); no picture moved.
 
 ## From the RTX 3050 to the RTX 4060
 
