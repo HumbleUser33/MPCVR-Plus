@@ -51,6 +51,10 @@ _nvngx.dll
 /tools/dlssnr_probe/sr_*.png
 /tools/dlssnr_probe/upscale_refs/
 /tools/dlssnr_probe/models/
+# The real encodes and FFmpeg's filters on them, made by clean_refs.py from upscale_refs,
+# and the pictures playback_test --clean saves
+/tools/dlssnr_probe/clean_refs/
+/tools/dlssnr_probe/clean_*.bmp
 
 # ONNX Runtime and DirectML packages, fetched locally
 /external/onnxruntime/

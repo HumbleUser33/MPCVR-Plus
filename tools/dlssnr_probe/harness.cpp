@@ -1004,6 +1004,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 #include "mpvhook.inl"
 #include "upscale_suite.inl"
 #include "sharpen_suite.inl"
+#include "clean_suite.inl"
 #include "chroma_suite.inl"
 #include "mpv_port_suite.inl"
 #include "downscale_port_suite.inl"
@@ -1092,6 +1093,13 @@ int wmain(int argc, wchar_t** argv)
 	const bool temporalUpscaleCost = hasArg(L"--tupscalecost");
 	const bool temporalChroma = hasArg(L"--tchroma");
 	const bool temporalSharpen = hasArg(L"--tsharpen");
+	const bool temporalClean = hasArg(L"--tclean");   // with --study: the comparison the choice was made on
+	std::wstring cleanFiles;   // --tclean --files <dir>: the real encodes of clean_refs.py
+	for (int i = 1; i + 1 < argc; i++) {
+		if (!wcscmp(argv[i], L"--files")) {
+			cleanFiles = argv[i + 1];
+		}
+	}
 	const bool temporalMpvPort = hasArg(L"--tmpvport");
 	const bool temporalDownPort = hasArg(L"--tdownport");
 	const bool temporalDownscale = hasArg(L"--tdownscale");
@@ -1168,7 +1176,7 @@ int wmain(int argc, wchar_t** argv)
 	// battery step that named three ran DLSS SR's alone for as long as it existed: the
 	// stabilizer's port check never ran in it. Two named is refused, out loud.
 	const bool suites[] = { temporal, temporalOracle, temporalEffect, temporalFlow, temporalStab || temporalStabPort,
-		temporalStabBench, temporalUpscale, temporalUpscaleCost, temporalChroma, temporalSharpen, temporalMpvPort,
+		temporalStabBench, temporalUpscale, temporalUpscaleCost, temporalChroma, temporalSharpen, temporalClean, temporalMpvPort,
 		temporalDownPort, temporalDownscale, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
 		temporalPipeline, temporalNRScale, temporalSRClip, temporalSRCut, temporalCutScan, temporalAutoMask };
 	if (std::count(std::begin(suites), std::end(suites), true) > 1) {
@@ -1180,7 +1188,7 @@ int wmain(int argc, wchar_t** argv)
 		return 4;
 	}
 	if (temporal || temporalOracle || temporalEffect || temporalFlow
-			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask) {
+			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalClean || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
 			if (!wcscmp(argv[i], L"--srrefs")) {
@@ -1204,6 +1212,9 @@ int wmain(int argc, wchar_t** argv)
 			: temporalUpscaleCost ? temporal::RunUpscaleCost(dev, ctx)
 			: temporalMpvPort ? temporal::RunMpvPort(dev, ctx, srRefs)
 			: temporalSharpen ? temporal::RunSharpen(dev, ctx, srRefs)
+			: temporalClean ? temporal::RunClean(dev, ctx, srRefs,
+				hasArg(L"--withnr") ? 4 : hasArg(L"--ladder") ? 3 : hasArg(L"--cost") ? 2 : hasArg(L"--study") ? 1 : 0,
+				cleanFiles.c_str(), skipNR ? nullptr : &dlss)
 			: temporalChroma ? temporal::RunChroma(dev, ctx, srRefs)
 			: temporalUpscale ? temporal::RunUpscale(dev, ctx, srRefs, hasArg(L"--nomodels"))
 			: temporalStabBench ? temporal::RunStabBench(dev, ctx)
