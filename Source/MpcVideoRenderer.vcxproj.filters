@@ -69,6 +69,9 @@
     <ClCompile Include="DX11VideoProcessor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DX11VideoProcessorClean.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="DX11VideoProcessorDlss.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -186,6 +189,9 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="SettingsPage\SettingsPage.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Clean\CleanParams.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DLSS\DlssOpticalFlow.h">

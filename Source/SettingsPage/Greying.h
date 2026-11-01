@@ -25,7 +25,7 @@
 // Which of the lists the hardware video processor and the shaders share still have
 // something to do, and whether the driver's Super Resolution can do anything.
 //
-// These five decide each other, and they are the ones a user notices when they are
+// These decide each other, and they are the ones a user notices when they are
 // wrong. They live here rather than inside the page, and they are pure, so the bench
 // can put the same question to them that the page puts -- for settings and for a
 // state of the renderer that no film to hand would produce.
@@ -55,6 +55,7 @@ struct Greying {
 	bool bUpscalingList;     // Upscaling, and its label
 	bool bDownscalingList;   // Downscaling, and its label
 	bool bSuperRes;          // Video Super Resolution, and its label
+	bool bCleaning;          // Deblocking and Debanding, and their levels
 };
 
 inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDoViNow)
@@ -99,5 +100,12 @@ inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDo
 #else
 	g.bSuperRes = false;   // the extension is x64 only
 #endif
+
+	// Deblocking and debanding clean the decoded planes before anything converts the
+	// picture, whoever does. RTX Video Super Resolution cleans the picture itself, in
+	// its own network: chosen, it takes the picture's cleaning over as it takes the
+	// resizing, and the two step aside rather than clean it twice. They are compute
+	// shaders: Direct3D 11.
+	g.bCleaning = s.bUseD3D11 && !(g.bSuperRes && s.iVPSuperRes != SUPERRES_Disable);
 	return g;
 }

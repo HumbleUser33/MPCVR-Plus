@@ -51,6 +51,10 @@
 #define OPT_VPReplaceChroma                L"VPReplaceChroma"
 #define OPT_Sharpen                        L"Sharpen"
 #define OPT_SharpenLevel                   L"SharpenLevel"
+#define OPT_Deblock                        L"Deblock"
+#define OPT_DeblockLevel                   L"DeblockLevel"
+#define OPT_Deband                         L"Deband"
+#define OPT_DebandLevel                    L"DebandLevel"
 #define OPT_ChromaUpsampling               L"ChromaUpsampling"
 #define OPT_Upscaling                      L"Upscaling"
 #define OPT_Downscaling                    L"Downscaling"
@@ -173,6 +177,18 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SharpenLevel, dw)) {
 		sets.iSharpenLevel = discard<int>(dw, SHARPEN_LEVEL_DEF, SHARPEN_LEVEL_MIN, SHARPEN_LEVEL_MAX);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Deblock, dw)) {
+		sets.bDeblock = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DeblockLevel, dw)) {
+		sets.iDeblockLevel = discard<int>(dw, CLEAN_LEVEL_DEF, CLEAN_LEVEL_MIN, CLEAN_LEVEL_MAX);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Deband, dw)) {
+		sets.bDeband = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DebandLevel, dw)) {
+		sets.iDebandLevel = discard<int>(dw, CLEAN_LEVEL_DEF, CLEAN_LEVEL_MIN, CLEAN_LEVEL_MAX);
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ChromaUpsampling, dw)) {
 		sets.iChromaScaling = discard<int>(dw, CHROMA_CatmullRom, 0, CHROMA_COUNT-1);
@@ -349,6 +365,10 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_VPReplaceChroma,     sets.bVPReplaceChroma);
 	key.SetDWORDValue(OPT_Sharpen,             sets.iSharpen);
 	key.SetDWORDValue(OPT_SharpenLevel,        sets.iSharpenLevel);
+	key.SetDWORDValue(OPT_Deblock,             sets.bDeblock);
+	key.SetDWORDValue(OPT_DeblockLevel,        sets.iDeblockLevel);
+	key.SetDWORDValue(OPT_Deband,              sets.bDeband);
+	key.SetDWORDValue(OPT_DebandLevel,         sets.iDebandLevel);
 	key.SetDWORDValue(OPT_ChromaUpsampling,    sets.iChromaScaling);
 	key.SetDWORDValue(OPT_Upscaling,           sets.iUpscaling);
 	key.SetDWORDValue(OPT_Downscaling,         sets.iDownscaling);

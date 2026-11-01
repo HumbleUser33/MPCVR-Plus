@@ -305,6 +305,24 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		L"Adds a very fine noise before output so that smooth gradients (skies, fades to black) "
 		"don't show banding.\n"
 		"Negligible cost: leave it on." },
+	{ IDC_DEBLOCK,
+		L"Removes the 8x8 blocks and the ringing that strong compression leaves (DVDs, standard-"
+		"definition TV, XviD and DivX files), on the decoded picture before it is converted or resized.\n"
+		"On clean video it only softens fine texture: leave it off for Blu-ray and good encodes.\n"
+		"Progressive video, Direct3D 11. Not with RTX Video Super Resolution, which cleans the "
+		"picture itself." },
+	{ IDC_DEBLOCK_LEVEL,
+		L"Strength from 1 to 5: match it to how damaged the source is. Higher levels remove "
+		"stronger blocks, and more fine detail with them." },
+	{ IDC_DEBAND,
+		L"Smooths the steps that compression leaves in skies, walls and fades, on the decoded "
+		"picture before it is converted or resized. Only differences of a few levels are smoothed: "
+		"edges and detail are kept.\n"
+		"Progressive video, Direct3D 11. Not with RTX Video Super Resolution, which cleans the "
+		"picture itself." },
+	{ IDC_DEBAND_LEVEL,
+		L"Strength from 1 to 5. Raise it until the bands are gone; too high flattens soft "
+		"shading." },
 
 	// DLSS 5 NR
 	{ IDC_DLSSNR_ENABLE,
@@ -732,6 +750,12 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_SHARPEN_LEVEL, TBM_SETTIC, 0, 1);
 	Send(IDC_SHARPEN_LEVEL, TBM_SETLINESIZE, 0, 1);
 	Send(IDC_SHARPEN_LEVEL, TBM_SETPAGESIZE, 0, 1);
+	for (const int id : { IDC_DEBLOCK_LEVEL, IDC_DEBAND_LEVEL }) {
+		Send(id, TBM_SETRANGE, 0, MAKELONG(CLEAN_LEVEL_MIN, CLEAN_LEVEL_MAX));
+		Send(id, TBM_SETTIC, 0, 1);
+		Send(id, TBM_SETLINESIZE, 0, 1);
+		Send(id, TBM_SETPAGESIZE, 0, 1);
+	}
 
 	Send(IDC_SLIDER1, TBM_SETRANGE, 0, MAKELONG(0, 2));
 	Send(IDC_SLIDER1, TBM_SETTIC, 0, 1);
@@ -799,6 +823,12 @@ void CVRSettingsPPage::SetControls()
 	Send(IDC_SHARPEN_LEVEL, TBM_SETPOS, 1, m_SetsPP.iSharpenLevel);
 	SetText(IDC_SHARPEN_LEVEL_TEXT, std::to_wstring(m_SetsPP.iSharpenLevel).c_str());
 	SetCheck(IDC_CHECK10, m_SetsPP.bUseDither);
+	SetCheck(IDC_DEBLOCK, m_SetsPP.bDeblock);
+	Send(IDC_DEBLOCK_LEVEL, TBM_SETPOS, 1, m_SetsPP.iDeblockLevel);
+	SetText(IDC_DEBLOCK_LEVEL_TEXT, std::to_wstring(m_SetsPP.iDeblockLevel).c_str());
+	SetCheck(IDC_DEBAND, m_SetsPP.bDeband);
+	Send(IDC_DEBAND_LEVEL, TBM_SETPOS, 1, m_SetsPP.iDebandLevel);
+	SetText(IDC_DEBAND_LEVEL_TEXT, std::to_wstring(m_SetsPP.iDebandLevel).c_str());
 
 	if (m_SetsPP.bHdrPassthrough) {
 		Combo_SelectData(Item(IDC_COMBO10), 0);
@@ -895,7 +925,7 @@ void CVRSettingsPPage::EnableControls()
 		}
 	}
 
-	// The five that decide each other, worked out in Greying.h so the bench can put
+	// The ones that decide each other, worked out in Greying.h so the bench can put
 	// the same question to them without a film and without a page.
 	const Greying grey = GreyingFor(m_SetsPP, IsWindows8OrGreater() != FALSE,
 		IsWindows10OrGreater() != FALSE, m_bDoViByShaders);
@@ -921,6 +951,23 @@ void CVRSettingsPPage::EnableControls()
 	Enable(IDC_STATIC_SHARPEN_LEVEL, bSharpLevel);
 	Enable(IDC_SHARPEN_LEVEL, bSharpLevel);
 	Enable(IDC_SHARPEN_LEVEL_TEXT, bSharpLevel);
+
+	// The artifact removal follows Greying.h, each level its own box; the line under
+	// them says why they are grey when they are.
+	Enable(IDC_DEBLOCK, grey.bCleaning);
+	Enable(IDC_DEBAND, grey.bCleaning);
+	const BOOL bDeblockLevel = grey.bCleaning && m_SetsPP.bDeblock;
+	const BOOL bDebandLevel = grey.bCleaning && m_SetsPP.bDeband;
+	for (const int id : { IDC_STATIC_DEBLOCK_LEVEL, IDC_DEBLOCK_LEVEL, IDC_DEBLOCK_LEVEL_TEXT }) {
+		Enable(id, bDeblockLevel);
+	}
+	for (const int id : { IDC_STATIC_DEBAND_LEVEL, IDC_DEBAND_LEVEL, IDC_DEBAND_LEVEL_TEXT }) {
+		Enable(id, bDebandLevel);
+	}
+	SetText(IDC_STATIC_CLEAN_NOTE,
+		grey.bCleaning ? L"On the decoded video, before it is converted or resized."
+		: !m_SetsPP.bUseD3D11 ? L"Needs Direct3D 11."
+		: L"Left to RTX Video Super Resolution, which cleans the picture itself.");
 
 	// Render ahead and the chroma replacement belong to the Direct3D 11 processor.
 	Enable(IDC_CHECK26, m_SetsPP.bUseD3D11);
@@ -1191,6 +1238,8 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK8,  &m_SetsPP.VPFmts.bP01x,         true  },
 				{ IDC_CHECK9,  &m_SetsPP.VPFmts.bYUY2,         true  },
 				{ IDC_CHECK10, &m_SetsPP.bUseDither,           false },
+				{ IDC_DEBLOCK, &m_SetsPP.bDeblock,             true  },
+				{ IDC_DEBAND,  &m_SetsPP.bDeband,              true  },
 				{ IDC_CHECK11, &m_SetsPP.bExclusiveFS,         false },
 				{ IDC_CHECK13, &m_SetsPP.bAdjustPresentTime,   false },
 				{ IDC_CHECK14, &m_SetsPP.bConvertToSdr,        true  },
@@ -1291,7 +1340,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_COMBO4,  &m_SetsPP.iSwapEffect,        false },
 				{ IDC_COMBO6,  &m_SetsPP.iResizeStats,       false },
 				{ IDC_COMBO7,  &m_SetsPP.iHdrToggleDisplay,  false },
-				{ IDC_COMBO8,  &m_SetsPP.iVPSuperRes,        false },
+				{ IDC_COMBO8,  &m_SetsPP.iVPSuperRes,        true  },   // the artifact removal steps aside for it
 				{ IDC_COMBO9,  &m_SetsPP.iVPDeinterlacing,   false },
 				{ IDC_SHARPEN, &m_SetsPP.iSharpen,           true  },
 			};
@@ -1378,6 +1427,21 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				SetDirty();
 			}
 			return (INT_PTR)1;
+		}
+		const struct { int slider, text; int* pValue; } cleanLevels[] = {
+			{ IDC_DEBLOCK_LEVEL, IDC_DEBLOCK_LEVEL_TEXT, &m_SetsPP.iDeblockLevel },
+			{ IDC_DEBAND_LEVEL,  IDC_DEBAND_LEVEL_TEXT,  &m_SetsPP.iDebandLevel  },
+		};
+		for (const auto& c : cleanLevels) {
+			if (hCtrl == Item(c.slider)) {
+				const int value = (int)Send(c.slider, TBM_GETPOS);
+				if (value != *c.pValue) {
+					*c.pValue = value;
+					SetText(c.text, std::to_wstring(value).c_str());
+					SetDirty();
+				}
+				return (INT_PTR)1;
+			}
 		}
 		if (hCtrl == Item(IDC_SLIDER1)) {
 			const int value = (int)Send(IDC_SLIDER1, TBM_GETPOS);

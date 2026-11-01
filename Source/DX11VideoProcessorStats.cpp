@@ -147,6 +147,12 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	Rule(std::format(L"Pipeline, in {}", DXGIFormatToString(m_InternalTexFmt)), L"GPU ms");
 	const bool bSubsampled = m_srcParams.Subsampling == 420 || m_srcParams.Subsampling == 422;
 
+	// The artifact removal, on the decoded planes as the sample is copied; asked for
+	// and not done, it says why.
+	if (m_bDeblock || m_bDeband) {
+		Step(L"Artifacts", m_strCleanStatus, Sum(Ms(CGpuStageTimes::Deblock), Ms(CGpuStageTimes::Deband)));
+	}
+
 	// The chroma rebuilt by the shaders and handed to the processor in 4:4:4, as the
 	// sample is copied.
 	if (m_D3D11VP.IsReady() && m_bChromaReplacedVP && bSubsampled) {

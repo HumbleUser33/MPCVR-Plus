@@ -472,8 +472,10 @@ public:
 	// VP: the video processor's first turn. ShaderConvert: the conversion shader.
 	// Prepass: the chroma rebuilt for the video processor, a prescaler's included.
 	// Resize: the resize shader. Finish: everything after it, dither included.
+	// Deblock, Deband: the artifact removal on the decoded planes, as the sample is
+	// copied; the write back into the processor's input is the last one's.
 	enum Stage { NRMotion, NRStabilize, SRMotion, SR, MpvLuma, MpvChroma, VPScale, NRReduce, NRCompose,
-		VP, ShaderConvert, Prepass, Resize, Finish, StageCount };
+		VP, ShaderConvert, Prepass, Resize, Finish, Deblock, Deband, StageCount };
 
 	void Release();
 

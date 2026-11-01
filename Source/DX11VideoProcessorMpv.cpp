@@ -225,12 +225,12 @@ HRESULT CDX11VideoProcessor::MpvChromaPass()
 	const UINT chromaH = texH / m_srcParams.pDX11Planes->div_chroma_h;
 
 	// Cb and Cr where the conversion shader reads them: both in one plane, or in
-	// planes of their own, Cr first for YV12.
+	// planes of their own, Cr first for YV12. After the artifact removal when it ran.
 	const bool bPlanar = m_TexSrcVideo.pShaderResource3 != nullptr;
 	const bool bCrFirst = m_srcParams.cformat == CF_YV12 || m_srcParams.cformat == CF_YV16 || m_srcParams.cformat == CF_YV24;
 	ID3D11ShaderResourceView* const planes[2] = {
-		(bPlanar && bCrFirst) ? m_TexSrcVideo.pShaderResource3 : m_TexSrcVideo.pShaderResource2,
-		!bPlanar ? m_TexSrcVideo.pShaderResource2 : bCrFirst ? m_TexSrcVideo.pShaderResource2 : m_TexSrcVideo.pShaderResource3,
+		(bPlanar && bCrFirst) ? SrcPlane(2) : SrcPlane(1),
+		!bPlanar ? SrcPlane(1) : bCrFirst ? SrcPlane(1) : SrcPlane(2),
 	};
 	const FLOAT channels[2][4] = {
 		{ 1, 0, 0, 0 },
@@ -390,9 +390,9 @@ void CDX11VideoProcessor::ConvertTo444Pass(ID3D11UnorderedAccessView* pUav)
 	m_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
 
 	ID3D11ShaderResourceView* srvs[3] = {
-		m_TexSrcVideo.pShaderResource,
-		m_bMpvChromaActive ? MpvChromaPlane(0) : m_TexSrcVideo.pShaderResource2.p,
-		m_bMpvChromaActive ? MpvChromaPlane(1) : m_TexSrcVideo.pShaderResource3.p
+		SrcPlane(0),
+		m_bMpvChromaActive ? MpvChromaPlane(0) : SrcPlane(1),
+		m_bMpvChromaActive ? MpvChromaPlane(1) : SrcPlane(2)
 	};
 	ID3D11SamplerState* samplers[2] = { m_pSamplerPoint, m_pSamplerLinear };
 	ID3D11UnorderedAccessView* uavs[1] = { pUav };

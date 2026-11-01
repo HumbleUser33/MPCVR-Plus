@@ -420,6 +420,10 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_bVPReplaceChroma     = config.bVPReplaceChroma;
 	m_iSharpen             = config.iSharpen;
 	m_iSharpenLevel        = config.iSharpenLevel;
+	m_bDeblock             = config.bDeblock;
+	m_iDeblockLevel        = config.iDeblockLevel;
+	m_bDeband              = config.bDeband;
+	m_iDebandLevel         = config.iDebandLevel;
 	m_iChromaScaling       = config.iChromaScaling;
 	m_iUpscaling           = config.iUpscaling;
 	m_bUpscalingSmall      = config.bUpscalingSmall;
@@ -728,6 +732,7 @@ void CDX11VideoProcessor::ReleaseVP()
 	}
 
 	m_TexSrcVideo.Release();
+	ReleaseClean(false);
 	m_TexConvertOutput.Release();
 	m_TexResize.Release();
 	m_TexsPostScale.Release();
@@ -769,6 +774,7 @@ void CDX11VideoProcessor::ReleaseDevice()
 	DLog(L"CDX11VideoProcessor::ReleaseDevice()");
 
 	ReleaseVP();
+	ReleaseClean(true);
 	// Tear the NGX session down before the device it was bound to disappears --
 	// Shutdown1 takes that device.
 	m_DlssNR.Shutdown();
@@ -2452,6 +2458,12 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 	// still takes the picture, in 4:4:4. Read here, so that it means "the option
 	// applies to this picture" and not "the processor was not going to take it".
 	m_bChromaReplacedVP = !disableD3D11VP && ChromaToShaders(FmtParams, m_bInterlaced && m_bInterlacedSeen);
+	// The artifact removal for a processor keeping its own chroma: the planes are cleaned
+	// out of the decoder's texture and written back into the processor's own, which is
+	// then no longer read in place (DX11VideoProcessorClean.cpp).
+	m_bCleanVP = !disableD3D11VP && !m_bChromaReplacedVP && !m_bCleanFailed
+		&& (m_bDeblock || m_bDeband) && CleaningAllowed() && CleanFormatOk(FmtParams)
+		&& !(m_bInterlaced && m_bInterlacedSeen) && CleanPlaneTargetsOk(FmtParams.VP11Format);
 	if (disableD3D11VP) {
 		FmtParams.VP11Format = DXGI_FORMAT_UNKNOWN;
 	}
@@ -2591,6 +2603,7 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 	}
 
 	if (SUCCEEDED(hr)) {
+		UpdateClean();
 		UpdateBitmapShader();
 		UpdateTexures();
 		UpdatePostScaleTexures();
@@ -2635,7 +2648,18 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 		return hr;
 	}
 
-	hr = m_D3D11VP.InitInputTextures(m_pDevice, m_bChromaReplacedVP);
+	// Its input textures are written by the shaders when they hand it the chroma or the
+	// cleaned planes; the render target views on them are made again with them.
+	m_CleanTargets.clear();
+	hr = m_D3D11VP.InitInputTextures(m_pDevice, m_bChromaReplacedVP || m_bCleanVP);
+	if (FAILED(hr) && m_bCleanVP && !m_bChromaReplacedVP) {
+		// The artifact removal never costs the processor: it reads the decoder's
+		// texture in place again, and the cleaning is left out from then on.
+		DLog(L"CDX11VideoProcessor::InitializeD3D11VP() : no writable input textures ({}), the planes are not cleaned", HR2Str(hr));
+		m_bCleanVP = false;
+		m_bCleanFailed = true;
+		hr = m_D3D11VP.InitInputTextures(m_pDevice, false);
+	}
 	if (FAILED(hr)) {
 		DLog(L"CDX11VideoProcessor::InitializeD3D11VP() : InitInputTextures() failed with error {}", HR2Str(hr));
 		return hr;
@@ -2683,9 +2707,10 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 		}
 	}
 
-	// The chroma pass reads the picture plane by plane, as the shader processor does;
-	// without it the processor takes the frame as it comes.
-	hr = m_bChromaReplacedVP
+	// The chroma pass and the artifact removal read the picture plane by plane, as the
+	// shader processor does; without them the processor takes the frame as it comes.
+	const bool bPlanesRead = m_bChromaReplacedVP || m_bCleanVP;
+	hr = bPlanesRead
 		? m_TexSrcVideo.CreateEx(m_pDevice, params.DX11Format, params.pDX11Planes, width, height, Tex2D_DynamicShaderWrite)
 		: m_TexSrcVideo.Create(m_pDevice, params.VP11Format, width, height, Tex2D_DynamicShaderWriteNoSRV);
 	if (FAILED(hr)) {
@@ -2697,7 +2722,7 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 	m_srcHeight      = height;
 	m_srcParams      = params;
 	m_srcDXGIFormat  = params.VP11Format;   // what the decoder hands over, whatever the processor reads
-	m_pCopyPlaneFn   = GetCopyPlaneFunction(params, m_bChromaReplacedVP ? VP_D3D11_SHADER : VP_D3D11);
+	m_pCopyPlaneFn   = GetCopyPlaneFunction(params, bPlanesRead ? VP_D3D11_SHADER : VP_D3D11);
 
 	if (m_bChromaReplacedVP) {
 		hr = UpdateConvertTo444Shader();
@@ -2984,8 +3009,8 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 		// changes below are.
 		if (m_SampleFormat != D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE && !m_bInterlacedSeen) {
 			m_bInterlacedSeen = true;
-			if (m_bChromaReplacedVP && m_D3D11VP.IsReady()) {
-				DLog(L"CDX11VideoProcessor::CopySample() : an interlaced picture, the processor takes the chroma back");
+			if ((m_bChromaReplacedVP || m_bCleanVP) && m_D3D11VP.IsReady()) {
+				DLog(L"CDX11VideoProcessor::CopySample() : an interlaced picture, the processor takes the chroma and the planes back");
 				InitMediaType(&m_pFilter->m_inputMT);
 				m_bDoubleFrames = m_iVPDeinterlacing && m_bDeintDouble && m_D3D11VP.IsReady();
 			}
@@ -3314,10 +3339,10 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 			updateStats = true;
 		}
 
-		if (m_bChromaReplacedVP && m_D3D11VP.IsReady() && m_TexSrcVideo.desc.Usage == D3D11_USAGE_DYNAMIC) {
+		if ((m_bChromaReplacedVP || m_bCleanVP) && m_D3D11VP.IsReady() && m_TexSrcVideo.desc.Usage == D3D11_USAGE_DYNAMIC) {
 			// The frame arrives in the decoder's own texture and is copied into this
-			// one, which the chroma pass then reads. A dynamic texture, the one a
-			// frame from memory is mapped into, cannot take a copy.
+			// one, which the chroma pass or the artifact removal then reads. A dynamic
+			// texture, the one a frame from memory is mapped into, cannot take a copy.
 			hr = m_TexSrcVideo.CreateEx(m_pDevice, m_srcParams.DX11Format, m_srcParams.pDX11Planes,
 				m_srcWidth, m_srcHeight, Tex2D_DefaultShader);
 			if (FAILED(hr)) {
@@ -3355,19 +3380,26 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 		}
 #endif
 
-		if (m_D3D11VP.IsReady() && m_bChromaReplacedVP) {
-			// The chroma pass reads the planes, so the frame leaves the decoder's own
-			// texture and is written back in 4:4:4 into the processor's.
+		if (m_D3D11VP.IsReady() && (m_bChromaReplacedVP || m_bCleanVP)) {
+			// The chroma pass and the artifact removal read the planes, so the frame
+			// leaves the decoder's own texture and is written back into the processor's:
+			// in 4:4:4, or cleaned in its own format.
 			D3D11_BOX srcBox = { 0, 0, 0, m_srcWidth, m_srcHeight, 1 };
 			m_pDeviceContext->CopySubresourceRegion(m_TexSrcVideo.pTexture, 0, 0, 0, 0, pD3D11Texture2D, ArraySlice, &srcBox);
-			m_D3D11VP.GetNextInputTexture(m_SampleFormat);
-			ConvertTo444Pass(m_D3D11VP.GetInputUav());
+			CleanPass(pSample);
+			ID3D11Texture2D* pInput = m_D3D11VP.GetNextInputTexture(m_SampleFormat);
+			if (m_bChromaReplacedVP) {
+				ConvertTo444Pass(m_D3D11VP.GetInputUav());
+			} else {
+				CleanToVPInput(pInput);
+			}
 		} else if (m_D3D11VP.IsReady()) {
 			m_D3D11VP.SetInputVideoData(pD3D11Texture2D, pSample, ArraySlice, m_SampleFormat);
 		} else {
 			// here should be used CopySubresourceRegion instead of CopyResource
 			D3D11_BOX srcBox = { 0, 0, 0, m_srcWidth, m_srcHeight, 1 };
 			m_pDeviceContext->CopySubresourceRegion(m_TexSrcVideo.pTexture, 0, 0, 0, 0, pD3D11Texture2D, ArraySlice, &srcBox);
+			CleanPass(pSample);
 		}
 	}
 	else {
@@ -3376,7 +3408,7 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 			updateStats = true;
 		}
 
-		if (m_bChromaReplacedVP && m_TexSrcVideo.pTexture && m_TexSrcVideo.desc.Usage != D3D11_USAGE_DYNAMIC) {
+		if ((m_bChromaReplacedVP || m_bCleanVP) && m_TexSrcVideo.pTexture && m_TexSrcVideo.desc.Usage != D3D11_USAGE_DYNAMIC) {
 			// A frame from memory is mapped into this texture, so it goes back to
 			// dynamic, whatever a decoder texture made of it before.
 			hr = m_TexSrcVideo.CreateEx(m_pDevice, m_srcParams.DX11Format, m_srcParams.pDX11Planes,
@@ -3393,11 +3425,15 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 			// do not use UpdateSubresource for D3D11 VP here
 			// because it can cause green screens and freezes on some configurations
 			hr = MemCopyToTexSrcVideo(data, m_srcPitch);
+			// The artifact removal on the planes just written, for whoever reads them.
+			CleanPass(pSample);
 			if (m_D3D11VP.IsReady()) {
 				// ID3D11VideoProcessor does not use textures with D3D11_CPU_ACCESS_WRITE flag
 				ID3D11Texture2D* pInput = m_D3D11VP.GetNextInputTexture(m_SampleFormat);
 				if (m_bChromaReplacedVP) {
 					ConvertTo444Pass(m_D3D11VP.GetInputUav());
+				} else if (m_bCleanVP) {
+					CleanToVPInput(pInput);
 				} else {
 					m_pDeviceContext->CopyResource(pInput, m_TexSrcVideo.pTexture);
 				}
@@ -4217,13 +4253,15 @@ HRESULT CDX11VideoProcessor::ConvertColorPass(ID3D11Texture2D* pRenderTarget)
 	} else {
 		m_pDeviceContext->PSSetShader(m_pPSConvertColor, nullptr, 0);
 	}
-	m_pDeviceContext->PSSetShaderResources(0, 1, &m_TexSrcVideo.pShaderResource.p);
+	// The planes as they stand after the artifact removal, the decoder's otherwise.
+	ID3D11ShaderResourceView* const luma = SrcPlane(0);
+	m_pDeviceContext->PSSetShaderResources(0, 1, &luma);
 	if (m_bMpvChromaActive) {
 		ID3D11ShaderResourceView* chroma[2] = { MpvChromaPlane(0), MpvChromaPlane(1) };
 		m_pDeviceContext->PSSetShaderResources(1, 2, chroma);
 	} else {
-		m_pDeviceContext->PSSetShaderResources(1, 1, &m_TexSrcVideo.pShaderResource2.p);
-		m_pDeviceContext->PSSetShaderResources(2, 1, &m_TexSrcVideo.pShaderResource3.p);
+		ID3D11ShaderResourceView* chroma[2] = { SrcPlane(1), SrcPlane(2) };
+		m_pDeviceContext->PSSetShaderResources(1, 2, chroma);
 	}
 	m_pDeviceContext->PSSetSamplers(0, 1, &m_pSamplerPoint.p);
 	m_pDeviceContext->PSSetSamplers(1, 1, &m_pSamplerLinear.p);
@@ -5178,6 +5216,8 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	const bool bDlssNRActiveBefore = m_bDlssNRActive;
 	const bool bDlssSRActiveBefore = m_bDlssSRActive;
 	const bool bRenderAheadBefore  = m_bDlssRenderAhead;
+	// Whether Super Resolution has taken the cleaning over: several settings decide it.
+	const bool bCleaningAllowedBefore = CleaningAllowed();
 
 	// settings that do not require preparation
 	m_bShowStats           = config.bShowStats;
@@ -5344,6 +5384,18 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	}
 	m_iSharpenLevel = config.iSharpenLevel;   // read afresh with every picture
 
+	// The artifact removal: its levels are taken at the next picture, and the picture on
+	// the screen is cleaned again below.
+	bool changeClean = false;
+	if (config.bDeblock != m_bDeblock || config.iDeblockLevel != m_iDeblockLevel
+			|| config.bDeband != m_bDeband || config.iDebandLevel != m_iDebandLevel) {
+		m_bDeblock      = config.bDeblock;
+		m_iDeblockLevel = config.iDeblockLevel;
+		m_bDeband       = config.bDeband;
+		m_iDebandLevel  = config.iDebandLevel;
+		changeClean = true;
+	}
+
 	if (config.bVPReplaceChroma != m_bVPReplaceChroma) {
 		m_bVPReplaceChroma = config.bVPReplaceChroma;
 		if (!(m_bInterlaced && m_bInterlacedSeen) && m_srcParams.VP11Format != DXGI_FORMAT_UNKNOWN
@@ -5471,6 +5523,11 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		}
 	}
 
+	// Whether Super Resolution now takes the cleaning over, whichever setting made it so.
+	if (CleaningAllowed() != bCleaningAllowedBefore) {
+		changeClean = true;
+	}
+
 	if (!m_pFilter->GetActive()) {
 		return;
 	}
@@ -5483,6 +5540,10 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 
 		if (changeHDR && (SourceIsHDR10orHLG() || m_bVPUseRTXVideoHDR || m_bVPRTXVideoHDR) || m_iHdrToggleDisplay) {
 			m_srcVideoTransferFunction = 0;
+			InitMediaType(&m_pFilter->m_inputMT);
+		} else if (changeClean) {
+			// The artifact removal changed too: whether the decoder's texture is read in
+			// place is only chosen there.
 			InitMediaType(&m_pFilter->m_inputMT);
 		}
 		return;
@@ -5509,6 +5570,17 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	// is only chosen as it is made (VPSuperResOutputsEightBits).
 	if (changeSuperRes && m_D3D11VP.IsReady() && VPSuperResOutputsEightBits(m_srcParams.CDepth) != m_bVPOutEightBitsAsked) {
 		changeVP = true;
+	}
+	// The artifact removal for a processor keeping its own chroma decides whether the
+	// decoder's texture is read in place, which only InitMediaType chooses; and Super
+	// Resolution, chosen, takes the cleaning over (Greying.h).
+	if (changeClean && m_D3D11VP.IsReady() && !m_bChromaReplacedVP) {
+		const bool bCleanVP = !m_bCleanFailed && (m_bDeblock || m_bDeband) && CleaningAllowed()
+			&& CleanFormatOk(m_srcParams) && !(m_bInterlaced && m_bInterlacedSeen)
+			&& CleanPlaneTargetsOk(m_srcParams.VP11Format);
+		if (bCleanVP != m_bCleanVP) {
+			changeVP = true;
+		}
 	}
 
 	if (changeVP) {
@@ -5584,6 +5656,13 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	// The second turn is made for Super Resolution as asked and for the chroma as
 	// kept, and neither of the two always rebuilds anything above.
 	UpdateVPScale();
+
+	// The artifact removal where nothing above rebuilt the processor: the same picture
+	// cleaned again, so that a paused one shows the change.
+	if (changeClean) {
+		UpdateClean();
+		CleanAgain();
+	}
 
 	UpdateStatsStatic();
 }

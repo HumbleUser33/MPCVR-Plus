@@ -195,6 +195,12 @@ constexpr inline auto SHARPEN_LEVEL_MIN = 1;
 constexpr inline auto SHARPEN_LEVEL_MAX = 5;
 constexpr inline auto SHARPEN_LEVEL_DEF = 3;
 
+// Deblocking and debanding on the decoded planes, five levels each: what each level
+// does is in Source/Clean/CleanParams.h, which the measurement tools read as well.
+constexpr inline auto CLEAN_LEVEL_MIN = 1;
+constexpr inline auto CLEAN_LEVEL_MAX = 5;
+constexpr inline auto CLEAN_LEVEL_DEF = 3;
+
 // The picture delay, in milliseconds. Later is what a slow sound asks for; earlier is
 // there for a television that takes longer over the picture than the sound takes to
 // arrive. The step is the slider's: a picture moves by whole refreshes in any case.
@@ -316,6 +322,16 @@ struct Settings_t {
 	// DLSSNR_FLOW_*, 0 being Auto. DLSS Super Resolution keeps its own Auto.
 	int  iDlssNRFlowDivider;
 
+	// Artifact removal on the decoded planes, before anything converts or resizes the
+	// picture: deblocking (the codec's 8 x 8 blocks and its ringing) and debanding (the
+	// steps it leaves in smooth gradients), CLEAN_LEVEL_* each. Progressive planar
+	// video, Direct3D 11; RTX Video Super Resolution, which cleans the picture itself,
+	// leaves them out (Greying.h).
+	bool bDeblock;
+	int  iDeblockLevel;
+	bool bDeband;
+	int  iDebandLevel;
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -404,6 +420,10 @@ struct Settings_t {
 		iVideoDelay                     = 0;
 		iDlssNRWorkingScale             = DLSSNR_SCALE_DEF;
 		iDlssNRFlowDivider              = DLSSNR_FLOW_DEF;
+		bDeblock                        = false;
+		iDeblockLevel                   = CLEAN_LEVEL_DEF;
+		bDeband                         = false;
+		iDebandLevel                    = CLEAN_LEVEL_DEF;
 	}
 };
 
