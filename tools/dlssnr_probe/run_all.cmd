@@ -51,6 +51,9 @@ CALL :Run "the pipeline"                       "dlssnr_harness.exe --tpipeline -
 CALL :Run "upscalers on film"                  "dlssnr_harness.exe --tupscale --nonr --nomodels"
 CALL :Run "chroma upsamplers on film"          "dlssnr_harness.exe --tchroma --nonr"
 CALL :Run "sharpeners on film"                 "dlssnr_harness.exe --tsharpen --nonr --nomodels"
+REM Deblocking and debanding on the decoded planes, at their five levels, and their
+REM shaders against the reference in double precision.
+CALL :Run "artifact removal on film"           "dlssnr_harness.exe --tclean --nonr --srrefs 4"
 CALL :Run "video processor rebuild"            "vp_rebuild_test.exe"
 CALL :Run "the generated 4:4:4 chroma pass"    "shader444_test.exe"
 CALL :Run "playback, 10 s"                     "playback_test.exe --seconds 10"
@@ -61,11 +64,14 @@ REM bars, which the first step after does by reading it where it lies.
 CALL :Run "the upscalers through the filter, with bars" "playback_test.exe --scalers --letterbox --size 1920x800 --window 3840x2160 --seconds 2"
 CALL :Run "chroma through the filter, 8-bit"   "playback_test.exe --chroma %REF% --seconds 3"
 CALL :Run "chroma through the filter, 10-bit"  "playback_test.exe --chroma10 %REF% --seconds 3"
+CALL :Run "artifact removal through the filter, 8-bit"  "playback_test.exe --clean %REF% --seconds 3"
+CALL :Run "artifact removal through the filter, 10-bit" "playback_test.exe --clean10 %REF% --seconds 3"
 CALL :Run "settings changed while playing"     "playback_test.exe --toggle --seconds 3"
 CALL :Run "the processor's extras, both ways"  "playback_test.exe --switch --toggle --seconds 3"
 CALL :Run "pictures from a decoder's device"   "playback_test.exe --gpu --toggle --seconds 3"
 CALL :Run "the Settings page and its lists"    "playback_test.exe --mainpage 2"
 CALL :Run "the Settings page, DLSS 5 NR"       "playback_test.exe --mainpage 2 --section 4"
+CALL :Run "the Settings page, Detail"          "playback_test.exe --mainpage 2 --section 3"
 REM Five graphs made and unmade in one process, DLSS off and on: what a player does
 REM from one film to the next. It was called "the DLSS page" and ran a switch that no
 REM longer existed, so it played these without saying so -- and it is where the fault of
