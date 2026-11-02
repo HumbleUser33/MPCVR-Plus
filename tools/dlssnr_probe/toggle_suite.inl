@@ -98,13 +98,14 @@ static const Toggle g_toggles[] = {
 	{ "RTX Video HDR off",                      [](Settings_t& s) { s.bVPRTXVideoHDR = false; } },
 	// The artifact removal: on, its levels, through each path, aside for Super Resolution.
 	// With the processor keeping its own chroma, turning it on rebuilds the processor.
-	{ "Deblocking on",                          [](Settings_t& s) { s.bDeblock = true; s.iDeblockLevel = 3; } },
+	{ "Deblocking on",                          [](Settings_t& s) { s.iDeblock = DEBLOCK_PP7; s.iDeblockLevel = 3; } },
 	{ "Debanding on, deblocking to 5",          [](Settings_t& s) { s.bDeband = true; s.iDebandLevel = 3; s.iDeblockLevel = 5; } },
 	{ "Debanding to 1",                         [](Settings_t& s) { s.iDebandLevel = 1; } },
+	{ "Deblocking to SPP",                      [](Settings_t& s) { s.iDeblock = DEBLOCK_SPP; } },
 	{ "Super Resolution on, cleaning aside",    [](Settings_t& s) { s.bVPScaling = true; s.iVPSuperRes = SUPERRES_SD; } },
 	{ "Super Resolution off, cleaning back",    [](Settings_t& s) { s.iVPSuperRes = SUPERRES_Disable; } },
 	{ "Replace VP chroma upsampling on",        [](Settings_t& s) { s.bVPReplaceChroma = true; } },
-	{ "Deblocking and debanding off",           [](Settings_t& s) { s.bDeblock = false; s.bDeband = false; } },
+	{ "Deblocking and debanding off",           [](Settings_t& s) { s.iDeblock = DEBLOCK_Off; s.bDeband = false; } },
 	{ "Chroma upsampling to RAVU-zoom",         [](Settings_t& s) { s.iChromaScaling = CHROMA_RAVU; } },
 	{ "Chroma upsampling to Jinc (EWA)",        [](Settings_t& s) { s.iChromaScaling = CHROMA_Jinc; } },
 	{ "Chroma upsampling to FSRCNNX 8 AR",      [](Settings_t& s) { s.iChromaScaling = CHROMA_FSRCNNX8AR; } },

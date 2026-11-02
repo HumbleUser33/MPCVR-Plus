@@ -96,6 +96,7 @@ static bool g_bChroma444 = false;      // this run feeds AYUV, the reference
 static bool g_bClean = false;
 static constexpr int kCleanQ = 8;
 static int g_filmDeblock = -1;         // --file: --deblock N, 0 off
+static int g_filmDeblockMethod = DEBLOCK_PP7;   // --file: --spp, the heavier method
 static int g_filmDeband = -1;          // --file: --deband N, 0 off
 static bool g_bToggle = false;         // --toggle: settings changed while the film plays
 static bool g_bToggleHdr = false;      // --toggle --hdr: with HDR passthrough, the case that freezes
@@ -804,6 +805,7 @@ struct Config {
 	int iPrepass = -1;           // and "Replace VP chroma upsampling", 0 or 1
 	int iDeblock = 0;            // --clean: the deblocking level, 0 off
 	int iDeband = 0;             // and the debanding's
+	int iDeblockMethod = DEBLOCK_PP7; // and the deblocking's method
 };
 
 struct Result {
@@ -1330,7 +1332,7 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		// whatever the registry holds. Super Resolution asked for needs the processor
 		// to be the one resizing: at 1:1 it then has nothing to do, and the cleaning
 		// is still to step aside for it.
-		sets.bDeblock = config.iDeblock > 0;
+		sets.iDeblock = config.iDeblock > 0 ? config.iDeblockMethod : DEBLOCK_Off;
 		sets.bDeband = config.iDeband > 0;
 		if (config.iDeblock > 0) {
 			sets.iDeblockLevel = config.iDeblock;
@@ -1389,7 +1391,7 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 			sets.bHdrPreferDoVi = g_filmPreferDovi != 0;
 		}
 		if (g_filmDeblock >= 0) {
-			sets.bDeblock = g_filmDeblock > 0;
+			sets.iDeblock = g_filmDeblock > 0 ? g_filmDeblockMethod : DEBLOCK_Off;
 			if (g_filmDeblock > 0) {
 				sets.iDeblockLevel = g_filmDeblock;
 			}
@@ -1439,7 +1441,7 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		// structure differs from the bench's shows it here first.
 		if (g_filmDeblock >= 0 || g_filmDeband >= 0) {
 			printf("   clean kept   : deblock %d level %d, deband %d level %d\n",
-				(int)back.bDeblock, back.iDeblockLevel, (int)back.bDeband, back.iDebandLevel);
+				back.iDeblock, back.iDeblockLevel, (int)back.bDeband, back.iDebandLevel);
 		}
 	}
 	}
@@ -2552,6 +2554,8 @@ int wmain(int argc, wchar_t* argv[])
 			chromaFile = argv[i + 1];
 		} else if (!wcscmp(argv[i], L"--deblock")) {
 			g_filmDeblock = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--spp")) {
+			g_filmDeblockMethod = DEBLOCK_SPP;
 		} else if (!wcscmp(argv[i], L"--deband")) {
 			g_filmDeband = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--mainpage")) {
@@ -2750,6 +2754,8 @@ int wmain(int argc, wchar_t* argv[])
 		{ "processor, chroma replaced, deblock 3",      false, false, true, -1, CHROMA_CatmullRom, true,  false, true,  false, -1, -1, -1, -1, 3, 0 },
 		{ "processor, Super Resolution, nothing",       false, false, true, -1, -1,                true,  false, false, false, -1, -1, SUPERRES_1080p, -1, 0, 0 },
 		{ "processor, Super Resolution, deblock 3",     false, false, true, -1, -1,                true,  false, false, false, -1, -1, SUPERRES_1080p, -1, 3, 0 },
+		{ "shaders, deblock SPP 3",                     false, false, true, -1, CHROMA_CatmullRom, false, false, false, false, -1, -1, -1, -1, 3, 0, DEBLOCK_SPP },
+		{ "processor, deblock SPP 3",                   false, false, true, -1, -1,                true,  false, false, false, -1, -1, -1, -1, 3, 0, DEBLOCK_SPP },
 	};
 	// --afternr: DLSS 5 NR at the source's size, and each of the ways the picture it
 	// leaves can be enlarged. A run where the shaders enlarge, which they have always
@@ -3099,9 +3105,14 @@ int wmain(int argc, wchar_t* argv[])
 
 	// --clean: each path gains with the cleaning, and alike, since the same planes reach
 	// all three; and Super Resolution chosen leaves the picture as it was without it.
+	// SPP, the heavier of the two deblockings, on the shaders' path and the processor's:
+	// it gains there too, and leaves fewer blocks than PP7 at the same level.
 	if (g_bClean && only < 0) {
 		const struct { int off, on; const wchar_t* where; } pairs[] = {
 			{ 1, 2, L"on the planes" }, { 4, 5, L"back into the processor's planes" }, { 6, 7, L"on the planes" },
+		};
+		const struct { int off, on, pp7; const wchar_t* where; } sppPairs[] = {
+			{ 1, 10, 2, L"SPP 3, on the planes" }, { 4, 11, 5, L"SPP 3, back into the processor's planes" },
 		};
 		printf("the artifact removal, path by path\n");
 		double lo = 1e9, hi = -1e9;
@@ -3142,6 +3153,37 @@ int wmain(int argc, wchar_t* argv[])
 				printf("   FAIL: the cleaning did not step aside for Super Resolution\n");
 				failures++;
 			}
+		}
+		lo = 1e9, hi = -1e9;
+		for (const auto& p : sppPairs) {
+			if (!cleanScores.count(p.off) || !cleanScores.count(p.on) || !cleanScores.count(p.pp7)) {
+				printf("   FAIL: runs %d, %d and %d did not all measure\n", p.off, p.on, p.pp7);
+				failures++;
+				continue;
+			}
+			const CleanMetrics& a = cleanScores[p.off];
+			const CleanMetrics& b = cleanScores[p.on];
+			const CleanMetrics& c = cleanScores[p.pp7];
+			printf("   %-40s psnr %+.2f dB, block %.3f -> %.3f (PP7 %+.2f dB, %.3f)\n", configs[p.on].name,
+				b.psnr - a.psnr, a.block, b.block, c.psnr - a.psnr, c.block);
+			if (b.block > 0.85 * a.block || b.psnr <= a.psnr) {
+				printf("   FAIL: SPP did not take the blocks out on this path\n");
+				failures++;
+			}
+			if (b.block >= c.block) {
+				printf("   FAIL: SPP left as many blocks as PP7\n");
+				failures++;
+			}
+			if (cleanLines[p.on].find(p.where) == std::wstring::npos) {
+				wprintf(L"   FAIL: the statistics do not say %s\n", p.where);
+				failures++;
+			}
+			lo = std::min(lo, b.block);
+			hi = std::max(hi, b.block);
+		}
+		if (hi > 1.1 * lo) {
+			printf("   FAIL: SPP does not leave the same blocks on both paths (%.3f to %.3f)\n", lo, hi);
+			failures++;
 		}
 		printf("\n");
 	}

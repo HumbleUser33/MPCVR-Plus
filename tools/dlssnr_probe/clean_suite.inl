@@ -1102,6 +1102,7 @@ static int RunFiles(CCleanGpu& gpu, const std::wstring& dir)
 	const Deblocker ours[] = {
 		{ "PP7 medium", 1, 8, Clean::DeblockMedium },
 		{ "PP7 soft", 1, 8, Clean::DeblockSoft },
+		{ "SPP-8 medium", 0, 8, Clean::DeblockMedium },
 		{ "SPP-8 soft", 0, 8, Clean::DeblockSoft },
 		{ "SPP-16 hard", 0, 16, Clean::DeblockHard },
 	};
@@ -1330,8 +1331,11 @@ static int RunWithNR(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 			// the cleaning at the level suited to the damage
 			c = d;
 			if (nc.deblock) {
-				const Deblocker m = { "", Clean::kDeblockMode, Clean::kDeblockShifts, Clean::kDeblock[nc.deblock - 1].mode };
-				DeblockPlanes(gpu, m, Clean::kDeblock[nc.deblock - 1].qp, d, c, error);
+				// The light method, PP7.
+				const Clean::DeblockLevel& l = Clean::DeblockLevelFor(Clean::DeblockPP7, nc.deblock);
+				const Clean::DeblockShader& sh = Clean::kDeblockShader[Clean::DeblockPP7];
+				const Deblocker m = { "", sh.mode, sh.shifts, l.mode };
+				DeblockPlanes(gpu, m, l.qp, d, c, error);
 			}
 			if (nc.deband) {
 				Planes t = c;
@@ -1520,8 +1524,10 @@ static int RunClean(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs, in
 		if (study == 3) {
 			static const float kQpL[] = { 0.5f, 1, 1.5f, 2, 2.5f, 3, 4, 5, 6, 8, 10, 12 };
 			const char* ladder[] = { "mpeg2 q2", "mpeg2 q4", "mpeg2 q8", "mpeg2 q12", "mpeg2 q16", "mpeg2 q8 +4", "jpeg 0.72", "clean", "grain" };
-			Out("\nThe shipped deblocking (%s) over the ladder: psnr, and block in brackets, at each qp.\n",
-				Clean::kDeblockMode ? "PP7" : "SPP");
+			for (const int method : { (int)Clean::DeblockPP7, (int)Clean::DeblockSPP }) {
+			const Clean::DeblockShader& sh = Clean::kDeblockShader[method];
+			Out("\nThe deblocking %s over the ladder: psnr, and block in brackets, at each qp.\n",
+				method == Clean::DeblockSPP ? "SPP" : "PP7");
 			for (uint32_t mode = 0; mode < 3; mode++) {
 				static const char* tn[3] = { "hard", "soft", "medium" };
 				Out("\n  --- %s ---\n  %6s", tn[mode], "qp");
@@ -1538,12 +1544,13 @@ static int RunClean(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs, in
 					Out("  %6.1f", qp);
 					for (const char* cn : ladder) {
 						Score s;
-						const Deblocker m = { "", Clean::kDeblockMode, Clean::kDeblockShifts, mode };
+						const Deblocker m = { "", sh.mode, sh.shifts, mode };
 						scoreDeblock(m, qp, caseIndex(cn), s);
 						Out(" %8.3f (%5.3f)", s.psnr, s.block);
 					}
 					Out("\n");
 				}
+			}
 			}
 		}
 
@@ -1747,25 +1754,28 @@ static int RunClean(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs, in
 		}
 
 		// ---- the shipped levels, on every case.
-		const Deblocker shipped = { "deblock", Clean::kDeblockMode, Clean::kDeblockShifts, 0 };
-		Out("\nThe five deblocking levels as shipped (%s), on every case:\n", Clean::kDeblockMode ? "PP7" : "SPP");
-		for (size_t k = 0; k < std::size(kCases); k++) {
-			Out("\n  --- %s --- (the truth's block figure %.3f)\n", kCases[k].name, truthBlock(k));
-			PrintHead("level", "qp");
-			PrintRow("none", "-", scoreNone(k));
-			for (int lv = 1; lv <= Clean::kLevels; lv++) {
-				Deblocker m = shipped;
-				m.threshold = Clean::kDeblock[lv - 1].mode;
-				Score s;
-				if (!scoreDeblock(m, Clean::kDeblock[lv - 1].qp, k, s)) {
-					Out("  %s\n", error.c_str());
-					rc = 1;
-					break;
+		for (const int method : { (int)Clean::DeblockPP7, (int)Clean::DeblockSPP }) {
+			const Clean::DeblockShader& sh = Clean::kDeblockShader[method];
+			const char* mname = method == Clean::DeblockSPP ? "SPP" : "PP7";
+			Out("\nThe five deblocking levels as shipped, %s, on every case:\n", mname);
+			for (size_t k = 0; k < std::size(kCases); k++) {
+				Out("\n  --- %s, %s --- (the truth's block figure %.3f)\n", mname, kCases[k].name, truthBlock(k));
+				PrintHead("level", "qp");
+				PrintRow("none", "-", scoreNone(k));
+				for (int lv = 1; lv <= Clean::kLevels; lv++) {
+					const Clean::DeblockLevel& l = Clean::DeblockLevelFor(method, lv);
+					const Deblocker m = { "deblock", sh.mode, sh.shifts, l.mode };
+					Score s;
+					if (!scoreDeblock(m, l.qp, k, s)) {
+						Out("  %s\n", error.c_str());
+						rc = 1;
+						break;
+					}
+					char n[16], q[16];
+					sprintf_s(n, "%s %d", mname, lv);
+					sprintf_s(q, "%.1f", l.qp);
+					PrintRow(n, q, s);
 				}
-				char n[16], q[16];
-				sprintf_s(n, "%d", lv);
-				sprintf_s(q, "%.1f", Clean::kDeblock[lv - 1].qp);
-				PrintRow(n, q, s);
 			}
 		}
 		Out("\nThe five debanding levels as shipped, on every case:\n");
@@ -1791,16 +1801,25 @@ static int RunClean(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs, in
 		{
 			Out("\nWhat ships, one picture's planes in 4:2:0, on this GPU:\n\n");
 			Out("  %-22s %10s %10s\n", "", "1080p", "2160p");
-			ID3D11ComputeShader* b1 = gpu.Shader({ false, Clean::kDeblockMode, Clean::kDeblockShifts, 1 }, error);
-			ID3D11ComputeShader* b2 = gpu.Shader({ false, Clean::kDeblockMode, Clean::kDeblockShifts, 2 }, error);
 			ID3D11ComputeShader* d1 = gpu.Shader({ true, 0, 0, 1 }, error);
 			ID3D11ComputeShader* d2 = gpu.Shader({ true, 0, 0, 2 }, error);
-			if (b1 && b2 && d1 && d2) {
-				// The deblocking costs the same at every level; the debanding by its iterations.
-				const Clean::DeblockLevel& bl = Clean::kDeblock[Clean::kLevels - 1];
-				const double bh = gpu.Cost(b1, DeblockC(1920, 1080, bl.qp, bl.mode), 1) + gpu.Cost(b2, DeblockC(960, 540, bl.qp, bl.mode), 2);
-				const double bu = gpu.Cost(b1, DeblockC(3840, 2160, bl.qp, bl.mode), 1) + gpu.Cost(b2, DeblockC(1920, 1080, bl.qp, bl.mode), 2);
-				Out("  %-22s %7.3f ms %7.3f ms\n", "deblocking", bh, bu);
+			// The deblocking costs the same at every level; the debanding by its iterations.
+			double bh = 0, bu = 0, ph = 0, pu = 0;
+			for (const int method : { (int)Clean::DeblockPP7, (int)Clean::DeblockSPP }) {
+				const Clean::DeblockShader& sh = Clean::kDeblockShader[method];
+				ID3D11ComputeShader* b1 = gpu.Shader({ false, sh.mode, sh.shifts, 1 }, error);
+				ID3D11ComputeShader* b2 = gpu.Shader({ false, sh.mode, sh.shifts, 2 }, error);
+				if (!b1 || !b2) {
+					continue;
+				}
+				const Clean::DeblockLevel& bl = Clean::DeblockLevelFor(method, Clean::kLevels);
+				const double h = gpu.Cost(b1, DeblockC(1920, 1080, bl.qp, bl.mode), 1) + gpu.Cost(b2, DeblockC(960, 540, bl.qp, bl.mode), 2);
+				const double u = gpu.Cost(b1, DeblockC(3840, 2160, bl.qp, bl.mode), 1) + gpu.Cost(b2, DeblockC(1920, 1080, bl.qp, bl.mode), 2);
+				Out("  %-22s %7.3f ms %7.3f ms\n", method == Clean::DeblockSPP ? "deblocking, SPP" : "deblocking, PP7", h, u);
+				(method == Clean::DeblockPP7 ? bh : ph) = h;
+				(method == Clean::DeblockPP7 ? bu : pu) = u;
+			}
+			if (d1 && d2) {
 				double dh[Clean::kLevels + 1] = {}, du[Clean::kLevels + 1] = {};
 				for (int lv = 1; lv <= Clean::kLevels; lv++) {
 					dh[lv] = gpu.Cost(d1, Clean::DebandConstants(lv, 1920, 1080, kBlack, 1, 0), 1)
@@ -1811,8 +1830,10 @@ static int RunClean(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs, in
 					sprintf_s(n, "debanding, level %d", lv);
 					Out("  %-22s %7.3f ms %7.3f ms\n", n, dh[lv], du[lv]);
 				}
-				Out("  %-22s %7.3f ms %7.3f ms\n", "both, level 3", bh + dh[3], bu + du[3]);
-				Out("  %-22s %7.3f ms %7.3f ms\n", "both, level 5", bh + dh[5], bu + du[5]);
+				Out("  %-22s %7.3f ms %7.3f ms\n", "PP7 and deband, 3", bh + dh[3], bu + du[3]);
+				Out("  %-22s %7.3f ms %7.3f ms\n", "PP7 and deband, 5", bh + dh[5], bu + du[5]);
+				Out("  %-22s %7.3f ms %7.3f ms\n", "SPP and deband, 3", ph + dh[3], pu + du[3]);
+				Out("  %-22s %7.3f ms %7.3f ms\n", "SPP and deband, 5", ph + dh[5], pu + du[5]);
 			}
 		}
 
@@ -1834,7 +1855,10 @@ static int RunClean(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs, in
 					cbcr[2 * ((size_t)j * (cw / 2) + i) + 1] = d.cr[(size_t)(j + 100) * d.CW() + i + 150];
 				}
 			}
-			std::vector<std::pair<int, int>> variants = { { Clean::kDeblockMode, Clean::kDeblockShifts } };
+			std::vector<std::pair<int, int>> variants = {
+				{ Clean::kDeblockShader[Clean::DeblockPP7].mode, Clean::kDeblockShader[Clean::DeblockPP7].shifts },
+				{ Clean::kDeblockShader[Clean::DeblockSPP].mode, Clean::kDeblockShader[Clean::DeblockSPP].shifts },
+			};
 			if (study) {
 				variants = { { 1, 8 }, { 0, 4 }, { 0, 8 }, { 0, 16 }, { 0, 64 } };
 			}
