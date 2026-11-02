@@ -1,10 +1,9 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 1 November 2026, on an
+`run_all_report.txt` here is what the whole battery measured on 2 November 2026, on an
 RTX 4060 (driver 32.0.16.1742) with the Windows desktop in HDR and Windows' hardware-accelerated
-GPU scheduling on, all thirty steps green. The filter is the code of `3337c74` (built as 2791
-before it was committed, the report's commit line saying `6ebcf9b`) with the tools of
-`c6cfa1d`, and filter and tools are built by MSVC 14.44. It is the thing
+GPU scheduling on, all thirty steps green. The filter and the tools are the code of `60743ee`,
+as the report's commit line says, both built by MSVC 14.44. It is the thing
 a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
@@ -37,6 +36,19 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## With SPP beside PP7
+
+Against the report it replaces (`2d241d4`, 1 November), 2883 rows compared, 145 new and 55
+gone, and 61 moved by more than 0.1. All but two of the moved and all of the gone are the
+layout of the artifact removal's own tables, not their values: the deblocking levels are
+printed for each method, so what was row `1` is now `PP7 1`, and the 55 PP7 rows and 55
+debanding rows are the same to 0.001 as before; the SPP port checks come before the
+debanding's, so four `[ok` rows compared by position read another line. The other two are
+the pipeline's bare times again ("frame, upload to done"), faster: the first 10.94 ms to
+7.77. The new rows are SPP's levels, port checks and costs, its two runs in `--clean` and
+`--clean10`, and its toggle in the steps that change settings while a film plays. No
+picture moved.
 
 ## With the artifact removal
 
