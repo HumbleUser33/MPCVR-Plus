@@ -8,7 +8,7 @@ rendering is bit-identical to upstream.
 |---|---|
 | **Scaling** | six upscalers chosen by measurement — ArtCNN C4F16 DS, FSRCNNX 8/16, RAVU-zoom and the anti-ringing versions — with both lists ordered best first |
 | **Chroma** | three more methods, and a 4:4:4 pre-pass that hands the hardware video processor a full picture: +7 dB of colour on 10-bit film |
-| **Detail** | deblocking and debanding on the decoded planes, and sharpening after the resize, each with five calibrated levels |
+| **Detail** | deblocking (PP7, or SPP for a powerful GPU) and debanding on the decoded planes, and sharpening after the resize, each with five calibrated levels |
 | **DLSS 5 NR** | NVIDIA neural reconstruction (NGX feature 18) with a temporal stabilizer made for video |
 | **DLSS SR** | DLSS Super Resolution 4.5 for enlarging, and DLAA at native size (experimental) |
 | **Presentation** | render ahead, so none of it drifts off the audio clock |
@@ -1263,19 +1263,25 @@ chroma in one texture, and an interlaced picture is two fields woven, so those t
 untouched, and the statistics say why. **With RTX Video Super Resolution chosen, both step
 aside**: it cleans the picture itself, in its own network, and it is not cleaned twice.
 
-### Deblocking: PP7
+### Deblocking: PP7 or SPP
 
-The shipped method is **PP7** (MPlayer, FFmpeg's `pp7`): for each pixel, the 7 x 7 window
-around it is transformed, the coefficients under the quantizer the codec is assumed to have
-used are dropped, and only the centre is rebuilt. It needs neither the codec's quantizers nor
-its grid, so a cropped or rescaled source is no different from another: on blocks moved four
-pixels off the grid it gives the same figures to the hundredth.
+Two methods are offered, both of FFmpeg's, from MPlayer:
 
-It was chosen against **SPP**, the same idea over 8 x 8 blocks on shifted grids averaged
-together (FFmpeg's `spp`), on 16 pictures made from nine film frames, their planes coded as
-MPEG-2 intra blocks. Each method at the strength that suits each case best, psnr of luma and
-chroma together, and `block` the luma's steps across the codec's grid over its steps
-elsewhere (the truth reads 1.00):
+- **PP7** (`pp7`), the light one: for each pixel, the 7 x 7 window around it is transformed,
+  the coefficients under the quantizer the codec is assumed to have used are dropped, and only
+  the centre is rebuilt.
+- **SPP** (`spp`), for a powerful GPU: the same idea over 8 x 8 blocks, on eight grids shifted
+  against one another (FFmpeg's own offsets), each block rebuilt whole and the eight results
+  averaged.
+
+Neither needs the codec's quantizers nor its grid, so a cropped or rescaled source is no
+different from another: on blocks moved four pixels off the grid they give the same figures
+to the hundredth.
+
+They were measured on 16 pictures made from nine film frames, their planes coded as MPEG-2
+intra blocks, with SPP's other grid counts beside them. Each method at the strength that
+suits each case best, psnr of luma and chroma together, and `block` the luma's steps across
+the codec's grid over its steps elsewhere (the truth reads 1.00):
 
 | | MPEG-2 q4 | | MPEG-2 q8 | | JPEG 0.72 | | 1080p | 2160p |
 |---|---|---|---|---|---|---|---|---|
@@ -1283,48 +1289,55 @@ elsewhere (the truth reads 1.00):
 | untouched | 47.32 | 2.04 | 44.45 | 2.89 | 46.89 | 1.81 | — | — |
 | **PP7** | 48.26 | 1.22 | 45.56 | 1.28 | 47.72 | 1.16 | **0.28** | **1.09** |
 | SPP, 4 grids | 48.67 | 1.19 | 45.84 | 1.30 | 47.99 | 1.17 | 0.46 | 1.83 |
-| SPP, 8 grids | 48.85 | 1.02 | 46.02 | 1.09 | 48.14 | 1.01 | 0.88 | 3.46 |
+| **SPP, 8 grids** | 48.85 | 1.02 | 46.02 | 1.09 | 48.14 | 1.01 | **0.88** | **3.46** |
 | SPP, 64 grids | 48.91 | 1.03 | 46.06 | 1.02 | 48.18 | 1.02 | 6.53 | 25.80 |
 
-The time is one picture's three planes in 4:2:0 on an RTX 4060. PP7 keeps about two thirds of
-the gain of SPP over 8 grids for a third of its cost, and the cleaning had a budget: half a
-millisecond for deblocking and debanding together at 1080p on this card, so that it stays
-light on a small one. PP7 is the only one that fits it.
+The time is one picture's three planes in 4:2:0 on an RTX 4060. The cleaning had a budget:
+half a millisecond for deblocking and debanding together at 1080p on this card, so that it
+stays light on a small one. PP7 is the only one that fits it, and keeps about two thirds of
+the gain of SPP over 8 grids for a third of its cost. SPP over 8 grids is the choice for a
+card with time to spare: of the steps the codec added across its grid, it leaves 1 to 5 %
+where PP7 leaves 15 to 21 %. Four grids leave as many as PP7 for 1.6 times its time, and 64
+come within 0.04 to 0.06 dB of 8 for seven times the cost, so neither is offered.
 
 Through the real encoders the same pictures went through (`clean_refs.py`, FFmpeg 9.0),
 against FFmpeg's own filters at each one's best setting:
 
-| Encode | untouched | **PP7 here** | FFmpeg `pp7` | FFmpeg `spp`, 64 grids | FFmpeg `deblock` |
-|---|---|---|---|---|---|
-| MPEG-2 q4 | 47.23 | **47.90** | 47.37 | 47.66 | 47.22 |
-| MPEG-2 q8 | 44.65 | **45.46** | 45.11 | 45.38 | 45.06 |
-| MPEG-2 q12 | 43.23 | **44.09** | 43.86 | 44.04 | 43.79 |
-| XviD q12 | 41.85 | **42.88** | 42.67 | 42.88 | 42.57 |
-| x264 CRF 38 | 38.39 | 38.57 | — | — | — |
-| x265 CRF 40 | 38.73 | 38.88 | — | — | — |
+| Encode | untouched | **PP7 here** | **SPP here**, 8 grids | FFmpeg `pp7` | FFmpeg `spp`, 64 grids | FFmpeg `deblock` |
+|---|---|---|---|---|---|---|
+| MPEG-2 q4 | 47.23 | 47.90 | **48.21** | 47.37 | 47.66 | 47.22 |
+| MPEG-2 q8 | 44.65 | 45.46 | **45.73** | 45.11 | 45.38 | 45.06 |
+| MPEG-2 q12 | 43.23 | 44.09 | **44.33** | 43.86 | 44.04 | 43.79 |
+| XviD q12 | 41.85 | 42.88 | **43.12** | 42.67 | 42.88 | 42.57 |
+| x264 CRF 38 | 38.39 | 38.57 | 38.64 | — | — | — |
+| x265 CRF 40 | 38.73 | 38.88 | 38.96 | — | — | — |
 
-The method is FFmpeg's `pp7`; what differs here is that it computes in floating point and
-keeps 16 bits until the conversion reads them, where FFmpeg works in integers and writes 8.
-On the codecs with a loop filter there is little left to take out: 0.15 to 0.2 dB.
+The methods are FFmpeg's; what differs here is that they compute in floating point and keep
+16 bits until the conversion reads them, where FFmpeg works in integers and writes 8. So SPP
+over 8 grids here is ahead of FFmpeg's over 64 by 0.24 to 0.55 dB. On the codecs
+with a loop filter there is little left to take out: 0.15 to 0.25 dB.
 
 ### The five deblocking levels
 
 Each level is the strength that does best on one rung of a ladder of damage: MPEG-2 intra
-blocks at quantiser_scale_code 2, 4, 8, 12 and 16 (`--tclean --ladder`). The thresholds are
-FFmpeg's *medium* ones, its default for pp7: *soft* ones reach one to two tenths of a decibel
-more at their best and leave more of the blocks there, and at equal blocking the two are
-within 0.1 dB.
+blocks at quantiser_scale_code 2, 4, 8, 12 and 16 (`--tclean --ladder`), for each method on
+its own, so that a level means the same damage whichever is chosen. The thresholds are
+FFmpeg's *medium* ones, its default for pp7. For PP7, *soft* ones reach one to two tenths of a
+decibel more at their best and leave more of the blocks there, and at equal blocking the two
+are within 0.1 dB; for SPP, medium is the best of the three on every rung.
 
-| Level | assumed quantizer | made for | psnr there, untouched -> cleaned | block |
-|---|---|---|---|---|
-| 1 | 1.5 | MPEG-2 q2 | 49.88 -> 50.99 | 1.57 -> 1.10 |
-| 2 | 2.5 | MPEG-2 q4 | 47.32 -> 48.28 | 2.04 -> 1.17 |
-| **3** (default) | 4 | MPEG-2 q8 | 44.45 -> 45.56 | 2.89 -> 1.28 |
-| 4 | 6 | MPEG-2 q12 | 42.90 -> 44.04 | 3.78 -> 1.35 |
-| 5 | 8 | MPEG-2 q16 | 41.81 -> 43.00 | 4.60 -> 1.40 |
+| Level | made for | untouched | PP7 | | SPP | |
+|---|---|---|---|---|---|---|
+| | | psnr / block | quantizer | psnr / block | quantizer | psnr / block |
+| 1 | MPEG-2 q2 | 49.88 / 1.57 | 1.5 | 50.99 / 1.10 | 1.5 | 51.58 / 0.99 |
+| 2 | MPEG-2 q4 | 47.32 / 2.04 | 2.5 | 48.28 / 1.17 | 2 | 48.85 / 1.02 |
+| **3** (default) | MPEG-2 q8 | 44.45 / 2.89 | 4 | 45.56 / 1.28 | 3 | 46.02 / 1.09 |
+| 4 | MPEG-2 q12 | 42.90 / 3.78 | 6 | 44.04 / 1.35 | 5 | 44.45 / 1.06 |
+| 5 | MPEG-2 q16 | 41.81 / 4.60 | 8 | 43.00 / 1.40 | 6 | 43.37 / 1.10 |
 
-On a clean picture every level costs detail -- level 1 takes it from 59.06 to 55.89 dB, level 3
-to 50.75 -- so it is for the sources that need it, and off for a Blu-ray.
+On a clean picture every level costs detail -- level 1 takes it from 59.06 to 55.89 dB with
+PP7 and to 54.83 with SPP, level 3 to 50.75 and 50.93 -- so it is for the sources that need it,
+and off for a Blu-ray.
 
 ### Debanding: libplacebo's
 
@@ -1365,16 +1378,17 @@ picture to the next by half as much again (1.38 to 2.02 thousandths of the range
 ### What they cost
 
 One picture's three planes in 4:2:0 on the RTX 4060 (`dlssnr_harness --tclean`): the
-deblocking 0.28 ms at 1080p and 1.10 ms at 2160p, whatever the level; the debanding 0.10,
-0.13, 0.18, 0.19 and 0.31 ms over its five levels at 1080p (0.39 to 1.33 at 2160p). Both at
-their default levels, 0.46 and 1.80 ms; both at level 5, 0.59 and 2.43. The statistics give
-the figure for the film playing, on the *Artifacts* step.
+deblocking 0.28 ms at 1080p and 1.10 ms at 2160p with PP7, 0.88 and 3.44 with SPP, whatever
+the level; the debanding 0.10, 0.13, 0.18, 0.19 and 0.31 ms over its five levels at 1080p
+(0.39 to 1.33 at 2160p). PP7 and the debanding at their default levels, 0.46 and 1.80 ms; both
+at level 5, 0.59 and 2.43. SPP and the debanding, 1.06 and 4.15 ms; at level 5, 1.20 and 4.79.
+The statistics give the figure for the film playing, on the *Artifacts* step.
 
 ### With DLSS 5 NR and with RTX Video Super Resolution
 
 DLSS 5 NR does not take the blocks out by itself: on the MPEG-2 pictures at q8 it leaves the
-blocking at 3.45 times the steps elsewhere, where it was 3.76, and the deblocking before it
-brings that to 1.32, 1.4 dB closer to the clean picture (`--tclean --withnr`; every row through
+blocking at 3.45 times the steps elsewhere, where it was 3.76, and the deblocking (PP7) before
+it brings that to 1.32, 1.4 dB closer to the clean picture (`--tclean --withnr`; every row through
 RGB, as the network works). Against banding, the debanding before the network measured nothing
 more. The two are meant to be used together on a damaged source.
 
@@ -1904,8 +1918,8 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 
 | Setting | Default | What it does |
 |---|---|---|
-| Deblocking | off | Takes out the 8x8 blocks and the ringing of MPEG-2 and XviD-like sources, on the decoded planes before anything converts or resizes the picture. See *Deblocking and debanding*. Greyed with RTX Video Super Resolution chosen, and without Direct3D 11 |
-| Strength | 3 | Five levels, each made for one strength of damage: level 3 for MPEG-2 at quantizer 8. Greyed while Deblocking is off |
+| Deblocking | Off | Takes out the 8x8 blocks and the ringing of MPEG-2 and XviD-like sources, on the decoded planes before anything converts or resizes the picture. *PP7 (light)* or *SPP (for a powerful GPU)*, which takes the blocks out further and keeps more of the picture for three times the GPU time. See *Deblocking and debanding*. Greyed with RTX Video Super Resolution chosen, and without Direct3D 11 |
+| Strength | 3 | Five levels, each made for one strength of damage, for each method: level 3 for MPEG-2 at quantizer 8. Greyed while Deblocking is Off |
 | Debanding | off | Smooths the steps compression leaves in gradients, on the decoded planes. Same conditions as Deblocking |
 | Strength | 3 | Five levels; see *Deblocking and debanding*. Greyed while Debanding is off |
 | Sharpening: Method | Off | *Adaptive-Sharpen* or *Unsharp + Clamp*, run after the resize, so it also reaches a film already at the screen's size. See *Sharpening* for what each is worth. Needs Direct3D 11 |
@@ -2488,7 +2502,7 @@ playback_test.exe --frame 10 --themed   and with a player painting its controls 
 playback_test.exe --chroma <png>  each chroma upsampler, the hardware one included, against 4:4:4
 playback_test.exe --chroma10 <png> the same in 10 bits: P010 against Y410 (--interlaced: who converts)
 playback_test.exe --clean <png>   the picture coded as MPEG-2 intra blocks, deblocked by each path (--clean10: P010)
-playback_test.exe --file <film> --deblock 3 --deband 2   a real film with the artifact removal at those levels
+playback_test.exe --file <film> --deblock 3 --deband 2   a real film with the artifact removal at those levels (--spp: SPP)
 dlssnr_harness.exe --tclean       deblocking and debanding at their five levels, and their shaders against the reference
 dlssnr_harness.exe --tclean --study   the comparison the methods were chosen on (--ladder, --cost, --withnr: parts of it)
 python clean_refs.py              real encodes and FFmpeg's filters on them, then --tclean --files clean_refs and --cambi
@@ -2573,9 +2587,8 @@ The **debanding** in `Shaders/d3d11/cs_deband.hlsl` is a translation of **libpla
 `pl_shader_deband` (v7.351.0, `code.videolan.org/videolan/libplacebo`), Copyright its authors,
 under the **GNU Lesser General Public License 2.1 or later**, which allows it to be offered
 under the GPL as the rest of the renderer; its notice travels with the pass. The **deblocking**
-in `Shaders/d3d11/cs_deblock.hlsl` follows FFmpeg's `pp7` filter and, for the SPP variant the
-study measured, the grid table of its `spp` filter (both MPlayer's, by Michael Niedermayer,
-GPL 2 or later).
+in `Shaders/d3d11/cs_deblock.hlsl` follows FFmpeg's `pp7` filter and, for SPP, the grid table
+of its `spp` filter (both MPlayer's, by Michael Niedermayer, GPL 2 or later).
 
 `Source/DLSS/NvOF/` holds the two interface headers of the NVIDIA Optical Flow SDK 5.0.7,
 copied unchanged. Each carries its own permission notice ("This copyright notice applies to
