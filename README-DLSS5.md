@@ -1394,7 +1394,7 @@ more. The two are meant to be used together on a damaged source.
 
 RTX Video Super Resolution does its own cleaning, at 1:1 as well: on the same picture through
 the filter it took the blocking from 1.67 to 1.18 by itself (`playback_test --clean`), which is
-why the two boxes step aside for it.
+why the deblocking list and the debanding box step aside for it.
 
 ## Sharpening
 
