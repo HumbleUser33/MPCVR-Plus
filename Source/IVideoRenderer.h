@@ -197,6 +197,14 @@ constexpr inline auto SHARPEN_LEVEL_DEF = 3;
 
 // Deblocking and debanding on the decoded planes, five levels each: what each level
 // does is in Source/Clean/CleanParams.h, which the measurement tools read as well.
+// The deblocking has two methods: PP7, light, and SPP over 8 grids, three times the
+// cost and closer to the clean picture. The values are Clean::DeblockMethod's.
+enum : int {
+    DEBLOCK_Off = 0,
+    DEBLOCK_PP7,
+    DEBLOCK_SPP,
+    DEBLOCK_COUNT
+};
 constexpr inline auto CLEAN_LEVEL_MIN = 1;
 constexpr inline auto CLEAN_LEVEL_MAX = 5;
 constexpr inline auto CLEAN_LEVEL_DEF = 3;
@@ -326,8 +334,8 @@ struct Settings_t {
 	// picture: deblocking (the codec's 8 x 8 blocks and its ringing) and debanding (the
 	// steps it leaves in smooth gradients), CLEAN_LEVEL_* each. Progressive planar
 	// video, Direct3D 11; RTX Video Super Resolution, which cleans the picture itself,
-	// leaves them out (Greying.h).
-	bool bDeblock;
+	// leaves them out (Greying.h). iDeblock is the method, DEBLOCK_*, 0 for off.
+	int  iDeblock;
 	int  iDeblockLevel;
 	bool bDeband;
 	int  iDebandLevel;
@@ -420,7 +428,7 @@ struct Settings_t {
 		iVideoDelay                     = 0;
 		iDlssNRWorkingScale             = DLSSNR_SCALE_DEF;
 		iDlssNRFlowDivider              = DLSSNR_FLOW_DEF;
-		bDeblock                        = false;
+		iDeblock                        = DEBLOCK_Off;
 		iDeblockLevel                   = CLEAN_LEVEL_DEF;
 		bDeband                         = false;
 		iDebandLevel                    = CLEAN_LEVEL_DEF;

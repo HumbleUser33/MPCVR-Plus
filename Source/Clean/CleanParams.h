@@ -65,26 +65,50 @@ struct DebandLevel {
 
 constexpr int kLevels = 5;
 
-// The deblocking the renderer ships: cs_deblock.hlsl's MODE (0 SPP, 1 PP7) and, for
-// SPP, its SHIFTS. PP7: on 1080p 4:2:0 on an RTX 4060 it costs 0.28 ms where SPP over
-// 8 grids costs 0.88 and over 4 grids 0.46, and it keeps about two thirds of SPP-8's
-// gain (MPEG-2 intra at q8: 44.45 dB untouched, 45.56 PP7, 46.02 SPP-8; --tclean --study).
-constexpr int kDeblockMode = 1;
-constexpr int kDeblockShifts = 8;
+// The two deblockings offered, by the setting's value (0 is off), and the variant of
+// cs_deblock.hlsl each one is: its MODE (0 SPP, 1 PP7) and, for SPP, its SHIFTS.
+// PP7 is the light one: on 1080p 4:2:0 on an RTX 4060 it costs 0.28 ms, and keeps about
+// two thirds of the gain of SPP over 8 grids, which costs 0.88 (MPEG-2 intra at q8:
+// 44.45 dB untouched, 45.56 PP7, 46.02 SPP-8) and takes the blocks out almost to the
+// last (1.09 times the steps elsewhere across the grid, against 1.28). SPP over 8 grids
+// comes within 0.04 to 0.06 dB of 64 grids' result for an eighth of their 6.5 ms
+// (--tclean --study, --cost).
+enum DeblockMethod : int { DeblockOff = 0, DeblockPP7 = 1, DeblockSPP = 2, DeblockMethods = 3 };
+struct DeblockShader {
+	int mode;
+	int shifts;
+};
+constexpr DeblockShader kDeblockShader[DeblockMethods] = { { 1, 8 }, { 1, 8 }, { 0, 8 } };
 
 // Level k is the quantizer that does best on the k-th rung of a ladder of damage, every
 // 8 x 8 block of each plane coded as an MPEG-2 intra block at quantiser_scale_code 2,
-// 4, 8, 12 and 16 (--tclean --ladder, 16 pictures). The medium thresholds, FFmpeg's
-// default for pp7: soft ones reach one to two tenths of a decibel more at their best and
-// leave more of the blocks there (q8: 1.33 times the steps elsewhere across the grid,
-// against 1.28; q16: 1.56 against 1.40), and at equal blocking the two are within 0.1 dB.
-constexpr DeblockLevel kDeblock[kLevels] = {
+// 4, 8, 12 and 16 (--tclean --ladder, 16 pictures).
+// PP7: the medium thresholds, FFmpeg's default for pp7: soft ones reach one to two tenths
+// of a decibel more at their best and leave more of the blocks there (q8: 1.33 times the
+// steps elsewhere across the grid, against 1.28; q16: 1.56 against 1.40), and at equal
+// blocking the two are within 0.1 dB.
+constexpr DeblockLevel kDeblockPP7[kLevels] = {
 	{ 1.5f, DeblockMedium },
 	{ 2.5f, DeblockMedium },
 	{ 4.0f, DeblockMedium },
 	{ 6.0f, DeblockMedium },
 	{ 8.0f, DeblockMedium },
 };
+// SPP over 8 grids: the medium thresholds too, best of the three on every rung, by 0.03
+// to 0.06 dB over the hard ones and 0.08 to 0.17 over the soft ones.
+constexpr DeblockLevel kDeblockSPP[kLevels] = {
+	{ 1.5f, DeblockMedium },
+	{ 2.0f, DeblockMedium },
+	{ 3.0f, DeblockMedium },
+	{ 5.0f, DeblockMedium },
+	{ 6.0f, DeblockMedium },
+};
+
+inline const DeblockLevel& DeblockLevelFor(int method, int level)
+{
+	const int k = (level < 1 ? 1 : level > kLevels ? kLevels : level) - 1;
+	return method == DeblockSPP ? kDeblockSPP[k] : kDeblockPP7[k];
+}
 
 // Five points along the banding the smoothing leaves against the detail it takes, on 88
 // pictures through x264, x265 and SVT-AV1 (clean_refs.py; CAMBI, libvmaf's banding
@@ -101,10 +125,10 @@ constexpr DebandLevel kDeband[kLevels] = {
 	{ 3, 8.0f, 24.0f, 0.0f },
 };
 
-// The constants for one plane. level is 1..kLevels.
-inline Constants DeblockConstants(int level, uint32_t width, uint32_t height, float quantStep)
+// The constants for one plane. method is DeblockPP7 or DeblockSPP, level 1..kLevels.
+inline Constants DeblockConstants(int method, int level, uint32_t width, uint32_t height, float quantStep)
 {
-	const DeblockLevel& l = kDeblock[(level < 1 ? 1 : level > kLevels ? kLevels : level) - 1];
+	const DeblockLevel& l = DeblockLevelFor(method, level);
 	Constants c = {};
 	c.width = width;
 	c.height = height;

@@ -420,7 +420,7 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_bVPReplaceChroma     = config.bVPReplaceChroma;
 	m_iSharpen             = config.iSharpen;
 	m_iSharpenLevel        = config.iSharpenLevel;
-	m_bDeblock             = config.bDeblock;
+	m_iDeblock             = config.iDeblock;
 	m_iDeblockLevel        = config.iDeblockLevel;
 	m_bDeband              = config.bDeband;
 	m_iDebandLevel         = config.iDebandLevel;
@@ -2462,7 +2462,7 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 	// out of the decoder's texture and written back into the processor's own, which is
 	// then no longer read in place (DX11VideoProcessorClean.cpp).
 	m_bCleanVP = !disableD3D11VP && !m_bChromaReplacedVP && !m_bCleanFailed
-		&& (m_bDeblock || m_bDeband) && CleaningAllowed() && CleanFormatOk(FmtParams)
+		&& (m_iDeblock != DEBLOCK_Off || m_bDeband) && CleaningAllowed() && CleanFormatOk(FmtParams)
 		&& !(m_bInterlaced && m_bInterlacedSeen) && CleanPlaneTargetsOk(FmtParams.VP11Format);
 	if (disableD3D11VP) {
 		FmtParams.VP11Format = DXGI_FORMAT_UNKNOWN;
@@ -5387,9 +5387,9 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	// The artifact removal: its levels are taken at the next picture, and the picture on
 	// the screen is cleaned again below.
 	bool changeClean = false;
-	if (config.bDeblock != m_bDeblock || config.iDeblockLevel != m_iDeblockLevel
+	if (config.iDeblock != m_iDeblock || config.iDeblockLevel != m_iDeblockLevel
 			|| config.bDeband != m_bDeband || config.iDebandLevel != m_iDebandLevel) {
-		m_bDeblock      = config.bDeblock;
+		m_iDeblock      = config.iDeblock;
 		m_iDeblockLevel = config.iDeblockLevel;
 		m_bDeband       = config.bDeband;
 		m_iDebandLevel  = config.iDebandLevel;
@@ -5575,7 +5575,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	// decoder's texture is read in place, which only InitMediaType chooses; and Super
 	// Resolution, chosen, takes the cleaning over (Greying.h).
 	if (changeClean && m_D3D11VP.IsReady() && !m_bChromaReplacedVP) {
-		const bool bCleanVP = !m_bCleanFailed && (m_bDeblock || m_bDeband) && CleaningAllowed()
+		const bool bCleanVP = !m_bCleanFailed && (m_iDeblock != DEBLOCK_Off || m_bDeband) && CleaningAllowed()
 			&& CleanFormatOk(m_srcParams) && !(m_bInterlaced && m_bInterlacedSeen)
 			&& CleanPlaneTargetsOk(m_srcParams.VP11Format);
 		if (bCleanVP != m_bCleanVP) {

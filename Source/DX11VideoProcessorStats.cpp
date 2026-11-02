@@ -149,7 +149,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 
 	// The artifact removal, on the decoded planes as the sample is copied; asked for
 	// and not done, it says why.
-	if (m_bDeblock || m_bDeband) {
+	if (m_iDeblock != DEBLOCK_Off || m_bDeband) {
 		Step(L"Artifacts", m_strCleanStatus, Sum(Ms(CGpuStageTimes::Deblock), Ms(CGpuStageTimes::Deband)));
 	}
 

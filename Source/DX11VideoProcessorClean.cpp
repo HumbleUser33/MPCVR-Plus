@@ -93,10 +93,19 @@ HRESULT CDX11VideoProcessor::UpdateCleanShaders()
 		}
 		return hr;
 	};
-	HRESULT hr = create(m_pCSDeblock[0], IDF_CS_11_DEBLOCK1);
-	if (SUCCEEDED(hr)) hr = create(m_pCSDeblock[1], IDF_CS_11_DEBLOCK2);
-	if (SUCCEEDED(hr)) hr = create(m_pCSDeband[0], IDF_CS_11_DEBAND1);
-	if (SUCCEEDED(hr)) hr = create(m_pCSDeband[1], IDF_CS_11_DEBAND2);
+	// The deblocking of the method chosen, and only that one; the debanding.
+	HRESULT hr = S_OK;
+	if (m_iDeblock == DEBLOCK_SPP) {
+		hr = create(m_pCSDeblock[1][0], IDF_CS_11_DEBLOCK_SPP1);
+		if (SUCCEEDED(hr)) hr = create(m_pCSDeblock[1][1], IDF_CS_11_DEBLOCK_SPP2);
+	} else if (m_iDeblock == DEBLOCK_PP7) {
+		hr = create(m_pCSDeblock[0][0], IDF_CS_11_DEBLOCK1);
+		if (SUCCEEDED(hr)) hr = create(m_pCSDeblock[0][1], IDF_CS_11_DEBLOCK2);
+	}
+	if (SUCCEEDED(hr) && m_bDeband) {
+		hr = create(m_pCSDeband[0], IDF_CS_11_DEBAND1);
+		if (SUCCEEDED(hr)) hr = create(m_pCSDeband[1], IDF_CS_11_DEBAND2);
+	}
 	if (SUCCEEDED(hr) && !m_pCleanConstants) {
 		D3D11_BUFFER_DESC desc = {};
 		desc.ByteWidth = sizeof(Clean::Constants);
@@ -121,7 +130,8 @@ void CDX11VideoProcessor::ReleaseClean(const bool bShaders)
 	m_iCleanResult = 0;
 	if (bShaders) {
 		for (int c = 0; c < 2; c++) {
-			m_pCSDeblock[c].Release();
+			m_pCSDeblock[0][c].Release();
+			m_pCSDeblock[1][c].Release();
 			m_pCSDeband[c].Release();
 		}
 		m_pCleanConstants.Release();
@@ -136,7 +146,7 @@ void CDX11VideoProcessor::UpdateClean()
 	if (!m_D3D11VP.IsReady()) {
 		m_bCleanVP = false;   // the shaders took the picture after all
 	}
-	const bool bWanted = (m_bDeblock || m_bDeband) && CleaningAllowed()
+	const bool bWanted = (m_iDeblock != DEBLOCK_Off || m_bDeband) && CleaningAllowed()
 		&& CleanFormatOk(m_srcParams) && !(m_bInterlaced && m_bInterlacedSeen);
 	m_bCleanActive = bWanted
 		&& (!m_D3D11VP.IsReady() || m_bChromaReplacedVP || m_bCleanVP)
@@ -149,13 +159,13 @@ void CDX11VideoProcessor::UpdateClean()
 
 void CDX11VideoProcessor::UpdateCleanStatus()
 {
-	if (!m_bDeblock && !m_bDeband) {
+	if (m_iDeblock == DEBLOCK_Off && !m_bDeband) {
 		m_strCleanStatus.clear();
 		return;
 	}
 	std::wstring what;
-	if (m_bDeblock) {
-		what = std::format(L"deblock {}", m_iDeblockLevel);
+	if (m_iDeblock != DEBLOCK_Off) {
+		what = std::format(L"deblock {} {}", m_iDeblock == DEBLOCK_SPP ? L"SPP" : L"PP7", m_iDeblockLevel);
 	}
 	if (m_bDeband) {
 		what += std::format(L"{}deband {}", what.empty() ? L"" : L", ", m_iDebandLevel);
@@ -245,10 +255,12 @@ HRESULT CDX11VideoProcessor::CleanTargets(CleanPlane* set)
 void CDX11VideoProcessor::CleanRun()
 {
 	m_iCleanResult = 0;
-	if (!m_bCleanActive || !m_pCleanConstants || (m_bDeblock && !m_pCSDeblock[0]) || (m_bDeband && !m_pCSDeband[0])) {
+	const bool bDeblock = m_iDeblock != DEBLOCK_Off;
+	CComPtr<ID3D11ComputeShader>* const deblock = m_pCSDeblock[m_iDeblock == DEBLOCK_SPP ? 1 : 0];
+	if (!m_bCleanActive || !m_pCleanConstants || (bDeblock && !deblock[0]) || (m_bDeband && !m_pCSDeband[0])) {
 		return;
 	}
-	if ((m_bDeblock && FAILED(CleanTargets(m_CleanA))) || (m_bDeband && FAILED(CleanTargets(m_CleanB)))) {
+	if ((bDeblock && FAILED(CleanTargets(m_CleanA))) || (m_bDeband && FAILED(CleanTargets(m_CleanB)))) {
 		return;
 	}
 
@@ -290,13 +302,13 @@ void CDX11VideoProcessor::CleanRun()
 		m_pDeviceContext->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
 	};
 
-	if (m_bDeblock) {
+	if (bDeblock) {
 		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::Deblock);
 		for (int i = 0; i < count; i++) {
 			const CleanPlane& p = m_CleanA[i];
-			const Clean::Constants c = Clean::DeblockConstants(m_iDeblockLevel, p.tex.desc.Width, p.tex.desc.Height,
+			const Clean::Constants c = Clean::DeblockConstants(m_iDeblock, m_iDeblockLevel, p.tex.desc.Width, p.tex.desc.Height,
 				m_bDeband ? 0.0f : step);
-			dispatch(m_pCSDeblock[p.channels - 1], c, in[i], p.pUav);
+			dispatch(deblock[p.channels - 1], c, in[i], p.pUav);
 			in[i] = p.tex.pShaderResource;
 		}
 		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Deblock);

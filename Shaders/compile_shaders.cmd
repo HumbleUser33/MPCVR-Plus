@@ -147,10 +147,13 @@ REM The same, ending on the dither when they are the last step before it.
 %fxc_ps5% /Fo "%workdir%\ps_sharpen_adaptive_dither10.cso"  "d3d11\ps_sharpen.hlsl" /DPASS=5 /DQUANTIZATION=1023
 
 REM Artifact removal on the decoded planes: one channel (a plane of its own) or two
-REM (Cb and Cr together). The deblocking is PP7 (MODE 1), Source\Clean\CleanParams.h.
+REM (Cb and Cr together). The deblocking is PP7 (MODE 1) or SPP over 8 grids (MODE 0),
+REM Source\Clean\CleanParams.h.
 SET fxc_cs5=%fxcexe% /nologo /O2 /T cs_5_0
 %fxc_cs5% /Fo "%workdir%\cs_deblock1.cso"  "d3d11\cs_deblock.hlsl" /DMODE=1 /DCHANNELS=1
 %fxc_cs5% /Fo "%workdir%\cs_deblock2.cso"  "d3d11\cs_deblock.hlsl" /DMODE=1 /DCHANNELS=2
+%fxc_cs5% /Fo "%workdir%\cs_deblock_spp1.cso"  "d3d11\cs_deblock.hlsl" /DMODE=0 /DSHIFTS=8 /DCHANNELS=1
+%fxc_cs5% /Fo "%workdir%\cs_deblock_spp2.cso"  "d3d11\cs_deblock.hlsl" /DMODE=0 /DSHIFTS=8 /DCHANNELS=2
 %fxc_cs5% /Fo "%workdir%\cs_deband1.cso"   "d3d11\cs_deband.hlsl" /DCHANNELS=1
 %fxc_cs5% /Fo "%workdir%\cs_deband2.cso"   "d3d11\cs_deband.hlsl" /DCHANNELS=2
 

@@ -308,6 +308,8 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_DEBLOCK,
 		L"Removes the 8x8 blocks and the ringing that strong compression leaves (DVDs, standard-"
 		"definition TV, XviD and DivX files), on the decoded picture before it is converted or resized.\n"
+		"PP7 is light. SPP takes the blocks out further and keeps more of the picture, for about "
+		"three times the GPU time: for a powerful card.\n"
 		"On clean video it only softens fine texture: leave it off for Blu-ray and good encodes.\n"
 		"Progressive video, Direct3D 11. Not with RTX Video Super Resolution, which cleans the "
 		"picture itself." },
@@ -716,6 +718,10 @@ void CVRSettingsPPage::FillCombos()
 	Combo_AddData(Item(IDC_COMBO_SDRTM), L"Metadata", SDRTM_Metadata);
 	Combo_AddData(Item(IDC_COMBO_SDRTM), L"Measured", SDRTM_Measured);
 
+	Combo_AddData(Item(IDC_DEBLOCK), L"Off",                     DEBLOCK_Off);
+	Combo_AddData(Item(IDC_DEBLOCK), L"PP7 (light)",             DEBLOCK_PP7);
+	Combo_AddData(Item(IDC_DEBLOCK), L"SPP (for a powerful GPU)", DEBLOCK_SPP);
+
 	Combo_AddData(Item(IDC_COMBO11), L"Default",   DLSSNR_STYLE_Default);
 	Combo_AddData(Item(IDC_COMBO11), L"Natural",   DLSSNR_STYLE_Natural);
 	Combo_AddData(Item(IDC_COMBO11), L"Cinematic", DLSSNR_STYLE_Cinematic);
@@ -823,7 +829,7 @@ void CVRSettingsPPage::SetControls()
 	Send(IDC_SHARPEN_LEVEL, TBM_SETPOS, 1, m_SetsPP.iSharpenLevel);
 	SetText(IDC_SHARPEN_LEVEL_TEXT, std::to_wstring(m_SetsPP.iSharpenLevel).c_str());
 	SetCheck(IDC_CHECK10, m_SetsPP.bUseDither);
-	SetCheck(IDC_DEBLOCK, m_SetsPP.bDeblock);
+	Combo_SelectData(Item(IDC_DEBLOCK), m_SetsPP.iDeblock);
 	Send(IDC_DEBLOCK_LEVEL, TBM_SETPOS, 1, m_SetsPP.iDeblockLevel);
 	SetText(IDC_DEBLOCK_LEVEL_TEXT, std::to_wstring(m_SetsPP.iDeblockLevel).c_str());
 	SetCheck(IDC_DEBAND, m_SetsPP.bDeband);
@@ -954,9 +960,10 @@ void CVRSettingsPPage::EnableControls()
 
 	// The artifact removal follows Greying.h, each level its own box; the line under
 	// them says why they are grey when they are.
+	Enable(IDC_STATIC_DEBLOCK, grey.bCleaning);
 	Enable(IDC_DEBLOCK, grey.bCleaning);
 	Enable(IDC_DEBAND, grey.bCleaning);
-	const BOOL bDeblockLevel = grey.bCleaning && m_SetsPP.bDeblock;
+	const BOOL bDeblockLevel = grey.bCleaning && m_SetsPP.iDeblock != DEBLOCK_Off;
 	const BOOL bDebandLevel = grey.bCleaning && m_SetsPP.bDeband;
 	for (const int id : { IDC_STATIC_DEBLOCK_LEVEL, IDC_DEBLOCK_LEVEL, IDC_DEBLOCK_LEVEL_TEXT }) {
 		Enable(id, bDeblockLevel);
@@ -1238,7 +1245,6 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK8,  &m_SetsPP.VPFmts.bP01x,         true  },
 				{ IDC_CHECK9,  &m_SetsPP.VPFmts.bYUY2,         true  },
 				{ IDC_CHECK10, &m_SetsPP.bUseDither,           false },
-				{ IDC_DEBLOCK, &m_SetsPP.bDeblock,             true  },
 				{ IDC_DEBAND,  &m_SetsPP.bDeband,              true  },
 				{ IDC_CHECK11, &m_SetsPP.bExclusiveFS,         false },
 				{ IDC_CHECK13, &m_SetsPP.bAdjustPresentTime,   false },
@@ -1370,6 +1376,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_COMBO15, &m_SetsPP.iDlssSRPreset,    false },
 				{ IDC_COMBO_DVTM,  &m_SetsPP.iHdrDoviToneMappingType, false },
 				{ IDC_COMBO_SDRTM, &m_SetsPP.iSdrToneMappingType,     false },
+				{ IDC_DEBLOCK,     &m_SetsPP.iDeblock,                true  },
 			};
 			for (const auto& c : byData) {
 				if (nID == c.id) {

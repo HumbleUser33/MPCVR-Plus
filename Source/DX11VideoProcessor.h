@@ -261,7 +261,7 @@ private:
 
 	// Artifact removal on the decoded planes (DX11VideoProcessorClean.cpp): the settings,
 	// whether this media type gets it, and the planes it writes.
-	bool m_bDeblock = false;
+	int  m_iDeblock = DEBLOCK_Off; // the method, DEBLOCK_*
 	int  m_iDeblockLevel = CLEAN_LEVEL_DEF;
 	bool m_bDeband = false;
 	int  m_iDebandLevel = CLEAN_LEVEL_DEF;
@@ -271,7 +271,7 @@ private:
 	int  m_iCleanResult = 0;       // the picture in m_TexSrcVideo was cleaned: 1 deblocked (A), 2 debanded (B)
 	uint32_t m_uCleanSeed = 0;     // the grain's, from the picture's time
 	std::wstring m_strCleanStatus; // for the statistics
-	CComPtr<ID3D11ComputeShader> m_pCSDeblock[2];   // one channel, two (Cb and Cr together)
+	CComPtr<ID3D11ComputeShader> m_pCSDeblock[2][2];   // [PP7, SPP][one channel, two (Cb and Cr together)]
 	CComPtr<ID3D11ComputeShader> m_pCSDeband[2];
 	CComPtr<ID3D11Buffer> m_pCleanConstants;
 	struct CleanPlane {

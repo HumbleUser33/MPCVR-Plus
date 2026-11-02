@@ -161,6 +161,8 @@
 #define IDF_CS_11_DEBLOCK2              1930
 #define IDF_CS_11_DEBAND1               1931
 #define IDF_CS_11_DEBAND2               1932
+#define IDF_CS_11_DEBLOCK_SPP1          1933
+#define IDF_CS_11_DEBLOCK_SPP2          1934
 #define IDF_VS_11_MPV_HOOK              1950
 #define IDF_PS_11_MPV_LUMA              1951
 #define IDF_PS_11_MPV_COMBINE           1952
@@ -364,6 +366,7 @@
 #define IDC_DEBAND_LEVEL                   1357
 #define IDC_DEBAND_LEVEL_TEXT              1358
 #define IDC_STATIC_CLEAN_NOTE              1359
+#define IDC_STATIC_DEBLOCK                 1360
 #define IDC_STATIC_SDRTM                1066
 #define IDC_COMBO_SDRTM                 1067
 #define IDC_STATIC_DVTM                 1068
@@ -375,7 +378,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        4010
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1360
+#define _APS_NEXT_CONTROL_VALUE         1361
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

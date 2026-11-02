@@ -179,7 +179,7 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 		sets.iSharpenLevel = discard<int>(dw, SHARPEN_LEVEL_DEF, SHARPEN_LEVEL_MIN, SHARPEN_LEVEL_MAX);
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Deblock, dw)) {
-		sets.bDeblock = !!dw;
+		sets.iDeblock = discard<int>(dw, DEBLOCK_Off, DEBLOCK_Off, DEBLOCK_COUNT - 1);
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DeblockLevel, dw)) {
 		sets.iDeblockLevel = discard<int>(dw, CLEAN_LEVEL_DEF, CLEAN_LEVEL_MIN, CLEAN_LEVEL_MAX);
@@ -365,7 +365,7 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_VPReplaceChroma,     sets.bVPReplaceChroma);
 	key.SetDWORDValue(OPT_Sharpen,             sets.iSharpen);
 	key.SetDWORDValue(OPT_SharpenLevel,        sets.iSharpenLevel);
-	key.SetDWORDValue(OPT_Deblock,             sets.bDeblock);
+	key.SetDWORDValue(OPT_Deblock,             sets.iDeblock);
 	key.SetDWORDValue(OPT_DeblockLevel,        sets.iDeblockLevel);
 	key.SetDWORDValue(OPT_Deband,              sets.bDeband);
 	key.SetDWORDValue(OPT_DebandLevel,         sets.iDebandLevel);
