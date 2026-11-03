@@ -8,7 +8,7 @@ rendering is bit-identical to upstream.
 |---|---|
 | **Scaling** | six upscalers chosen by measurement — ArtCNN C4F16 DS, FSRCNNX 8/16, RAVU-zoom and the anti-ringing versions — with both lists ordered best first |
 | **Chroma** | three more methods, and a 4:4:4 pre-pass that hands the hardware video processor a full picture: +7 dB of colour on 10-bit film |
-| **Detail** | deblocking (PP7, or SPP for a powerful GPU) and debanding on the decoded planes, and sharpening after the resize, each with five calibrated levels |
+| **Detail** | deblocking (PP7, or SPP for a powerful GPU) and debanding on the decoded planes, and sharpening after the resize, each with five calibrated levels; a TV channel's logo found and hidden |
 | **DLSS 5 NR** | NVIDIA neural reconstruction (NGX feature 18) with a temporal stabilizer made for video |
 | **DLSS SR** | DLSS Super Resolution 4.5 for enlarging, and DLAA at native size (experimental) |
 | **Presentation** | render ahead, so none of it drifts off the audio clock |
@@ -1396,6 +1396,122 @@ RTX Video Super Resolution does its own cleaning, at 1:1 as well: on the same pi
 the filter it took the blocking from 1.67 to 1.18 by itself (`playback_test --clean`), which is
 why the deblocking list and the debanding box step aside for it.
 
+## Hiding a channel's logo
+
+A recording of a TV channel carries its logo in a corner from the first picture to the last.
+**Hide the channel logo**, in the Detail tab, takes it out of the picture as discreetly as can
+be done in real time, before anything else touches the picture. No published real-time shader
+does this; the method is that of the offline tools made for it, measured here and written again
+for Direct3D.
+
+**A broadcaster lays its logo the same way on every picture**, with an opacity and a colour of
+its own for every pixel:
+
+    seen = (1 - alpha) x picture + alpha x colour
+
+That is the model of AviUtl's *delogo* filter and of *logoscan*, its analyser (MakKi). Where
+alpha and the colour are known the picture under a translucent logo is not guessed but worked
+back out, exactly: picture = (seen - alpha x colour) / (1 - alpha). Where the logo is opaque
+there is nothing under it to find, and the picture is filled in from round it; in between the
+two are mixed, by how far each can be trusted. So the hiding has two halves.
+
+**Finding the logo.** *Find the logo* starts an analysis on the film playing; nothing has to be
+drawn round the logo. One picture every 0.4 s of the film is read back from the GPU without
+the render thread ever waiting for it, and worked on by a thread of its own:
+
+1. *Where it is*: the share of pictures that have an edge at each pixel, as *LogoScan* (a
+   rewrite of logoscan) finds it -- a logo keeps its edges while the film changes under it.
+   The picture's border, black bars and groups longer than half the picture are left out,
+   letters close together make one logo, and a logo is taken when two looks in a row, ten
+   pictures apart, find it in the same place.
+2. *What it is*: for every pixel of the logo's box and every plane, the line that takes the
+   picture under it (carried in from round the box, then from the pixels found free of the
+   logo as well) to what is seen there, over the pictures that follow. Its slope gives alpha,
+   so the exact shape comes out with it, the holes in the letters included. Pictures the logo
+   was not on -- advertising, a fade -- are found and left out after a first fit, as LogoScan
+   leaves them out.
+
+**Taking it out**, on every picture, on the GPU, on the decoded planes at their own size, before
+the deblocking: the picture worked back out where the logo lets it through, a fill from round
+it where it does not (a push-pull, Gortler et al.), with the fine detail of the picture next
+to the logo mirrored into the fill so that an opaque logo does not leave a smooth patch of its
+shape on a textured background. How far a pixel's inversion is trusted was measured for that
+pixel when the logo was fitted: it holds inside a translucent logo, and badly on the edge of an
+opaque one, which the codec smears into the picture differently on every picture. And the logo
+is not always there: each picture, the shader measures how strongly it is on screen and takes
+out that much of it, so advertising and the logo's own fades leave no inverted ghost.
+
+**Each logo found is kept** (`%LOCALAPPDATA%\MPC-BE Filters\MPC Video Renderer\logos\`, 32 at
+most) and recognised on the next films of the same size: the first pictures of a film are
+tried against every logo kept for its size, each a couple of pixels either way, and the one on
+screen is hidden from then on. *Forget the logos* empties the folder.
+
+**Margin**: the pixels round the logo worked with it, for an edge the encoder smeared further
+than the analysis saw. Each pixel is worked only as far as the fit doubts it, so a wider margin
+leaves a clean edge as it is; but the patch filled in grows with it, and on a detailed
+background its shape can show. 1 is the default and what measured best; 0 to 3.
+
+Progressive two-plane video (NV12, P010, P016), Direct3D 11. An interlaced picture, an RGB or
+a packed source and three-plane formats pass untouched, and the statistics say why. **RTX Video
+Super Resolution leaves it on**, as it does not hide logos: with Super Resolution chosen the
+deblocking and the debanding step aside and the logo is still taken out, in the processor's own
+input. A logo that moves or changes, such as an animated one, is not what this is for.
+
+### What it is worth
+
+`dlssnr_harness --tlogo` lays five logos of known alpha and colour over pictures of Fight Club
+taken 0.4 s apart and made 1920 x 1080 with black bars, as a channel shows a wide film:
+white letters at 55 % with holes in them, opaque letters on a dark rim, a badge from 25 to 75 %
+with its text cut out, a thin "HD" 18 pixels high, and a channel's name in white with a red
+dot and two coloured letters. The analysis runs on them as on a film -- it looks for the logo,
+fits it on the pictures after, and the pictures after those are the test, with stretches
+without the logo and fades among both.
+
+**Found**: every one of the five by the 20th picture looked at, the box round it holding all of
+it. Fitted on 120 pictures, the pixels taken for the logo's overlap its own by 0.83 to 1.00
+(IoU), and alpha is out by 0.001 to 0.008 on average over the box.
+
+**Taken out**, the luma where the logo was (its pixels and two round them) against the picture
+without it, in dB:
+
+| Logo | left on screen | taken out, as laid | through x264 at 3 Mbit/s |
+|---|---|---|---|
+| translucent | 12.6 | 51.6 | 41.6 |
+| outlined | 8.0 | 51.1 | 43.5 |
+| gradient | 12.0 | 45.6 | |
+| small "HD" | 11.3 | 51.9 | 45.1 |
+| channel's name | 8.8 | 47.7 | 39.6 |
+
+(as laid: fitted on 120 pictures; through x264: the whole film with the logo encoded at a
+channel's rate and decoded, fitted on 240 pictures as the renderer fits, `--tlogo --study`.)
+Through the codec the logo's edge is smeared differently on every picture, and the inversion
+there is less sure than the fill: each pixel's doubt is weighed 30 times, chosen on these four,
+where it gains 0.9 to 1.7 dB over 3 (the channel's name 38.7 dB against 39.6, the outlined
+letters 41.8 against 43.5) and leaves less of the outline. On a logo laid exactly and never
+encoded it costs the translucent one 5 dB, from 52.8 to 47.4, which no broadcast is.
+
+**The detail mirrored in** gives the opaque parts back 36 to 59 % of the fine detail of the
+picture they hide, where the fill alone gave them 20 to 32 %, for 0.15 to 0.28 dB: a texture
+that is not the hidden one is further from it than a smooth one, and looks more like the
+picture round it.
+
+**The margin**, through x264: 0 pixels costs 0.8 to 1.8 dB against 1 on all four; 2 is within
+0.5 dB of 1, better on two logos and worse on two; 3 is below 1 on three. 1 is the default.
+
+**On and off screen**: the strength measured on the test pictures reads at most 0.011 where the
+logo is not there, and at least 0.965 where it is, so a picture without it is left as it is.
+
+**On a real recording**, *Le Rouge et le Noir* (France TV, 1080p25 H.264 at 3.2 Mbit/s, the
+opaque white "france" with a coloured dot and "tv" in a corner over a wide film between bars):
+the logo is found 15 seconds into the film and hidden from 27 s, and the analysis is done at
+113 s (`playback_test --logo`). Fitted on 120 pictures and on 240, alpha differs by 0.002.
+
+**What it costs**, a picture, on the RTX 4060 (`--tlogo`): 0.055 to 0.104 ms at 1080p and 0.23
+to 0.40 ms at 2160p, depending on the logo's size, of which copying the two planes takes 0.03
+and 0.19 ms. The analysis copies one picture back every 0.4 s and works on it on its own
+thread. The statistics give the figure for the film playing, on the *Logo* step: 0.1 ms on *Le
+Rouge et le Noir*.
+
 ## Sharpening
 
 A sharpener restores nothing: it exaggerates. The whole question is *where it is allowed to*,
@@ -1925,6 +2041,10 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 | Sharpening: Method | Off | *Adaptive-Sharpen* or *Unsharp + Clamp*, run after the resize, so it also reaches a film already at the screen's size. See *Sharpening* for what each is worth. Needs Direct3D 11 |
 | Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Off |
 | Use dithering | on | A very fine noise before output, so that skies and fades to black show no banding |
+| Hide the channel logo | off | Hides a TV channel's logo, worked out from under it where it is see-through and filled in from round it where it is opaque, before anything else touches the picture. Each logo found is kept, and recognised on the next films of the same size. See *Hiding a channel's logo*. Stays on with RTX Video Super Resolution; needs Direct3D 11 |
+| Margin | 1 px | The pixels round the logo worked with it, 0 to 3, for an edge the encoder smeared. Greyed while the box is unticked |
+| Find the logo | | Looks for the logo on the film playing and hides it: found in about 15 seconds of the film, hidden from about 30, finished in two minutes. Ticks the box and takes effect at once, with no Apply. The line under it says what it is doing |
+| Forget the logos | | Forgets every logo kept, after asking, and stops hiding the one on screen |
 
 ### DLSS 5 NR
 
@@ -2065,6 +2185,7 @@ steps work in.
 
 | Step | What it says |
 |---|---|
+| Logo | Hiding a channel's logo: looking for it, with how far along; the logo found, its size and corner, or kept from another film, and whether it is `hidden` or `not on screen` (advertising, a fade). Asked for and not done, it says why: interlaced pictures, an RGB, packed or three-plane source |
 | Artifacts | The deblocking and debanding, their levels, and where the cleaned planes go: `on the planes`, which the conversion or the chroma replacement then reads, or `back into the processor's planes`. Asked for and not done, it says why: RTX Video Super Resolution chosen, interlaced pictures, an RGB or packed source |
 | Chroma | The chroma replacement: the shaders rebuild 4:2:0 or 4:2:2 colour with the Chroma upsampling method and hand the processor a 4:4:4 picture, a prescaler's time included |
 | Processor | The video processor converts the picture, its chroma too unless the step above took it. When it is the one resizing it does that in the same call, the step says `resizes`, and its time is the resizing's too: the Scaling step then has none of its own. RTX Video Super Resolution and RTX Video HDR run inside it and are in its time. The processor works on an engine of its own, which the timestamps around it once missed altogether -- 0.0 ms with Super Resolution and RTX Video HDR at 4K, of 21.6 for the picture; it is now timed from its call to its output being ready, 17.4 ms of 20.8 there |
@@ -2506,6 +2627,10 @@ playback_test.exe --file <film> --deblock 3 --deband 2   a real film with the ar
 dlssnr_harness.exe --tclean       deblocking and debanding at their five levels, and their shaders against the reference
 dlssnr_harness.exe --tclean --study   the comparison the methods were chosen on (--ladder, --cost, --withnr: parts of it)
 python clean_refs.py              real encodes and FFmpeg's filters on them, then --tclean --files clean_refs and --cambi
+dlssnr_harness.exe --tlogo        five logos laid over a film, found, fitted and taken out; the shaders against the reference
+dlssnr_harness.exe --tlogo --study   the comparison the hiding was made on, every logo through x264 too
+dlssnr_harness.exe --tlogo --real --film <film>   the analysis on a real recording: logo_*.png of what it found and did
+playback_test.exe --logo --file <film>   Find the logo pressed on a real film, through each path; logo_*_hidden.bmp, _shown.bmp
 playback_test.exe --toggle       each setting changed in full playback, as the player does
 playback_test.exe --toggle --gpu --hdr --switch   as a hardware decoder feeds it, in HDR
 playback_test.exe --toggle --file <mkv> --seek 1740   a real film, split and decoded
@@ -2589,6 +2714,15 @@ under the **GNU Lesser General Public License 2.1 or later**, which allows it to
 under the GPL as the rest of the renderer; its notice travels with the pass. The **deblocking**
 in `Shaders/d3d11/cs_deblock.hlsl` follows FFmpeg's `pp7` filter and, for SPP, the grid table
 of its `spp` filter (both MPlayer's, by Michael Niedermayer, GPL 2 or later).
+
+**Hiding a channel's logo** (`Source/Logo/`, `Shaders/d3d11/cs_logo_*.hlsl`) is written for
+this renderer from published descriptions, with no code taken: the blending model and the
+per-pixel fit are those of AviUtl's **delogo** filter and its **logoscan** analyser, by MakKi
+(`github.com/makiuchi-d/delogo-aviutl`); the edge share that finds the logo and the test of a
+picture without it, those of **LogoScan** (`github.com/DeepRegular/LogoScan`); time-averaged
+edges after Özay and Sankur (EUSIPCO 2009) and the iterative refinement after Erofeev et al.
+(GraphiCon 2011); the fill is Gortler et al.'s push-pull. FFmpeg's `removelogo` and `delogo`
+were the anchors it was measured against.
 
 `Source/DLSS/NvOF/` holds the two interface headers of the NVIDIA Optical Flow SDK 5.0.7,
 copied unchanged. Each carries its own permission notice ("This copyright notice applies to
