@@ -99,6 +99,10 @@ private:
 	void SetControls();
 	void EnableControls();
 	void ShowLogoStatus();   // what hiding the channel's logo is doing, read from the renderer
+	bool ShowLogoList();     // the logos kept for the film playing, and the one chosen
+	void HideLogoNow();      // the box ticked and applied at once, as Find the logo does
+	std::wstring m_strLogoMoved;   // the status as the list was last read for it, its numbers left out
+	std::wstring m_strLogoList;    // the list as the renderer last gave it
 
 	HRESULT OnConnect(IUnknown* pUnknown) override;
 	HRESULT OnDisconnect() override;

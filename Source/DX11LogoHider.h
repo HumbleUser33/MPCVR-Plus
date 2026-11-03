@@ -51,6 +51,14 @@ public:
 	void Forget();   // the library emptied and the logo dropped
 	void Stop();     // the worker stopped and nothing hidden
 
+	// The settings page's list: the logos kept for this film's size, by what they are, one
+	// a line, the most recently used first. The list given is kept, so that the index the
+	// page sends back means the logo it showed.
+	std::wstring List();
+	// 0: the logo is found or recognised by itself; i: the i-th of the last list, chosen.
+	int Choice() const;
+	void Choose(int i);
+
 	// A new picture (newPicture) or the same one again, its planes as SRVs: pictures read
 	// back for the analysis as it asks, a fit taken when one is ready, the logo taken out
 	// into the hider's own planes. Returns whether it wrote them.
@@ -83,6 +91,8 @@ private:
 
 	int m_W = 0, m_H = 0, m_divW = 2, m_divH = 2;
 	std::wstring m_film;
+	std::vector<Logo::Listed> m_Listed;   // as the page was last given it
+	std::wstring m_Chosen;                // the file of the logo chosen on the page, if one is
 
 	// What the logo is taken out into.
 	Tex2D_t m_Out[2];

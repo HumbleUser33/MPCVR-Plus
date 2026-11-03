@@ -341,6 +341,11 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"takes effect at once, with no Apply. The logo must stay put." },
 	{ IDC_LOGO_FORGET,
 		L"Forgets every logo kept, and stops hiding the one on screen." },
+	{ IDC_LOGO_LIST,
+		L"The logos kept for pictures the size of the film playing, by their size and where they "
+		"sit, the last used first. Automatic: the one on screen is recognised by itself, or found "
+		"with Find the logo. Choose one to hide it now if it was not recognised: it ticks the box "
+		"and takes effect at once, with no Apply, for the film playing." },
 
 	// DLSS 5 NR
 	{ IDC_DLSSNR_ENABLE,
@@ -998,7 +1003,7 @@ void CVRSettingsPPage::EnableControls()
 		grey.bCleaning ? L"On the decoded video, before it is converted or resized."
 		: !m_SetsPP.bUseD3D11 ? L"Needs Direct3D 11."
 		: L"Left to RTX Video Super Resolution, which cleans the picture itself.");
-	for (const int id : { IDC_HIDE_LOGO, IDC_LOGO_FIND, IDC_LOGO_FORGET, IDC_LOGO_STATUS }) {
+	for (const int id : { IDC_HIDE_LOGO, IDC_LOGO_FIND, IDC_LOGO_FORGET, IDC_LOGO_STATUS, IDC_STATIC_LOGO_LIST, IDC_LOGO_LIST }) {
 		Enable(id, grey.bLogo);
 	}
 	for (const int id : { IDC_STATIC_LOGO_MARGIN, IDC_LOGO_MARGIN, IDC_LOGO_MARGIN_TEXT }) {
@@ -1270,18 +1275,24 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 		// The logo's two buttons act at once, as the preset buttons do: the analysis needs
 		// the film playing, not the page closed.
 		if (action == BN_CLICKED && nID == IDC_LOGO_FIND) {
-			m_SetsPP.bHideLogo = true;
-			SetCheck(IDC_HIDE_LOGO, true);
-			Settings_t current;
-			m_pVideoRenderer->GetSettings(current);
-			if (!current.bHideLogo) {
-				current.bHideLogo = true;
-				m_pVideoRenderer->SetSettings(current);
-				m_pVideoRenderer->SaveSettings();
-			}
+			HideLogoNow();
 			if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
 				pIExFilterConfig->Flt_SetBool("cmd_findLogo", true);
 			}
+			ShowLogoStatus();
+			return (INT_PTR)1;
+		}
+		// A logo of the list, taken at once for the film playing; Automatic gives it back
+		// to the recognition.
+		if (action == CBN_SELCHANGE && nID == IDC_LOGO_LIST) {
+			const int sel = (int)Send(IDC_LOGO_LIST, CB_GETCURSEL);
+			if (sel > 0) {
+				HideLogoNow();
+			}
+			if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
+				pIExFilterConfig->Flt_SetInt("logoChoice", std::max(sel, 0));
+			}
+			m_strLogoMoved.clear();
 			ShowLogoStatus();
 			return (INT_PTR)1;
 		}
@@ -1659,6 +1670,68 @@ void CVRSettingsPPage::ShowLogoStatus()
 		}
 	}
 	SetText(IDC_LOGO_STATUS, status.empty() ? L"" : (L"Logo: " + status).c_str());
+
+	// The list changes only with what the logo's hiding is doing: read again when the
+	// status says something else, its percentages and sizes aside.
+	std::wstring moved = status;
+	std::erase_if(moved, [](wchar_t c) { return iswdigit(c) != 0; });
+	if (moved != m_strLogoMoved || Send(IDC_LOGO_LIST, CB_GETCOUNT) <= 0) {
+		if (ShowLogoList()) {
+			m_strLogoMoved = moved;
+		}
+	}
+}
+
+bool CVRSettingsPPage::ShowLogoList()
+{
+	if (!Item(IDC_LOGO_LIST) || Send(IDC_LOGO_LIST, CB_GETDROPPEDSTATE)) {
+		return false;   // not under the mouse of someone choosing
+	}
+	std::wstring list;
+	int choice = 0;
+	if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
+		LPWSTR pstr = nullptr;
+		if (S_OK == pIExFilterConfig->Flt_GetString("logoList", &pstr, nullptr) && pstr) {
+			list = pstr;
+			CoTaskMemFree(pstr);
+		}
+		if (FAILED(pIExFilterConfig->Flt_GetInt("logoChoice", &choice))) {
+			choice = 0;
+		}
+	}
+	if (list != m_strLogoList || Send(IDC_LOGO_LIST, CB_GETCOUNT) <= 0) {
+		m_strLogoList = list;
+		Send(IDC_LOGO_LIST, CB_RESETCONTENT);
+		Send(IDC_LOGO_LIST, CB_ADDSTRING, 0, (LPARAM)L"Automatic");
+		for (size_t a = 0; a < list.size();) {
+			const size_t b = list.find(L'\n', a);
+			const std::wstring name = list.substr(a, b == std::wstring::npos ? std::wstring::npos : b - a);
+			if (!name.empty()) {
+				Send(IDC_LOGO_LIST, CB_ADDSTRING, 0, (LPARAM)name.c_str());
+			}
+			if (b == std::wstring::npos) {
+				break;
+			}
+			a = b + 1;
+		}
+	}
+	const int count = (int)Send(IDC_LOGO_LIST, CB_GETCOUNT);
+	Send(IDC_LOGO_LIST, CB_SETCURSEL, std::clamp(choice, 0, std::max(count - 1, 0)));
+	return true;
+}
+
+void CVRSettingsPPage::HideLogoNow()
+{
+	m_SetsPP.bHideLogo = true;
+	SetCheck(IDC_HIDE_LOGO, true);
+	Settings_t current;
+	m_pVideoRenderer->GetSettings(current);
+	if (!current.bHideLogo) {
+		current.bHideLogo = true;
+		m_pVideoRenderer->SetSettings(current);
+		m_pVideoRenderer->SaveSettings();
+	}
+	EnableControls();
 }
 
 void CVRSettingsPPage::ShowPresets()

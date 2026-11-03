@@ -51,6 +51,8 @@ public:
 	void Start(int W, int H, int divW, int divH, const std::wstring& film);
 	// The library's logos for this size tried on the next pictures.
 	void Recognise(int W, int H, int divW, int divH, std::vector<Stored>&& kept);
+	// A logo of the library taken as it is, chosen on the settings page.
+	void Use(int W, int H, int divW, int divH, Stored&& chosen);
 	void Stop();
 
 	Phase GetPhase() const { return m_phase.load(); }
@@ -91,6 +93,7 @@ private:
 	std::wstring m_stored;
 	std::vector<Stored> m_kept;   // what is being recognised
 	std::wstring m_knownFrom;     // the film a recognised logo was found on
+	bool m_chosen = false;        // taken from the list on the settings page
 };
 
 } // namespace Logo

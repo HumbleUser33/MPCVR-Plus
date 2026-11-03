@@ -38,14 +38,6 @@ bool Same(const Rect& a, const Rect& b)
 	return std::abs(a.x - b.x) <= 4 && std::abs(a.y - b.y) <= 4 && std::abs(a.w - b.w) <= 8 && std::abs(a.h - b.h) <= 8;
 }
 
-const wchar_t* Where(const Rect& box, int W, int H)
-{
-	const bool left = box.x + box.w / 2 < W / 3, right = box.x + box.w / 2 > 2 * W / 3;
-	const bool top = box.y + box.h / 2 < H / 2;
-	return top ? (left ? L"top left" : right ? L"top right" : L"at the top")
-	           : (left ? L"bottom left" : right ? L"bottom right" : L"at the bottom");
-}
-
 } // namespace
 
 void CWorker::Launch(int W, int H, int divW, int divH, Phase phase)
@@ -58,6 +50,7 @@ void CWorker::Launch(int W, int H, int divW, int divH, Phase phase)
 	m_box = Rect();
 	m_looked = m_fitted = 0;
 	m_haveReady = m_readyFinal = false;
+	m_chosen = false;
 	m_stored.clear();
 	m_knownFrom.clear();
 	m_luma.clear();
@@ -100,6 +93,19 @@ void CWorker::Recognise(int W, int H, int divW, int divH, std::vector<Stored>&& 
 		return;
 	}
 	m_thread = std::thread(&CWorker::RunRecognise, this);
+}
+
+void CWorker::Use(int W, int H, int divW, int divH, Stored&& chosen)
+{
+	Stop();
+	std::lock_guard<std::mutex> lock(m_lock);
+	Launch(W, H, divW, divH, Phase::Done);
+	m_box = chosen.maps.box;
+	m_stored = chosen.path;
+	m_chosen = true;
+	m_ready = std::move(chosen.maps);
+	m_haveReady = true;
+	m_readyFinal = true;
 }
 
 void CWorker::Stop()
@@ -197,13 +203,15 @@ std::wstring CWorker::Status() const
 	case Phase::Locating:
 		return std::format(L"looking for the logo, {} %", std::min(99, 100 * std::min(m_looked, kLocateFirst) / total));
 	case Phase::Fitting:
-		return std::format(L"{} x {} px {} found, {} %", m_box.w, m_box.h, Where(m_box, m_W, m_H),
-			std::min(99, 100 * (kLocateFirst + m_fitted) / total));
+		return std::format(L"{} found, {} %", Describe(m_box, m_W, m_H), std::min(99, 100 * (kLocateFirst + m_fitted) / total));
 	case Phase::Done:
-		if (!m_knownFrom.empty()) {
-			return std::format(L"{} x {} px {}, kept from {}", m_box.w, m_box.h, Where(m_box, m_W, m_H), m_knownFrom);
+		if (m_chosen) {
+			return Describe(m_box, m_W, m_H) + L", chosen";
 		}
-		return std::format(L"{} x {} px {} found", m_box.w, m_box.h, Where(m_box, m_W, m_H));
+		if (!m_knownFrom.empty()) {
+			return std::format(L"{}, kept from {}", Describe(m_box, m_W, m_H), m_knownFrom);
+		}
+		return Describe(m_box, m_W, m_H) + L" found";
 	case Phase::NotFound:
 		return L"no logo found";
 	default:

@@ -40,10 +40,21 @@ struct Stored {
 
 constexpr int kMostStored = 32;
 
+// A logo kept, as its file's header says: what the settings page lists.
+struct Listed {
+	std::wstring path;
+	int videoW = 0, videoH = 0;
+	Rect box;
+};
+
 // The folder, made if it is not there; empty if it cannot be.
 std::wstring LibraryFolder();
-// Every logo kept for a picture of this size (all of them for 0 x 0).
+// Every logo kept for a picture of this size (all of them for 0 x 0), the most recently used first.
 std::vector<Stored> KeptLogos(int videoW, int videoH);
+// The same from their headers alone, without reading the logos.
+std::vector<Listed> ListKept(int videoW, int videoH);
+// A logo by what it is, as the page and the statistics name it: "298 x 72 px top right".
+std::wstring Describe(const Rect& box, int videoW, int videoH);
 // A new logo kept; the oldest dropped past kMostStored. Returns the file, or empty.
 std::wstring SaveToLibrary(const Maps& m, int videoW, int videoH, const std::wstring& film);
 // Marks a logo used now.

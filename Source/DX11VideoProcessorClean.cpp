@@ -540,3 +540,21 @@ std::wstring CDX11VideoProcessor::GetLogoStatus()
 	}
 	return m_bLogoActive ? m_Logo.Status() : m_strLogoWhyNot;
 }
+
+std::wstring CDX11VideoProcessor::GetLogoList()
+{
+	return m_Logo.List();
+}
+
+int CDX11VideoProcessor::GetLogoChoice()
+{
+	return m_Logo.Choice();
+}
+
+// A logo of the list chosen on the settings page, or (0) back to the one recognised.
+void CDX11VideoProcessor::ChooseLogo(int i)
+{
+	if (m_bLogoActive) {
+		m_Logo.Choose(i);
+	}
+}

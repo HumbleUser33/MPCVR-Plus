@@ -210,6 +210,35 @@ bool LoadLogo(const std::wstring& path, Stored& out)
 	return true;
 }
 
+std::vector<Listed> ListKept(int videoW, int videoH)
+{
+	std::vector<Listed> out;
+	for (const Kept& k : Files()) {
+		HANDLE f = CreateFileW(k.path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (f == INVALID_HANDLE_VALUE) {
+			continue;
+		}
+		Header h = {};
+		const bool ok = ReadAll(f, &h, sizeof(h)) && !memcmp(h.magic, kMagic, sizeof(kMagic)) && h.version == 1
+			&& h.w > 0 && h.h > 0;
+		CloseHandle(f);
+		if (ok && ((!videoW && !videoH) || (h.videoW == videoW && h.videoH == videoH))) {
+			out.push_back({ k.path, h.videoW, h.videoH, { h.x, h.y, h.w, h.h } });
+		}
+	}
+	return out;
+}
+
+std::wstring Describe(const Rect& box, int videoW, int videoH)
+{
+	const int cx = box.x + box.w / 2;
+	const bool left = cx < videoW / 3, right = cx > 2 * videoW / 3;
+	const bool top = box.y + box.h / 2 < videoH / 2;
+	const wchar_t* where = top ? (left ? L"top left" : right ? L"top right" : L"at the top")
+	                           : (left ? L"bottom left" : right ? L"bottom right" : L"at the bottom");
+	return std::to_wstring(box.w) + L" x " + std::to_wstring(box.h) + L" px " + where;
+}
+
 std::vector<Stored> KeptLogos(int videoW, int videoH)
 {
 	std::vector<Stored> out;

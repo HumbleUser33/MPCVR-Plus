@@ -636,6 +636,22 @@ static std::wstring LogoStatus(IBaseFilter* pRenderer)
 	return text;
 }
 
+// The settings page's list of the logos kept for the film playing, one a line.
+static int LogoListed(IBaseFilter* pRenderer)
+{
+	int n = 0;
+	if (CComQIPtr<IExFilterConfig> pConfig{ pRenderer }) {
+		LPWSTR pstr = nullptr;
+		if (S_OK == pConfig->Flt_GetString("logoList", &pstr, nullptr) && pstr) {
+			for (const wchar_t* c = pstr; *c; c++) {
+				n += *c == L'\n';
+			}
+			CoTaskMemFree(pstr);
+		}
+	}
+	return n;
+}
+
 // The logos the filter keeps, which a test leaves as it found them.
 static std::wstring LogoFolder()
 {
@@ -659,6 +675,67 @@ static std::vector<std::wstring> LogoFiles()
 		FindClose(h);
 	}
 	return out;
+}
+
+// A logo the library holds, as a test found it: its bytes, for one the filter lets go when a
+// logo the test found makes one too many, and when it was last used, which the recognition
+// and the settings page's list go by.
+struct KeptLogo {
+	std::wstring path;
+	std::vector<char> bytes;
+	FILETIME used = {};
+};
+
+static std::vector<KeptLogo> SaveLogos()
+{
+	std::vector<KeptLogo> out;
+	for (const std::wstring& f : LogoFiles()) {
+		HANDLE h = CreateFileW(f.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+		if (h == INVALID_HANDLE_VALUE) {
+			continue;
+		}
+		KeptLogo k;
+		k.path = f;
+		LARGE_INTEGER size = {};
+		DWORD got = 0;
+		if (GetFileSizeEx(h, &size) && size.QuadPart > 0 && size.QuadPart < (64 << 20)) {
+			k.bytes.resize((size_t)size.QuadPart);
+			if (!ReadFile(h, k.bytes.data(), (DWORD)k.bytes.size(), &got, nullptr) || got != k.bytes.size()) {
+				k.bytes.clear();
+			}
+		}
+		GetFileTime(h, nullptr, nullptr, &k.used);
+		CloseHandle(h);
+		out.push_back(std::move(k));
+	}
+	return out;
+}
+
+// What a run put into the library goes again, what it took out comes back, and each logo is
+// as recently used as it was.
+static void PutLogosBack(const std::vector<KeptLogo>& before)
+{
+	for (const std::wstring& f : LogoFiles()) {
+		if (std::none_of(before.begin(), before.end(), [&](const KeptLogo& k) { return k.path == f; })) {
+			DeleteFileW(f.c_str());
+		}
+	}
+	for (const KeptLogo& k : before) {
+		HANDLE h = CreateFileW(k.path.c_str(), FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+		if (h == INVALID_HANDLE_VALUE && !k.bytes.empty()) {
+			h = CreateFileW(k.path.c_str(), GENERIC_WRITE | FILE_WRITE_ATTRIBUTES, 0, nullptr, CREATE_NEW, 0, nullptr);
+			DWORD put = 0;
+			if (h != INVALID_HANDLE_VALUE && !WriteFile(h, k.bytes.data(), (DWORD)k.bytes.size(), &put, nullptr)) {
+				CloseHandle(h);
+				DeleteFileW(k.path.c_str());
+				h = INVALID_HANDLE_VALUE;
+			}
+		}
+		if (h != INVALID_HANDLE_VALUE) {
+			SetFileTime(h, nullptr, nullptr, &k.used);
+			CloseHandle(h);
+		}
+	}
 }
 
 static std::wstring StatsText(IBaseFilter* pRenderer)
@@ -855,6 +932,9 @@ struct Result {
 	std::wstring logoStatus, logoStep;
 	double logoMs = -1;
 	double logoHiddenAt = -1, logoFoundAt = -1;   // seconds after Find was pressed
+	int logoListed = -1;                          // the logos the page's list holds
+	std::wstring logoChosen, logoBack;            // the first of them chosen, then Automatic again
+	int logoChoiceRead = -1;                      // what the filter says is chosen, after choosing
 	bool bRan = false;
 	std::wstring screenLine;   // what the desktop itself held, read past the renderer
 	std::vector<BYTE> screenCrop;  // and the picture that reading was taken from
@@ -1562,8 +1642,7 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	ParseSkipped(text, result.framesAtStart, result.skippedAtStart);
 	result.lateAtStart = ParseLate(text);
 
-	// --logo: the library as it was, and the analysis started as the button starts it.
-	const std::vector<std::wstring> logosBefore = g_bLogo ? LogoFiles() : std::vector<std::wstring>();
+	// --logo: the analysis started as the button starts it.
 	std::wstring lastLogo;
 	if (g_bLogo) {
 		if (CComQIPtr<IExFilterConfig> pConfig{ pRenderer.p }) {
@@ -1729,6 +1808,28 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 			}
 		}
 	}
+	if (g_bLogo && result.logoFoundAt >= 0) {
+		// The list on the settings page: the logo just found is in it; chosen there it is
+		// hidden at once, and Automatic gives it back to the recognition, as the page does.
+		if (CComQIPtr<IExFilterConfig> pConfig{ pRenderer.p }) {
+			result.logoListed = LogoListed(pRenderer);
+			if (result.logoListed > 0) {
+				pConfig->Flt_SetInt("logoChoice", 1);
+				for (int i = 0; i < 30 && result.logoChosen.find(L"hidden") == std::wstring::npos; i++) {
+					Pump(100);
+					result.logoChosen = LogoStatus(pRenderer);
+				}
+				pConfig->Flt_GetInt("logoChoice", &result.logoChoiceRead);
+				pConfig->Flt_SetInt("logoChoice", 0);
+				for (int i = 0; i < 150 && result.logoBack.find(L"hidden") == std::wstring::npos; i++) {
+					Pump(100);
+					result.logoBack = LogoStatus(pRenderer);
+				}
+				printf("   list: %d kept; chosen: %S; automatic again: %S\n", result.logoListed,
+					result.logoChosen.c_str(), result.logoBack.c_str());
+			}
+		}
+	}
 	if (g_filmFile && watch.Ready()) {
 		// The desktop shows whatever is in front: a window left behind another one
 		// is not what the duplication composes, and the reading would be of the
@@ -1823,14 +1924,6 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 				}
 				previous = result.logoShown;
 				Pump(250);
-			}
-		}
-	}
-	if (g_bLogo) {
-		// What this run put into the library goes again.
-		for (const std::wstring& f : LogoFiles()) {
-			if (std::find(logosBefore.begin(), logosBefore.end(), f) == logosBefore.end()) {
-				DeleteFileW(f.c_str());
 			}
 		}
 	}
@@ -2932,7 +3025,12 @@ int wmain(int argc, wchar_t* argv[])
 		}
 		const Config& config = configs[c];
 		g_bChroma444 = config.b444; // read by the source pin when the graph is built
+		// The library of logos as this run finds it, put back once its graph is gone: each run
+		// starts on the same, and the maintainer's own is left as it was, whatever the
+		// registry's settings make the filter do on the film.
+		const std::vector<KeptLogo> keptLogos = SaveLogos();
 		const Result r = RunConfig(hFilter, hwnd, config, source, window, seconds);
+		PutLogosBack(keptLogos);
 		printf("== %s\n", config.name);
 		if (!r.error.empty()) {
 			printf("   FAILED: %s\n", r.error.c_str());
@@ -2946,6 +3044,15 @@ int wmain(int argc, wchar_t* argv[])
 			if (r.logoHiddenAt < 0) {
 				printf("   FAILED: the logo was never hidden\n");
 				failures++;
+			}
+			if (r.logoFoundAt >= 0) {
+				printf("   list: %d kept, the first chosen: %S (choice read back %d), Automatic again: %S\n",
+					r.logoListed, r.logoChosen.c_str(), r.logoChoiceRead, r.logoBack.c_str());
+				if (r.logoListed < 1 || r.logoChosen.find(L", chosen, hidden") == std::wstring::npos || r.logoChoiceRead != 1
+						|| r.logoBack.find(L"kept from") == std::wstring::npos || r.logoBack.find(L"hidden") == std::wstring::npos) {
+					printf("   FAILED: the list of kept logos\n");
+					failures++;
+				}
 			}
 			if (!r.picture.empty() && !r.logoShown.empty()) {
 				SaveBmp(exeDir + L"\\logo_" + std::to_wstring(c) + L"_hidden.bmp", r.picture, r.pictureW, r.pictureH);

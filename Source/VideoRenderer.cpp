@@ -2113,6 +2113,12 @@ STDMETHODIMP CMpcVideoRenderer::Flt_GetInt(LPCSTR field, int* value)
 		}
 		return S_OK;
 	}
+	// The logo chosen in the settings page's list: 0 for the one found or recognised.
+	if (!strcmp(field, "logoChoice")) {
+		CAutoLock cRendererLock(&m_RendererLock);
+		*value = m_VideoProcessor ? m_VideoProcessor->GetLogoChoice() : 0;
+		return S_OK;
+	}
 	if (!strcmp(field, "playbackState")) {
 		*value = m_filterState;
 		return S_OK;
@@ -2155,16 +2161,19 @@ STDMETHODIMP CMpcVideoRenderer::Flt_GetString(LPCSTR field, LPWSTR* value, unsig
 	// One line describing the DLSS 5 NR session, or the DLSS Super Resolution one,
 	// for the property page. "statsText" is the statistics as drawn on the picture,
 	// for tools that log them.
-	// "logoStatus": what hiding the channel's logo is doing.
+	// "logoStatus": what hiding the channel's logo is doing; "logoList": the logos kept for
+	// the film playing, one a line, as the settings page lists them.
 	const bool bNR = !strcmp(field, "dlssStatus");
 	const bool bSR = !strcmp(field, "dlssSRStatus");
 	const bool bStats = !strcmp(field, "statsText");
 	const bool bLogo = !strcmp(field, "logoStatus");
-	if (bNR || bSR || bStats || bLogo) {
+	const bool bLogoList = !strcmp(field, "logoList");
+	if (bNR || bSR || bStats || bLogo || bLogoList) {
 		CAutoLock cRendererLock(&m_RendererLock);
 		std::wstring str;
 		if (m_VideoProcessor) {
-			str = bLogo ? m_VideoProcessor->GetLogoStatus()
+			str = bLogoList ? m_VideoProcessor->GetLogoList()
+				: bLogo ? m_VideoProcessor->GetLogoStatus()
 				: bStats ? m_VideoProcessor->GetStatsText()
 				: bSR ? m_VideoProcessor->GetDlssSRStatus() : m_VideoProcessor->GetDlssStatus();
 		}
@@ -2323,6 +2332,21 @@ STDMETHODIMP CMpcVideoRenderer::Flt_SetInt(LPCSTR field, int value)
 			m_VideoProcessor->SetStereo3dTransform(value);
 			return S_OK;
 		}
+	}
+
+	// A logo of the settings page's list taken at once, as its buttons act: the i-th of
+	// the last "logoList", or 0 for the one recognised by itself.
+	if (!strcmp(field, "logoChoice")) {
+		{
+			CAutoLock cRendererLock(&m_RendererLock);
+			if (m_VideoProcessor) {
+				m_VideoProcessor->ChooseLogo(value);
+			}
+		}
+		if (m_State != State_Running) {
+			Redraw();
+		}
+		return S_OK;
 	}
 
 	return E_INVALIDARG;

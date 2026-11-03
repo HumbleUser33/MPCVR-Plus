@@ -19,6 +19,8 @@
  */
 
 #include "stdafx.h"
+#include <algorithm>
+#include <format>
 #include "resource.h"
 #include "Helper.h"
 #include "IVideoRenderer.h"
@@ -153,6 +155,7 @@ void CDX11LogoHider::SetFormat(int W, int H, int divW, int divH, const std::wstr
 	m_divW = divW;
 	m_divH = divH;
 	m_film = film;
+	m_Chosen.clear();
 	m_rtSampled = kNoTime;
 	m_fShown = 1;
 	std::vector<Logo::Stored> kept = Logo::KeptLogos(W, H);
@@ -174,6 +177,7 @@ void CDX11LogoHider::Find()
 {
 	if (m_W > 0 && m_H > 0) {
 		m_rtSampled = kNoTime;
+		m_Chosen.clear();
 		m_Worker.Start(m_W, m_H, m_divW, m_divH, m_film);
 	}
 }
@@ -181,7 +185,66 @@ void CDX11LogoHider::Find()
 void CDX11LogoHider::Forget()
 {
 	Logo::ForgetLibrary();
+	m_Chosen.clear();
 	Stop();
+}
+
+std::wstring CDX11LogoHider::List()
+{
+	m_Listed.clear();
+	if (m_W <= 0 || m_H <= 0) {
+		return {};
+	}
+	m_Listed = Logo::ListKept(m_W, m_H);
+	std::wstring out;
+	std::vector<std::wstring> names;
+	for (const Logo::Listed& l : m_Listed) {
+		// Two of the same size in the same place told apart by their order.
+		const std::wstring name = Logo::Describe(l.box, l.videoW, l.videoH);
+		const size_t same = std::count(names.begin(), names.end(), name);
+		names.push_back(name);
+		out += (same ? std::format(L"{} ({})", name, same + 1) : name) + L"\n";
+	}
+	return out;
+}
+
+int CDX11LogoHider::Choice() const
+{
+	if (m_Chosen.empty()) {
+		return 0;
+	}
+	for (size_t i = 0; i < m_Listed.size(); i++) {
+		if (m_Listed[i].path == m_Chosen) {
+			return (int)i + 1;
+		}
+	}
+	return 0;
+}
+
+void CDX11LogoHider::Choose(int i)
+{
+	if (m_W <= 0 || m_H <= 0) {
+		return;
+	}
+	if (i <= 0 || i > (int)m_Listed.size()) {
+		// Back to the logo recognised by itself, as when the film began.
+		m_Chosen.clear();
+		Stop();
+		std::vector<Logo::Stored> kept = Logo::KeptLogos(m_W, m_H);
+		if (!kept.empty()) {
+			m_Worker.Recognise(m_W, m_H, m_divW, m_divH, std::move(kept));
+		}
+		return;
+	}
+	Logo::Stored s;
+	if (!Logo::LoadLogo(m_Listed[i - 1].path, s) || s.videoW != m_W || s.videoH != m_H
+			|| s.maps.divW != m_divW || s.maps.divH != m_divH) {
+		return;
+	}
+	Stop();
+	m_Chosen = s.path;
+	Logo::TouchStored(s.path);
+	m_Worker.Use(m_W, m_H, m_divW, m_divH, std::move(s));
 }
 
 void CDX11LogoHider::Stop()

@@ -775,6 +775,9 @@ private:
 	void FindLogo() override;
 	void ForgetLogos() override;
 	std::wstring GetLogoStatus() override;
+	std::wstring GetLogoList() override;
+	int GetLogoChoice() override;
+	void ChooseLogo(int i) override;
 	int GetRenderAhead() override;
 
 public:
