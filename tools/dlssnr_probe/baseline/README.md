@@ -1,9 +1,11 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 2 November 2026, on an
+`run_all_report.txt` here is what the whole battery measured on 3 November 2026, on an
 RTX 4060 (driver 32.0.16.1742) with the Windows desktop in HDR and Windows' hardware-accelerated
-GPU scheduling on, all thirty steps green. The filter and the tools are the code of `60743ee`,
-as the report's commit line says, both built by MSVC 14.44. It is the thing
+GPU scheduling on, all thirty-one steps green. The filter and the tools are the code of
+`e892615`, both built by MSVC 14.44; the report's commit line names `10f5377`, its parent's
+parent's parent, because the battery ran on the working folder before the three commits that
+hold the logo's hiding were made (the one line changed since is the text of a tooltip). It is the thing
 a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
@@ -36,6 +38,18 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## With the channel's logo hidden
+
+Against the report it replaces (`0b092d1`, 2 November), 2973 rows compared, 126 new and none
+gone. The new rows are the step of the logo's hiding, `--tlogo` (five logos found, fitted and
+taken out, two of them through x264, the shaders against the reference and their cost), and
+the logo's column in the step that checks what the settings page greys. Four rows moved by
+more than 0.1, all times: the pipeline's bare "frame, upload to done", whose maximum read
+16.12 ms where the report before had 7.95 (run again alone, 16.69; it has flipped between
+about 10.5 and 17.5 since the 25th of October, as the sections below record), and one picture
+shown late in two runs of the upscalers through the filter, gone when the step was run again.
+No picture moved: the logo's hiding is off unless it is asked for.
 
 ## With SPP beside PP7
 
