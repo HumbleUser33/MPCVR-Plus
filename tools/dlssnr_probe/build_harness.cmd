@@ -63,7 +63,7 @@ cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x
    /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" %ORTFLAGS% harness.cpp %ORTLIB% ^
    "%SRC%\DLSS\DlssNR.cpp" "%SRC%\DLSS\DlssOpticalFlow.cpp" "%SRC%\DLSS\DlssStabilizer.cpp" ^
    "%SRC%\DLSS\DlssSR.cpp" "%SRC%\DLSS\DlssCompose.cpp" "%SRC%\Upscale\MpvShader.cpp" ^
-   "%SRC%\DX11Helper.cpp" "%SRC%\Utils\Util.cpp" ^
+   "%SRC%\DX11Helper.cpp" "%SRC%\Utils\Util.cpp" "%SRC%\Logo\LogoAnalysis.cpp" ^
    "%MH%\hook.c" "%MH%\buffer.c" "%MH%\trampoline.c" "%MH%\hde\hde64.c" ^
    detector_shaders.res /Fe:dlssnr_harness.exe || EXIT /B 1
 

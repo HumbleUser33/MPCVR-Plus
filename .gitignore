@@ -55,6 +55,11 @@ _nvngx.dll
 # and the pictures playback_test --clean saves
 /tools/dlssnr_probe/clean_refs/
 /tools/dlssnr_probe/clean_*.bmp
+# The logo's: the film --tlogo passes through x264, and the pictures --tlogo --real and
+# playback_test --logo save
+/tools/dlssnr_probe/logo_x264.mp4
+/tools/dlssnr_probe/logo_*.png
+/tools/dlssnr_probe/logo_*.bmp
 
 # ONNX Runtime and DirectML packages, fetched locally
 /external/onnxruntime/

@@ -1016,6 +1016,8 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 #include "automask_suite.inl"
 #include "pipeline_suite.inl"
 #include "nrscale_suite.inl"
+#include "logo_compose.inl"
+#include "logo_suite.inl"
 
 int wmain(int argc, wchar_t** argv)
 {
@@ -1100,6 +1102,13 @@ int wmain(int argc, wchar_t** argv)
 			cleanFiles = argv[i + 1];
 		}
 	}
+	const bool temporalLogo = hasArg(L"--tlogo");   // with --study: the comparison it was chosen on
+	std::wstring logoFilm;   // --tlogo --film <film>: the pictures, and with --real the analysis on a real film
+	for (int i = 1; i + 1 < argc; i++) {
+		if (!wcscmp(argv[i], L"--film")) {
+			logoFilm = argv[i + 1];
+		}
+	}
 	const bool temporalMpvPort = hasArg(L"--tmpvport");
 	const bool temporalDownPort = hasArg(L"--tdownport");
 	const bool temporalDownscale = hasArg(L"--tdownscale");
@@ -1178,7 +1187,7 @@ int wmain(int argc, wchar_t** argv)
 	const bool suites[] = { temporal, temporalOracle, temporalEffect, temporalFlow, temporalStab || temporalStabPort,
 		temporalStabBench, temporalUpscale, temporalUpscaleCost, temporalChroma, temporalSharpen, temporalClean, temporalMpvPort,
 		temporalDownPort, temporalDownscale, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
-		temporalPipeline, temporalNRScale, temporalSRClip, temporalSRCut, temporalCutScan, temporalAutoMask };
+		temporalPipeline, temporalNRScale, temporalSRClip, temporalSRCut, temporalCutScan, temporalAutoMask, temporalLogo };
 	if (std::count(std::begin(suites), std::end(suites), true) > 1) {
 		Head("Result");
 		printf("  more than one suite named: the harness runs one a call, give each its own\n");
@@ -1188,14 +1197,15 @@ int wmain(int argc, wchar_t** argv)
 		return 4;
 	}
 	if (temporal || temporalOracle || temporalEffect || temporalFlow
-			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalClean || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask) {
+			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalClean || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask || temporalLogo) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
 			if (!wcscmp(argv[i], L"--srrefs")) {
 				srRefs = _wtoi(argv[i + 1]);
 			}
 		}
-		const int rc = temporalAutoMask ? temporal::RunAutoMask(dev, ctx, dlss, autoMaskClip.c_str(), autoMaskSkin)
+		const int rc = temporalLogo ? temporal::RunLogo(dev, ctx, hasArg(L"--real") ? 2 : hasArg(L"--study") ? 1 : 0, logoFilm.c_str())
+			: temporalAutoMask ? temporal::RunAutoMask(dev, ctx, dlss, autoMaskClip.c_str(), autoMaskSkin)
 			: temporalCutScan ? temporal::RunCutScan(dev, ctx, cutScan.c_str(), cutFrom, cutFor)
 			: temporalSRCut ? temporal::RunSRCut(dev, ctx, srCut.c_str(), srDllPath.c_str(), hasArg(L"--tsrcrops"),
 				hasArg(L"--tsrcutnr") ? &dlss : nullptr)
