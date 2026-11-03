@@ -60,6 +60,7 @@
 #include <vector>
 #include <atomic>
 #include <commctrl.h>
+#include <shlobj.h>
 #include "../../Source/SettingsPage/Greying.h"
 #include <map>
 #include <thread>
@@ -74,6 +75,7 @@
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
 #pragma comment(lib, "user32.lib")
+#pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "advapi32.lib")
 
@@ -136,6 +138,7 @@ static bool g_bThemedHost = false;     // --themed: and a player that paints it
 static bool g_bDlaa = false;           // --dlaa: let DLSS SR run without enlarging
 static bool g_bAfterNR = false;        // --afternr: who enlarges what DLSS 5 NR leaves, on a real film (--file)
 static bool g_bVPTurns = false;        // --vpturns: who enlarges, without DLSS, the desktop read unclipped (--file)
+static bool g_bLogo = false;           // --logo: the channel's logo found and hidden on a real film (--file)
 static int g_smallUpscaling = -1;      // --small N: another method under 5 %
 static int g_videoDelay = 0;           // --delay N: every picture N ms after its time (the Video delay setting)
 static int g_videoDelayTo = INT_MIN;   // --delayto N: and changed to N three seconds in, as the page's slider does
@@ -619,6 +622,45 @@ static void Pump(DWORD ms)
 	}
 }
 
+// What hiding the channel's logo is doing, as the settings page shows it.
+static std::wstring LogoStatus(IBaseFilter* pRenderer)
+{
+	std::wstring text;
+	if (CComQIPtr<IExFilterConfig> pConfig{ pRenderer }) {
+		LPWSTR pstr = nullptr;
+		if (S_OK == pConfig->Flt_GetString("logoStatus", &pstr, nullptr) && pstr) {
+			text = pstr;
+			CoTaskMemFree(pstr);
+		}
+	}
+	return text;
+}
+
+// The logos the filter keeps, which a test leaves as it found them.
+static std::wstring LogoFolder()
+{
+	wchar_t base[MAX_PATH] = {};
+	if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, base))) {
+		return {};
+	}
+	return std::wstring(base) + L"\\MPC-BE Filters\\MPC Video Renderer\\logos\\";
+}
+
+static std::vector<std::wstring> LogoFiles()
+{
+	std::vector<std::wstring> out;
+	const std::wstring dir = LogoFolder();
+	WIN32_FIND_DATAW fd = {};
+	HANDLE h = FindFirstFileW((dir + L"*.logo").c_str(), &fd);
+	if (h != INVALID_HANDLE_VALUE) {
+		do {
+			out.push_back(dir + fd.cFileName);
+		} while (FindNextFileW(h, &fd));
+		FindClose(h);
+	}
+	return out;
+}
+
 static std::wstring StatsText(IBaseFilter* pRenderer)
 {
 	std::wstring text;
@@ -809,6 +851,10 @@ struct Config {
 };
 
 struct Result {
+	std::vector<BYTE> logoShown;   // --logo: the same picture with the logo left on
+	std::wstring logoStatus, logoStep;
+	double logoMs = -1;
+	double logoHiddenAt = -1, logoFoundAt = -1;   // seconds after Find was pressed
 	bool bRan = false;
 	std::wstring screenLine;   // what the desktop itself held, read past the renderer
 	std::vector<BYTE> screenCrop;  // and the picture that reading was taken from
@@ -1156,7 +1202,7 @@ static int ShowGreying()
 	// the two boxes step aside when it is chosen and able to run, and only then. The
 	// renderer asks the same function (CDX11VideoProcessor::CleaningAllowed).
 	printf("\nthe artifact removal, against RTX Video Super Resolution\n\n");
-	printf("%-10s %-9s %-8s %-9s %-9s\n", "superres", "resizing", "prepass", "superres", "cleaning");
+	printf("%-10s %-9s %-8s %-9s %-9s %-9s\n", "superres", "resizing", "prepass", "superres", "cleaning", "logo");
 	int wrongClean = 0;
 	for (const bool bVsr : { false, true }) {
 		for (const bool bResizing : { true, false }) {
@@ -1170,14 +1216,16 @@ static int ShowGreying()
 				sets.iVPSuperRes = bVsr ? SUPERRES_1080p : SUPERRES_Disable;
 				const Greying g = GreyingFor(sets, true, true, false);
 				const bool bExpected = !(bVsr && bResizing && !bPrepass);
-				const bool bWrong = g.bCleaning != bExpected;
+				// Hiding the logo stays live whatever Super Resolution does: it does not hide logos.
+				const bool bWrong = g.bCleaning != bExpected || !g.bLogo;
 				wrongClean += bWrong;
-				printf("%-10s %-9s %-8s %-9s %-9s%s\n",
+				printf("%-10s %-9s %-8s %-9s %-9s %-9s%s\n",
 					(bResizing && !bPrepass) ? (bVsr ? "chosen" : "off") : "",
 					bResizing ? "ticked" : "off",
 					bPrepass ? "on" : "off",
 					g.bSuperRes ? "live" : "GREYED",
 					g.bCleaning ? "live" : "GREYED",
+					g.bLogo ? "live" : "GREYED",
 					bWrong ? "   <-- WRONG" : "");
 			}
 		}
@@ -1185,13 +1233,17 @@ static int ShowGreying()
 	{
 		Settings_t sets;
 		sets.bUseD3D11 = false;
-		const bool bWrong = GreyingFor(sets, true, true, false).bCleaning;
+		const Greying g = GreyingFor(sets, true, true, false);
+		const bool bWrong = g.bCleaning || g.bLogo;
 		wrongClean += bWrong;
-		printf("%-10s Direct3D 9: cleaning %s%s\n", "", bWrong ? "live" : "GREYED", bWrong ? "   <-- WRONG" : "");
+		printf("%-10s Direct3D 9: cleaning %s, logo %s%s\n", "", g.bCleaning ? "live" : "GREYED", g.bLogo ? "live" : "GREYED",
+			bWrong ? "   <-- WRONG" : "");
 	}
 	printf("\n%s\n", wrongClean
-		? "The cleaning has to grey where Super Resolution is chosen and live, and nowhere else."
-		: "The cleaning steps aside for Super Resolution chosen and live, and for nothing else.");
+		? "The cleaning has to grey where Super Resolution is chosen and live, and nowhere else; the\n"
+		  "logo's hiding only under Direct3D 9."
+		: "The cleaning steps aside for Super Resolution chosen and live, and for nothing else; the\n"
+		  "logo's hiding stays live with it.");
 	wrong += wrongClean;
 	printf("%d failure(s)\n", wrong);
 	return wrong ? 1 : 0;
@@ -1409,6 +1461,9 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		if (config.iSuperRes >= 0) {
 			sets.iVPSuperRes = config.iSuperRes;
 		}
+		if (g_bLogo) {
+			sets.bHideLogo = true;
+		}
 		if (config.iPrepass >= 0) {
 			sets.bVPReplaceChroma = config.iPrepass != 0;
 		}
@@ -1507,8 +1562,30 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	ParseSkipped(text, result.framesAtStart, result.skippedAtStart);
 	result.lateAtStart = ParseLate(text);
 
+	// --logo: the library as it was, and the analysis started as the button starts it.
+	const std::vector<std::wstring> logosBefore = g_bLogo ? LogoFiles() : std::vector<std::wstring>();
+	std::wstring lastLogo;
+	if (g_bLogo) {
+		if (CComQIPtr<IExFilterConfig> pConfig{ pRenderer.p }) {
+			pConfig->Flt_SetBool("cmd_findLogo", true);
+		}
+	}
+
 	for (int i = 0; i < seconds * 10; i++) {
 		Pump(100);
+		if (g_bLogo && i % 5 == 4) {
+			const std::wstring now = LogoStatus(pRenderer);
+			if (now != lastLogo) {
+				printf("   %5.1f s  logo: %S\n", (i + 1) / 10.0, now.c_str());
+				lastLogo = now;
+			}
+			if (result.logoHiddenAt < 0 && now.find(L"hidden") != std::wstring::npos) {
+				result.logoHiddenAt = (i + 1) / 10.0;
+			}
+			if (result.logoFoundAt < 0 && now.find(L" found, hidden") != std::wstring::npos) {
+				result.logoFoundAt = (i + 1) / 10.0;
+			}
+		}
 		text = StatsText(pRenderer);
 		const std::wstring sync = StatsLine(text, L"Sync offset   : ");
 		// Shown to a tenth now, counted to the millisecond as the report always has.
@@ -1729,6 +1806,32 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 			}
 			previous = result.picture;
 			Pump(250);
+		}
+		if (g_bLogo) {
+			// The same picture with the logo left on, to set beside it.
+			result.logoStatus = LogoStatus(pRenderer);
+			result.logoStep = StepLine(text, L"Logo", &result.logoMs);
+			sets.bHideLogo = false;
+			pVR->SetSettings(sets);
+			Pump(800);
+			previous.clear();
+			int w = 0, h = 0;
+			for (int attempt = 0; attempt < 8; attempt++) {
+				GrabDisplayed(pRenderer, result.logoShown, w, h);
+				if (!result.logoShown.empty() && result.logoShown == previous) {
+					break;
+				}
+				previous = result.logoShown;
+				Pump(250);
+			}
+		}
+	}
+	if (g_bLogo) {
+		// What this run put into the library goes again.
+		for (const std::wstring& f : LogoFiles()) {
+			if (std::find(logosBefore.begin(), logosBefore.end(), f) == logosBefore.end()) {
+				DeleteFileW(f.c_str());
+			}
 		}
 	}
 	if ((g_bAfterNR || g_bVPTurns) && watch.Ready()) {
@@ -2556,6 +2659,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_filmDeblock = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--spp")) {
 			g_filmDeblockMethod = DEBLOCK_SPP;
+		} else if (!wcscmp(argv[i], L"--logo")) {
+			g_bLogo = true;
 		} else if (!wcscmp(argv[i], L"--deband")) {
 			g_filmDeband = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--mainpage")) {
@@ -2777,13 +2882,19 @@ int wmain(int argc, wchar_t* argv[])
 		{ "the processor enlarges",                   false, false, true, -1, -1, false, false, false, false, -1, 1, SUPERRES_Disable, -1 },
 		{ "the processor enlarges, Super Resolution", false, false, true, -1, -1, false, false, false, false, -1, 1, SUPERRES_1440p,   -1 },
 	};
-	if ((g_bAfterNR || g_bVPTurns) && !g_filmFile) {
-		printf("%s plays a real film: --file <film> [--seek <seconds>]\n", g_bAfterNR ? "--afternr" : "--vpturns");
+	// --logo: the channel's logo found and hidden, by the processor and by the shaders.
+	static const Config logoConfigs[] = {
+		{ "logo hidden, the processor enlarges",                  false, false, true, -1, -1, false, false, false, false, -1, 1, SUPERRES_Disable, 0 },
+		{ "logo hidden, the processor enlarges, Super Resolution", false, false, true, -1, -1, false, false, false, false, -1, 1, SUPERRES_1440p,   0 },
+		{ "logo hidden, the shaders enlarge",                     false, false, true, -1, -1, false, false, false, false, -1, 0, SUPERRES_Disable, -1 },
+	};
+	if ((g_bAfterNR || g_bVPTurns || g_bLogo) && !g_filmFile) {
+		printf("%s plays a real film: --file <film> [--seek <seconds>]\n", g_bAfterNR ? "--afternr" : g_bLogo ? "--logo" : "--vpturns");
 		return 1;
 	}
-	const Config* configs = g_bAfterNR ? afterNRConfigs : g_bVPTurns ? vpTurnConfigs : g_bClean ? cleanConfigs
+	const Config* configs = g_bLogo ? logoConfigs : g_bAfterNR ? afterNRConfigs : g_bVPTurns ? vpTurnConfigs : g_bClean ? cleanConfigs
 		: g_bChroma ? chromaConfigs : g_bScalers ? scalerConfigs : dlssConfigs;
-	const int configCount = (int)(g_bAfterNR ? std::size(afterNRConfigs) : g_bVPTurns ? std::size(vpTurnConfigs)
+	const int configCount = (int)(g_bLogo ? std::size(logoConfigs) : g_bAfterNR ? std::size(afterNRConfigs) : g_bVPTurns ? std::size(vpTurnConfigs)
 		: g_bClean ? std::size(cleanConfigs) : g_bChroma ? std::size(chromaConfigs)
 		: g_bScalers ? std::size(scalerConfigs) : std::size(dlssConfigs));
 
@@ -2827,6 +2938,19 @@ int wmain(int argc, wchar_t* argv[])
 			printf("   FAILED: %s\n", r.error.c_str());
 			failures++;
 			continue;
+		}
+		if (g_bLogo) {
+			printf("   logo: %S\n", r.logoStatus.c_str());
+			printf("   step: %S (%.3f ms)\n", r.logoStep.c_str(), r.logoMs);
+			printf("   hidden after %.1f s, found after %.1f s\n", r.logoHiddenAt, r.logoFoundAt);
+			if (r.logoHiddenAt < 0) {
+				printf("   FAILED: the logo was never hidden\n");
+				failures++;
+			}
+			if (!r.picture.empty() && !r.logoShown.empty()) {
+				SaveBmp(exeDir + L"\\logo_" + std::to_wstring(c) + L"_hidden.bmp", r.picture, r.pictureW, r.pictureH);
+				SaveBmp(exeDir + L"\\logo_" + std::to_wstring(c) + L"_shown.bmp", r.logoShown, r.pictureW, r.pictureH);
+			}
 		}
 		if (g_bVPTurns) {
 			wprintf(L"   processor    : %s\n", r.vprocLine.c_str());
