@@ -3,10 +3,11 @@
 `run_all_report.txt` here is what the whole battery measured on 3 November 2026, on an
 RTX 4060 (driver 32.0.16.1742) with the Windows desktop in HDR and Windows' hardware-accelerated
 GPU scheduling on, all thirty-one steps green. The filter and the tools are the code of
-`e892615`, both built by MSVC 14.44; the report's commit line names `10f5377`, its parent's
-parent's parent, because the battery ran on the working folder before the three commits that
-hold the logo's hiding were made (the one line changed since is the text of a tooltip). It is the thing
-a merge from upstream is compared against, at step 8 of
+`3daa7bf`, both built by MSVC 14.44; the report's commit line names `03f1c21`, its parent's
+parent, because the battery ran on the working folder before the two commits that hold the
+logo across a black bar and the list of the logos kept were made. The one change since is
+`playback_test` putting the logo library back as it found it, which no step of the battery
+runs. It is the thing a merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
 ```
@@ -38,6 +39,28 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## With a logo across a black bar
+
+Against the report it replaces (`03f1c21`, 3 November), 3099 rows compared, 56 new and none
+gone, no failure in either. The new rows are the logo step's sixth logo, half over the bar
+above the picture, as laid and through x264, and two lines each logo now prints: the spread of
+its colour, and the picture's rows found blended with a bar. Thirteen rows moved by more than
+0.1:
+
+- ten in the logo step, its rows 6 and 7, which are other logos than they were: the sixth logo
+  is 6 now, the translucent one through x264 is 7 and the channel's name through x264 8. Read
+  logo by logo, those two moved by 0.47 and 0.21 dB, the better, and so did what is left on
+  screen with the logo not taken out (12.59 to 12.60, its chroma 46.37 to 46.49), which reads
+  nothing of the code: x264 does not encode the film the same from one run to the next. The
+  bars told on every picture move them by 0.04 dB at most (`--tlogo --study`);
+- the pipeline's bare "frame, upload to done", its maximum at 9.56 ms where it read 16.12, as
+  it has flipped since the 25th of October;
+- the two runs of the upscalers through the filter that had shown one picture late, none now.
+
+What hiding a logo costs grew by 0.012 to 0.022 ms a picture at 1080p, the bars told on every
+picture, and the outlined logo, where a dark scene of the film passes for a bar, is at 51.07
+dB against 51.08.
 
 ## With the channel's logo hidden
 
