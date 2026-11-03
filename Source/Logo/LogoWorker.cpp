@@ -328,7 +328,7 @@ void CWorker::Run()
 					std::lock_guard<std::mutex> lock(m_lock);
 					m_box = r.box;
 					m_crops.clear();
-					fit.Reset(r.box, m_divW, m_divH);
+					fit.Reset(r.box, r.picture, m_divW, m_divH);
 					m_phase = Phase::Fitting;
 				}
 				last = r.found ? r.box : Rect();

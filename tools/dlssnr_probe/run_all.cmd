@@ -54,8 +54,9 @@ CALL :Run "sharpeners on film"                 "dlssnr_harness.exe --tsharpen --
 REM Deblocking and debanding on the decoded planes, at their five levels, and their
 REM shaders against the reference in double precision.
 CALL :Run "artifact removal on film"           "dlssnr_harness.exe --tclean --nonr --srrefs 4"
-REM The channel's logo: five logos laid over the film, found, fitted and taken out, two
-REM of them through x264; the shaders against the reference, and what they cost.
+REM The channel's logo: six logos laid over the film, one across a black bar's edge, found,
+REM fitted and taken out, three of them through x264; the shaders against the reference,
+REM and what they cost.
 CALL :Run "a channel's logo hidden on film"     "dlssnr_harness.exe --tlogo --nonr"
 CALL :Run "video processor rebuild"            "vp_rebuild_test.exe"
 CALL :Run "the generated 4:4:4 chroma pass"    "shader444_test.exe"

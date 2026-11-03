@@ -61,9 +61,10 @@ static Layer DrawLayer(int W4, int H4, Draw draw)
 	return l;
 }
 
-static void TextLayer(HDC dc, const wchar_t* text, int x, int y, int height, int weight, const wchar_t* face)
+// angle: in tenths of a degree, 900 to read from the bottom up.
+static void TextLayer(HDC dc, const wchar_t* text, int x, int y, int height, int weight, const wchar_t* face, int angle = 0)
 {
-	HFONT f = CreateFontW(-height, 0, 0, 0, weight, 0, 0, 0, DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
+	HFONT f = CreateFontW(-height, 0, angle, angle, weight, 0, 0, 0, DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
 		NONANTIALIASED_QUALITY, DEFAULT_PITCH, face);
 	HGDIOBJ o = SelectObject(dc, f);
 	TextOutW(dc, x, y, text, (int)wcslen(text));
@@ -181,7 +182,7 @@ static Design Flatten(const char* name, const std::vector<Layer>& layers, int W4
 	return d;
 }
 
-// The five logos, for a picture of W x H whose picture area starts at row top.
+// The six logos, for a picture of W x H whose picture area starts at row top.
 static std::vector<Design> Designs(int W, int top)
 {
 	std::vector<Design> out;
@@ -253,6 +254,13 @@ static std::vector<Design> Designs(int W, int top)
 		set(t, orange, 1.0f);
 		set(v, blue, 1.0f);
 		out.push_back(Flatten("channel", { word, dot, t, v }, W4, H4, W - 60 - 280, y0 + 250));
+	}
+	{   // Translucent white letters read from the bottom up, half over the black bar above
+		// the picture and half over the picture, as a channel lays its logo over a wide film.
+		const int W4 = 4 * 56, H4 = 4 * 170;
+		Layer t = DrawLayer(W4, H4, [&](HDC dc) { TextLayer(dc, L"kino", 16, H4 - 16, 4 * 44, FW_BLACK, L"Arial", 900); });
+		set(t, white, 0.4f);
+		out.push_back(Flatten("bar", { t }, W4, H4, 300, top - 120));
 	}
 	return out;
 }

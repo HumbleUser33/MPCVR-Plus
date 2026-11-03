@@ -224,6 +224,198 @@ Rect PlaneBox(const Rect& box, int plane, int divW, int divH)
 	return { box.x / divW, box.y / divH, box.w / divW, box.h / divH };
 }
 
+// A box's bars in one plane's pixels: a chroma row is the bar's when both luma rows it
+// covers are, as the shader takes it.
+Bars PlaneBars(const Bars& b, int plane, int divW, int divH)
+{
+	const int dw = plane ? divW : 1, dh = plane ? divH : 1;
+	return { b.top / dh, b.bottom / dh, b.left / dw, b.right / dw };
+}
+
+bool InBar(const Bars& e, int w, int h, int x, int y)
+{
+	return y < e.top || y >= h - e.bottom || x < e.left || x >= w - e.right;
+}
+
+std::vector<uint8_t> BarMask(const Bars& e, int w, int h)
+{
+	std::vector<uint8_t> m((size_t)w * h);
+	for (int y = 0; y < h; y++) {
+		for (int x = 0; x < w; x++) {
+			m[(size_t)y * w + x] = InBar(e, w, h, x, y);
+		}
+	}
+	return m;
+}
+
+bool Any(const std::vector<uint8_t>& m)
+{
+	return std::find(m.begin(), m.end(), 1) != m.end();
+}
+
+void LevelBars(const Plane& obs, const std::vector<uint8_t>& unknown, const Bars& e, Plane& fill);
+
+// The picture under the unknown pixels with any bar kept apart: the picture's part
+// estimated from the picture's known pixels alone, the bar's taken as the bar's level, row
+// by row as the renderer gives it back: the bar's last row before the picture is often a
+// little lighter than the rest of it.
+void EstimateApart(const Plane& in, const std::vector<uint8_t>& known, const Bars& e,
+	Background method, Plane& out)
+{
+	const std::vector<uint8_t> bar = BarMask(e, in.w, in.h);
+	if (!Any(bar)) {
+		EstimateBackground(in, known, method, out);
+		return;
+	}
+	std::vector<uint8_t> knownPicture(known.size()), picture(known.size()), unknown(known.size());
+	double sum = 0;
+	int n = 0;
+	for (size_t i = 0; i < known.size(); i++) {
+		picture[i] = !bar[i];
+		knownPicture[i] = known[i] && !bar[i];
+		unknown[i] = !known[i];
+		if (known[i] && bar[i]) {
+			sum += in.v[i];
+			n++;
+		}
+	}
+	if (method == BackgroundHarmonic) {
+		out = in;
+		FillHarmonic(in, knownPicture, out, 60, &picture);
+	} else {
+		EstimateBackground(in, knownPicture, method, out);
+	}
+	// The bar's mean where a row of it has nothing known.
+	const float level = n ? (float)(sum / n) : 0.0f;
+	for (size_t i = 0; i < known.size(); i++) {
+		if (bar[i]) {
+			out.v[i] = n ? level : in.v[i];
+		}
+	}
+	LevelBars(in, unknown, e, out);
+}
+
+// The picture's first rows (columns) at a bar's edge: the encoder, or the resize the film
+// went through, often blends the bar into them, darkening the picture there by as much all
+// along the edge. The line reads that as a black logo laid across the whole box, and
+// neither the picture nor the logo can be told there. The logo's alpha and what it lays do
+// not depend on what is under it: on the rows blended, they are taken from the first row
+// clear of the blend. A row is blended when the ring's pixels on it follow less than
+// kBlendFollows of the changes of those on the row kEdgeBlend in from the edge, over the
+// pictures fitted on. Measured (--tlogo --real): 0.19, 0.61 and 0.95 on the three rows after
+// the bar of Thelma et Louise, 0.37 then 1.00 and 1.04 on Poupoupidou's; 0.994 to 1.001 on a
+// bar with no blend, through x264 too (--tlogo).
+constexpr int kEdgeBlend = 3;
+constexpr double kBlendFollows = 0.97;
+
+// How many rows (columns) from each bar's edge are blended, in luma pixels; and how much
+// each of the first kEdgeBlend follows, side after side (top, bottom, left, right), -1
+// where there is no bar.
+Bars Blended(const std::vector<Crop>& crops, const Bars& e, int w, int h, int ring, std::vector<float>& measured)
+{
+	Bars out;
+	// The ring's mean on line `at` of a side, in one picture.
+	auto ringMean = [&](const Plane& p, bool row, int at) {
+		double sum = 0;
+		int n = 0;
+		const int across = row ? w : h;
+		for (int t = 0; t < across; t++) {
+			if (t < ring || t >= across - ring) {
+				sum += row ? p.at(t, at) : p.at(at, t);
+				n++;
+			}
+		}
+		return n ? sum / n : 0.0;
+	};
+	// How much of the changes of line `ref` line `at` follows.
+	auto follows = [&](bool row, int at, int ref) {
+		double sa = 0, sb = 0, sab = 0, sbb = 0;
+		const double n = (double)crops.size();
+		for (const Crop& c : crops) {
+			const double a = ringMean(c.p[0], row, at), b = ringMean(c.p[0], row, ref);
+			sa += a;
+			sb += b;
+			sab += a * b;
+			sbb += b * b;
+		}
+		const double vb = sbb / n - (sb / n) * (sb / n);
+		if (vb < 1e-6) {
+			return 1.0;   // the picture there never changed: nothing to tell by
+		}
+		return (sab / n - (sa / n) * (sb / n)) / vb;
+	};
+	measured.assign(4 * kEdgeBlend, -1.0f);
+	int side = 0;
+	auto count = [&](bool row, int edge, int step, int limit) {
+		float* m = &measured[kEdgeBlend * side];
+		const int ref = edge + step * kEdgeBlend;
+		if (step > 0 ? ref >= limit : ref < limit) {
+			return 0;
+		}
+		int j = kEdgeBlend;
+		for (int k = 0; k < kEdgeBlend; k++) {
+			m[k] = (float)follows(row, edge + step * k, ref);
+			if (m[k] >= kBlendFollows && j == kEdgeBlend) {
+				j = k;
+			}
+		}
+		return j;
+	};
+	if (crops.empty()) {
+		return out;
+	}
+	if (e.top > 0) {
+		out.top = count(true, e.top, 1, h - e.bottom);
+	}
+	side = 1;
+	if (e.bottom > 0) {
+		out.bottom = count(true, h - e.bottom - 1, -1, e.top);
+	}
+	side = 2;
+	if (e.left > 0) {
+		out.left = count(false, e.left, 1, w - e.right);
+	}
+	side = 3;
+	if (e.right > 0) {
+		out.right = count(false, w - e.right - 1, -1, e.left);
+	}
+	return out;
+}
+
+// The blended rows (columns) of a plane, `band` of them at each side, taken from the one past them.
+void AcrossEdge(Plane& q, const Bars& e, const Bars& band)
+{
+	const int w = q.w, h = q.h;
+	if (band.top > 0 && e.top + band.top < h - e.bottom) {
+		for (int y = e.top; y < e.top + band.top; y++) {
+			for (int x = 0; x < w; x++) {
+				q.at(x, y) = q.at(x, e.top + band.top);
+			}
+		}
+	}
+	if (band.bottom > 0 && h - e.bottom - band.bottom - 1 >= e.top) {
+		for (int y = h - e.bottom - band.bottom; y < h - e.bottom; y++) {
+			for (int x = 0; x < w; x++) {
+				q.at(x, y) = q.at(x, h - e.bottom - band.bottom - 1);
+			}
+		}
+	}
+	if (band.left > 0 && e.left + band.left < w - e.right) {
+		for (int y = 0; y < h; y++) {
+			for (int x = e.left; x < e.left + band.left; x++) {
+				q.at(x, y) = q.at(e.left + band.left, y);
+			}
+		}
+	}
+	if (band.right > 0 && w - e.right - band.right - 1 >= e.left) {
+		for (int y = 0; y < h; y++) {
+			for (int x = w - e.right - band.right; x < w - e.right; x++) {
+				q.at(x, y) = q.at(w - e.right - band.right - 1, y);
+			}
+		}
+	}
+}
+
 } // namespace
 
 // The pixels of one plane the fill does not take from: the logo's and a margin round them,
@@ -246,16 +438,20 @@ std::vector<uint8_t> Unknown(const Maps& m, int plane, int halo)
 
 namespace {
 
-void Fill(const Plane& in, const std::vector<uint8_t>& unknown, const RemoveOptions& o, Plane& out)
+// The fill reads the picture's known pixels, never a bar's: its holes are filled from the
+// picture alone, and a bar's own pixels are given the bar's level (LevelBars).
+void Fill(const Plane& in, const std::vector<uint8_t>& unknown, const std::vector<uint8_t>& bar,
+	const RemoveOptions& o, Plane& out)
 {
-	std::vector<uint8_t> known(unknown.size());
+	std::vector<uint8_t> known(unknown.size()), picture(unknown.size());
 	std::vector<float> weight(unknown.size());
 	for (size_t i = 0; i < unknown.size(); i++) {
-		known[i] = !unknown[i];
+		known[i] = !unknown[i] && !bar[i];
+		picture[i] = !bar[i];
 		weight[i] = known[i] ? 1.0f : 0.0f;
 	}
 	if (o.fill == 0) {
-		FillHarmonic(in, known, out, 400);
+		FillHarmonic(in, known, out, 400, &picture);
 		return;
 	}
 	FillPushPull(in, weight, out, o.fill == 1 ? 1 : 0);
@@ -334,7 +530,8 @@ CLocator::Result CLocator::Locate(const Options& o) const
 		return r;
 	}
 
-	// Black bars: rows and columns from the border inwards that stayed dark and still.
+	// Black bars: rows and columns from the border inwards that stayed dark and still over
+	// most of their length. A logo laid over a bar leaves the rest of the row dark.
 	auto darkStill = [&](size_t i) {
 		const float mean = m_sum[i] / m_n;
 		const float var = m_sum2[i] / m_n - mean * mean;
@@ -345,14 +542,14 @@ CLocator::Result CLocator::Locate(const Options& o) const
 		for (int x = 0; x < W; x++) {
 			n += darkStill((size_t)y * W + x);
 		}
-		return n >= W * 9 / 10;
+		return n >= W / 2;
 	};
 	auto colBar = [&](int x) {
 		int n = 0;
 		for (int y = 0; y < H; y++) {
 			n += darkStill((size_t)y * W + x);
 		}
-		return n >= H * 9 / 10;
+		return n >= H / 2;
 	};
 	int top = 0, bottom = H, left = 0, right = W;
 	while (top < H / 3 && rowBar(top)) {
@@ -376,15 +573,22 @@ CLocator::Result CLocator::Locate(const Options& o) const
 		r.still = true;
 		return r;
 	}
+	// The logo's edges are looked for over the bars as well: a channel's logo often sits
+	// across a bar's edge, part over the bar and part over the picture. Not along that
+	// edge itself, which every picture not dark there keeps, nor on the frame's border.
+	auto barEdge = [&](int x, int y) {
+		return (top > 0 && std::abs(y - top) <= m) || (bottom < H && std::abs(y - bottom) <= m)
+			|| (left > 0 && std::abs(x - left) <= m) || (right < W && std::abs(x - right) <= m);
+	};
 	const float need = o.share * m_n;
 	std::vector<uint8_t> cand((size_t)W * H, 0);
 	int edges = 0;
-	for (int y = y0; y < y1; y++) {
-		for (int x = x0; x < x1; x++) {
+	for (int y = m; y < H - m; y++) {
+		for (int x = m; x < W - m; x++) {
 			const size_t i = (size_t)y * W + x;
-			if (m_count[i] >= need) {
+			if (m_count[i] >= need && !barEdge(x, y)) {
 				cand[i] = 1;
-				edges++;
+				edges += x >= x0 && x < x1 && y >= y0 && y < y1;
 			}
 		}
 	}
@@ -446,7 +650,7 @@ CLocator::Result CLocator::Locate(const Options& o) const
 			continue;
 		}
 		const int gw = g.x1 - g.x0 + 1, gh = g.y1 - g.y0 + 1;
-		if (gw > o.most * (right - left) || gh > o.most * (bottom - top)) {
+		if (gw > o.most * W || gh > o.most * H) {
 			continue;
 		}
 		if (!best || g.score > best->score) {
@@ -458,14 +662,12 @@ CLocator::Result CLocator::Locate(const Options& o) const
 	}
 
 	// The box round it, in full-size pixels, with room for the ring the picture under
-	// the logo is read from; even, for the chroma.
+	// the logo is read from; even, for the chroma. Inside the frame, over a bar or not.
 	const int margin = std::max(10, (W * S) / 192);
 	int bx0 = best->x0 * S - margin, by0 = best->y0 * S - margin;
 	int bx1 = (best->x1 + 1) * S + margin, by1 = (best->y1 + 1) * S + margin;
-	bx0 = std::max(bx0, r.picture.x);
-	by0 = std::max(by0, r.picture.y);
-	bx1 = std::min(bx1, r.picture.x + r.picture.w);
-	by1 = std::min(by1, r.picture.y + r.picture.h);
+	bx0 = std::max(bx0, 0);
+	by0 = std::max(by0, 0);
 	bx0 &= ~1;
 	by0 &= ~1;
 	bx1 = (bx1 + 1) & ~1;
@@ -481,13 +683,20 @@ CLocator::Result CLocator::Locate(const Options& o) const
 
 // --------------------------------------------------------------- CDeblender --
 
-void CDeblender::Reset(const Rect& box, int divW, int divH)
+void CDeblender::Reset(const Rect& box, const Rect& picture, int divW, int divH)
 {
 	m_box = box;
+	m_inside = { 0, 0, box.w, box.h };
+	if (!picture.empty()) {
+		const int x0 = std::clamp(picture.x - box.x, 0, box.w), y0 = std::clamp(picture.y - box.y, 0, box.h);
+		const int x1 = std::clamp(picture.x + picture.w - box.x, 0, box.w), y1 = std::clamp(picture.y + picture.h - box.y, 0, box.h);
+		m_inside = { x0, y0, std::max(0, x1 - x0), std::max(0, y1 - y0) };
+	}
 	m_divW = std::max(1, divW);
 	m_divH = std::max(1, divH);
 	m_crops.clear();
 	m_dropped = 0;
+	m_colour = 0;
 }
 
 void CDeblender::Add(const Crop& c)
@@ -520,6 +729,23 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 	std::vector<uint8_t> anchors[3];   // pixels inside the box found free of the logo
 	const double noise2 = (double)o.noise * o.noise;
 	const int passes = std::max(1, o.passes);
+	// The parts of the box over a black bar, which the picture is never estimated from nor
+	// into: the bar is its own level.
+	const Bars fitBars = { m_inside.y, m_box.h - m_inside.y - m_inside.h, m_inside.x, m_box.w - m_inside.x - m_inside.w };
+	Bars edges[3];
+	std::vector<uint8_t> bars[3];
+	for (int p = 0; p < 3; p++) {
+		edges[p] = PlaneBars(fitBars, p, m_divW, m_divH);
+		bars[p] = BarMask(edges[p], out.alpha[p].w, out.alpha[p].h);
+	}
+	// The rows blended with a bar, in each plane's pixels: a chroma row is when either of
+	// the luma rows it covers is.
+	Bars blend[3];
+	blend[0] = m_blend = Blended(m_crops, fitBars, m_box.w, m_box.h, o.ring, m_follows);
+	for (int p = 1; p < 3; p++) {
+		blend[p] = { (blend[0].top + m_divH - 1) / m_divH, (blend[0].bottom + m_divH - 1) / m_divH,
+			(blend[0].left + m_divW - 1) / m_divW, (blend[0].right + m_divW - 1) / m_divW };
+	}
 
 	for (int pass = 0; pass < passes; pass++) {
 		for (int p = 0; p < 3; p++) {
@@ -527,13 +753,24 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 			const int w = shape.w, h = shape.h;
 			const size_t N = (size_t)w * h;
 			const int ring = p ? std::max(1, o.ring / std::max(m_divW, m_divH)) : o.ring;
+			const std::vector<uint8_t>& bar = bars[p];
 			std::vector<uint8_t> known = RingMask(w, h, ring);
 			if (pass > 0 && o.background == BackgroundHarmonic && anchors[p].size() == N) {
 				for (size_t i = 0; i < N; i++) {
 					known[i] |= anchors[p][i];
 				}
 			}
-			const std::vector<uint8_t> ringOnly = RingMask(w, h, ring);
+			// How far the picture strays from a plane, read on the ring's picture pixels.
+			std::vector<uint8_t> ringOnly = RingMask(w, h, ring);
+			{
+				std::vector<uint8_t> ringPicture = ringOnly;
+				for (size_t i = 0; i < N; i++) {
+					ringPicture[i] &= !bar[i];
+				}
+				if (Any(ringPicture)) {
+					ringOnly.swap(ringPicture);
+				}
+			}
 			const bool chromaAlone = p > 0 && o.chromaFromLuma;
 
 			std::vector<double> sw(N, 0), sx(N, 0), sy(N, 0), sxx(N, 0), sxy(N, 0), syy(N, 0);
@@ -545,7 +782,7 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 				const Plane& obs = m_crops[t].p[p];
 				const PlaneFit f = FitPlane(obs, ringOnly);
 				const double wt = 1.0 / (noise2 + f.rms * f.rms);
-				EstimateBackground(obs, known, o.background, bg);
+				EstimateApart(obs, known, edges[p], o.background, bg);
 				for (size_t i = 0; i < N; i++) {
 					const double x = bg.v[i], y = obs.v[i];
 					sw[i] += wt; sx[i] += wt * x; sy[i] += wt * y;
@@ -597,6 +834,9 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 				L.v[i] = (float)(my - (1 - a) * mx);
 			}
 
+			AcrossEdge(A, edges[p], blend[p]);
+			AcrossEdge(L, edges[p], blend[p]);
+
 			if (p == 0 && pass == passes - 1) {
 				residual.assign(N, 0);
 				for (size_t i = 0; i < N; i++) {
@@ -607,15 +847,25 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 					const double r = syy[i] - 2 * a * sxy[i] - 2 * b * sy[i] + a * a * sxx[i] + 2 * a * b * sx[i] + b * b * sw[i];
 					residual[i] = std::max(0.0, r / sw[i]);
 				}
+				// The blended rows as sure as the row their logo was taken from.
+				Plane r;
+				r.resize(w, h);
+				for (size_t i = 0; i < N; i++) {
+					r.v[i] = (float)residual[i];
+				}
+				AcrossEdge(r, edges[0], blend[0]);
+				for (size_t i = 0; i < N; i++) {
+					residual[i] = r.v[i];
+				}
 			}
 			if (p == 0) {
 				// What alpha reads where there is surely no logo: the band just inside the
-				// ring, which the locator's margin keeps clear.
+				// ring, which the locator's margin keeps clear; over the picture.
 				std::vector<float> band;
 				for (int y = 0; y < h; y++) {
 					for (int x = 0; x < w; x++) {
 						const int d = std::min(std::min(x, y), std::min(w - 1 - x, h - 1 - y));
-						if (d >= ring && d < ring + 4) {
+						if (d >= ring && d < ring + 4 && !bar[(size_t)y * w + x]) {
 							band.push_back(std::abs(A.at(x, y)));
 						}
 					}
@@ -623,6 +873,38 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 				if (!band.empty()) {
 					std::nth_element(band.begin(), band.begin() + band.size() * 9 / 10, band.end());
 					out.alphaMin = std::clamp(band[band.size() * 9 / 10] * 2.0f, 0.02f, 0.15f);
+				}
+				// The logo's colour where it is over the picture, if it has one: most are
+				// a single colour, white as a rule.
+				{
+					const Rect picture = { m_box.x + m_inside.x, m_box.y + m_inside.y, m_inside.w, m_inside.h };
+					float c[3] = {};
+					m_colour = !m_inside.empty() && LogoColours(out, picture, c) && c[2] - c[0] < o.oneColour ? c[1] : 0.0f;
+				}
+				// Over a bar the picture under the logo never changed, and the line cannot
+				// tell alpha from colour there: what shows is the logo laid over the bar's
+				// level. With the logo's colour, alpha is what takes the bar to what shows;
+				// without it the logo is taken as opaque there, and filled. On this film
+				// either gives the bar back; on another, where this part of the logo is over
+				// the picture, the first inverts it where the second can only fill.
+				for (size_t i = 0; i < N; i++) {
+					if (!bar[i] || sw[i] <= 0) {
+						continue;
+					}
+					const double mx = sx[i] / sw[i], my = sy[i] / sw[i], d = my - mx;
+					if (std::abs(d) <= o.barLogo) {
+						A.v[i] = 0;
+						L.v[i] = (float)d;
+						continue;
+					}
+					double a = 1;
+					if (m_colour > 0 && std::abs(m_colour - mx) > 0.1) {
+						a = std::clamp(d / (m_colour - mx), (double)kAlphaLeast, 1.0);
+						// It shows over the bar: no less than what counts as the logo's.
+						a = a < 0 ? std::min(a, -(double)out.alphaMin) : std::max(a, (double)out.alphaMin);
+					}
+					A.v[i] = (float)a;
+					L.v[i] = (float)(my - (1 - a) * mx);
 				}
 				// Not the pixels next to the logo: the codec smears the logo into them,
 				// and the fit is to measure by how much, not take them as the picture.
@@ -669,7 +951,7 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 			Plane bg;
 			for (int t = 0; t < n; t++) {
 				const Plane& obs = m_crops[t].p[0];
-				EstimateBackground(obs, known, BackgroundHarmonic, bg);
+				EstimateApart(obs, known, edges[0], BackgroundHarmonic, bg);
 				double e1 = 0, e0 = 0;
 				for (size_t i = 0; i < A.v.size(); i++) {
 					if (A.v[i] < strong) {
@@ -692,10 +974,11 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 
 	// The fill's error by how far a pixel is from the picture it is filled from: the
 	// pixels round the logo left out, filled in, and their own values compared, as the
-	// renderer fills.
+	// renderer fills -- from the picture, never from a bar.
 	{
 		const Plane& A = out.alpha[0];
 		const int w = A.w, h = A.h;
+		const std::vector<uint8_t>& bar = bars[0];
 		const std::vector<uint8_t> unknown = Unknown(out, 0, kMarginMost);
 		std::vector<uint8_t> grown = unknown;
 		constexpr int kFar = 6;
@@ -703,7 +986,7 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 		std::vector<uint8_t> known(grown.size());
 		std::vector<float> weight(grown.size());
 		for (size_t i = 0; i < grown.size(); i++) {
-			known[i] = !grown[i];
+			known[i] = !grown[i] && !bar[i];
 			weight[i] = known[i] ? 1.0f : 0.0f;
 		}
 		const std::vector<int> away = Distance(known, w, h);
@@ -716,7 +999,7 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 			const Plane& obs = m_crops[t].p[0];
 			FillPushPull(obs, weight, fill, 1);
 			for (size_t i = 0; i < grown.size(); i++) {
-				if (grown[i] && !unknown[i]) {
+				if (grown[i] && !unknown[i] && !bar[i]) {
 					const int d = std::clamp(away[i], 1, kFar);
 					const double e = fill.v[i] - obs.v[i];
 					err[d] += e * e;
@@ -743,13 +1026,60 @@ bool CDeblender::Fit(const Options& o, Maps& out)
 					fitKnown[i] |= anchors[0][i];
 				}
 			}
+			for (size_t i = 0; i < fitKnown.size(); i++) {
+				fitKnown[i] &= !bar[i];
+			}
 			const std::vector<int> fitDepth = Distance(fitKnown, w, h);
 			for (size_t i = 0; i < residual.size(); i++) {
+				if (bar[i]) {
+					// Over a bar alpha was told from the colour, not by the line: nothing
+					// to doubt it by.
+					out.excess.v[i] = (float)(floor * 0.25);
+					continue;
+				}
 				const double slope = 1.0 - A.v[i];
 				const double bgVar = fitDepth[i] == 0 ? 0.0 : fillVar[std::clamp(fitDepth[i], 1, kFar)];
 				out.excess.v[i] = (float)std::max(floor * 0.25, residual[i] - slope * slope * bgVar);
 			}
 		}
+	}
+	return true;
+}
+
+bool LogoColours(const Maps& m, const Rect& picture, float out[3])
+{
+	struct Sample { float c, w; };
+	std::vector<Sample> s;
+	const Plane& A = m.alpha[0];
+	const Plane& L = m.laid[0];
+	for (int y = 0; y < A.h; y++) {
+		for (int x = 0; x < A.w; x++) {
+			const int X = m.box.x + x, Y = m.box.y + y;
+			const bool over = !picture.empty()
+				&& (X < picture.x || Y < picture.y || X >= picture.x + picture.w || Y >= picture.y + picture.h);
+			const float a = A.at(x, y);
+			if (!over && a >= 0.2f) {
+				s.push_back({ L.at(x, y) / a, a * a });
+			}
+		}
+	}
+	if (s.size() < 20) {
+		return false;
+	}
+	std::sort(s.begin(), s.end(), [](const Sample& a, const Sample& b) { return a.c < b.c; });
+	double total = 0;
+	for (const Sample& e : s) {
+		total += e.w;
+	}
+	const double q[3] = { 0.1, 0.5, 0.9 };
+	double acc = 0;
+	size_t i = 0;
+	for (int k = 0; k < 3; k++) {
+		while (i + 1 < s.size() && acc + s[i].w < q[k] * total) {
+			acc += s[i].w;
+			i++;
+		}
+		out[k] = s[i].c;
 	}
 	return true;
 }
@@ -832,16 +1162,18 @@ void FillPushPull(const Plane& in, const std::vector<float>& weight, Plane& out,
 	}
 }
 
-void FillHarmonic(const Plane& in, const std::vector<uint8_t>& known, Plane& out, int iterations)
+void FillHarmonic(const Plane& in, const std::vector<uint8_t>& known, Plane& out, int iterations,
+	const std::vector<uint8_t>* domain)
 {
 	// iterations < 0: start from out as it is and take that many plain Jacobi steps
 	// (the renderer's smoothing after its push-pull); otherwise start from a push-pull
 	// and go on with over-relaxation.
 	const bool jacobi = iterations < 0;
+	auto inside = [&](size_t i) { return !domain || (*domain)[i]; };
 	if (!jacobi) {
 		std::vector<float> weight(known.size());
 		for (size_t i = 0; i < known.size(); i++) {
-			weight[i] = known[i] ? 1.0f : 0.0f;
+			weight[i] = known[i] && inside(i) ? 1.0f : 0.0f;
 		}
 		FillPushPull(in, weight, out, 1);
 	}
@@ -855,15 +1187,15 @@ void FillHarmonic(const Plane& in, const std::vector<uint8_t>& known, Plane& out
 		for (int y = 0; y < H; y++) {
 			for (int x = 0; x < W; x++) {
 				const size_t i = (size_t)y * W + x;
-				if (known[i]) {
+				if (known[i] || !inside(i)) {
 					continue;
 				}
 				float s = 0;
 				int k = 0;
-				if (x > 0) { s += out.v[i - 1]; k++; }
-				if (x < W - 1) { s += out.v[i + 1]; k++; }
-				if (y > 0) { s += out.v[i - W]; k++; }
-				if (y < H - 1) { s += out.v[i + W]; k++; }
+				if (x > 0 && inside(i - 1)) { s += out.v[i - 1]; k++; }
+				if (x < W - 1 && inside(i + 1)) { s += out.v[i + 1]; k++; }
+				if (y > 0 && inside(i - W)) { s += out.v[i - W]; k++; }
+				if (y < H - 1 && inside(i + W)) { s += out.v[i + W]; k++; }
 				if (!k) {
 					continue;
 				}
@@ -926,7 +1258,7 @@ std::vector<int> NearestKnown(const std::vector<uint8_t>& known, int W, int H)
 // it the grain and the texture next to it, so that the logo's shape does not show as a
 // smooth patch.
 void AddTexture(const Maps& m, int plane, const Plane& obs, const std::vector<uint8_t>& unknown,
-	const RemoveOptions& o, Plane& fill)
+	const std::vector<uint8_t>& bar, const RemoveOptions& o, Plane& fill)
 {
 	const int W = obs.w, H = obs.h;
 	std::vector<int> qx, qy;
@@ -934,7 +1266,7 @@ void AddTexture(const Maps& m, int plane, const Plane& obs, const std::vector<ui
 	for (int y = 0; y < H; y++) {
 		for (int x = 0; x < W; x++) {
 			const size_t i = (size_t)y * W + x;
-			if (!unknown[i] || qx[i] < 0) {
+			if (!unknown[i] || qx[i] < 0 || bar[i] || bar[(size_t)qy[i] * W + qx[i]]) {
 				continue;
 			}
 			const int cx = qx[i], cy = qy[i];
@@ -943,7 +1275,7 @@ void AddTexture(const Maps& m, int plane, const Plane& obs, const std::vector<ui
 			for (int dy = -2; dy <= 2; dy++) {
 				for (int dx = -2; dx <= 2; dx++) {
 					const int nx = cx + dx, ny = cy + dy;
-					if (nx >= 0 && ny >= 0 && nx < W && ny < H && !unknown[(size_t)ny * W + nx]) {
+					if (nx >= 0 && ny >= 0 && nx < W && ny < H && !unknown[(size_t)ny * W + nx] && !bar[(size_t)ny * W + nx]) {
 						sum += obs.at(nx, ny);
 						k++;
 					}
@@ -955,7 +1287,114 @@ void AddTexture(const Maps& m, int plane, const Plane& obs, const std::vector<ui
 	}
 }
 
+// The bar's pixels given the bar's level: each row's of a bar above or below the logo,
+// each column's of one beside it, the mean of its pixels round the logo. Where a row has
+// none, what the fill made of it stays.
+void LevelBars(const Plane& obs, const std::vector<uint8_t>& unknown, const Bars& e, Plane& fill)
+{
+	const int W = obs.w, H = obs.h;
+	auto level = [&](bool row, int k, float& out) {
+		double s = 0;
+		int n = 0;
+		const int len = row ? W : H;
+		for (int t = 0; t < len; t++) {
+			const int x = row ? t : k, y = row ? k : t;
+			if (!unknown[(size_t)y * W + x]) {
+				s += obs.at(x, y);
+				n++;
+			}
+		}
+		if (n) {
+			out = (float)(s / n);
+		}
+		return n > 0;
+	};
+	std::vector<float> rows(H, 0), cols(W, 0);
+	std::vector<uint8_t> rowHas(H, 0), colHas(W, 0);
+	for (int y = 0; y < H; y++) {
+		if (y < e.top || y >= H - e.bottom) {
+			rowHas[y] = level(true, y, rows[y]);
+		}
+	}
+	for (int x = 0; x < W; x++) {
+		if (x < e.left || x >= W - e.right) {
+			colHas[x] = level(false, x, cols[x]);
+		}
+	}
+	for (int y = 0; y < H; y++) {
+		const bool inRow = y < e.top || y >= H - e.bottom;
+		for (int x = 0; x < W; x++) {
+			if (inRow) {
+				if (rowHas[y]) {
+					fill.at(x, y) = rows[y];
+				}
+			} else if ((x < e.left || x >= W - e.right) && colHas[x]) {
+				fill.at(x, y) = cols[x];
+			}
+		}
+	}
+}
+
+// Sums about the bar's usual level, which keeps a float's precision in the shader's.
+constexpr float kBarOffset = 16.0f / 255;
+
 } // namespace
+
+Bars FindBars(const Maps& m, const Plane& luma, const RemoveOptions& o)
+{
+	Bars b;
+	if (!m.valid()) {
+		return b;
+	}
+	const Rect& r = m.box;
+	if (r.x < 0 || r.y < 0 || r.x + r.w > luma.w || r.y + r.h > luma.h) {
+		return b;
+	}
+	const int w = r.w, h = r.h;
+	const std::vector<uint8_t> unknown = Unknown(m, 0, o.halo);
+	// A row (or a column) of the box whose pixels round the logo are dark and flat.
+	auto flat = [&](bool row, int k) {
+		double s = 0, s2 = 0;
+		int n = 0;
+		const int len = row ? w : h;
+		for (int t = 0; t < len; t++) {
+			const int x = row ? t : k, y = row ? k : t;
+			if (unknown[(size_t)y * w + x]) {
+				continue;
+			}
+			const double d = luma.at(r.x + x, r.y + y) - kBarOffset;
+			s += d;
+			s2 += d * d;
+			n++;
+		}
+		if (n < 4) {
+			return false;
+		}
+		const double mean = s / n;
+		return mean + kBarOffset < o.barDark && s2 / n - mean * mean < (double)o.barFlat * o.barFlat;
+	};
+	// From each edge of the box to the first row that is not.
+	int first = h, last = -1;
+	for (int y = 0; y < h; y++) {
+		if (!flat(true, y)) {
+			first = std::min(first, y);
+			last = y;
+		}
+	}
+	b.top = first;
+	b.bottom = h - 1 - last;
+	first = w;
+	last = -1;
+	for (int x = 0; x < w; x++) {
+		if (!flat(false, x)) {
+			first = std::min(first, x);
+			last = x;
+		}
+	}
+	b.left = first;
+	b.right = w - 1 - last;
+	return b;
+}
 
 void MirrorPlane(const Maps& m, int plane, int margin, std::vector<int>& qx, std::vector<int>& qy)
 {
@@ -1049,7 +1488,7 @@ Plane UnroundedDoubt(const Maps& m, int plane, const RemoveOptions& o)
 	return C;
 }
 
-void Remove(const Maps& m, int plane, float s, const RemoveOptions& o, Plane& picture)
+void Remove(const Maps& m, int plane, float s, const RemoveOptions& o, const Bars& bars, Plane& picture)
 {
 	if (!m.valid()) {
 		return;
@@ -1066,11 +1505,14 @@ void Remove(const Maps& m, int plane, float s, const RemoveOptions& o, Plane& pi
 		}
 	}
 	const std::vector<uint8_t> unknown = Unknown(m, plane, o.halo);
+	const Bars e = PlaneBars(bars, plane, m.divW, m.divH);
+	const std::vector<uint8_t> bar = BarMask(e, b.w, b.h);
 	Plane fill;
-	Fill(obs, unknown, o, fill);
+	Fill(obs, unknown, bar, o, fill);
 	if (o.texture > 0) {
-		AddTexture(m, plane, obs, unknown, o, fill);
+		AddTexture(m, plane, obs, unknown, bar, o, fill);
 	}
+	LevelBars(obs, unknown, e, fill);
 	const Plane doubt = DoubtPlane(m, plane, o);
 	const Plane& A = m.alpha[plane];
 	const Plane& L = m.laid[plane];
@@ -1080,6 +1522,9 @@ void Remove(const Maps& m, int plane, float s, const RemoveOptions& o, Plane& pi
 			if (!unknown[i]) {
 				continue;
 			}
+			// Over a bar the fill is the bar's own level (LevelBars), and the inversion is
+			// trusted as anywhere: over a real bar it gives the bar back, over a picture's
+			// dark flat rows taken for one, the picture.
 			// Every pixel worked is inverted with what the fit found there, the margin's
 			// too: the faint edge the codec smeared is the logo's, under alphaMin or not.
 			const float a = std::clamp(s * A.v[i], kAlphaLeast, 1.0f);
@@ -1111,9 +1556,12 @@ float Presence(const Maps& m, const Plane& luma, const RemoveOptions& o, float* 
 			obs.at(x, y) = luma.at(b.x + x, b.y + y);
 		}
 	}
+	const Bars bars = FindBars(m, luma, o);
 	const std::vector<uint8_t> unknown = Unknown(m, 0, o.halo);
+	const std::vector<uint8_t> bar = BarMask(bars, b.w, b.h);
 	Plane fill;
-	Fill(obs, unknown, o, fill);
+	Fill(obs, unknown, bar, o, fill);
+	LevelBars(obs, unknown, bars, fill);
 	const Plane& A = m.alpha[0];
 	const Plane& L = m.laid[0];
 	// The logo at full strength would change a pixel by laid - alpha * picture.

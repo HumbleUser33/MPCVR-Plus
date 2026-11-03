@@ -40,16 +40,24 @@ struct PackConstants {
 };
 static_assert(sizeof(PackConstants) == 32, "cs_logo_pack.hlsl's constant buffer");
 
-// cs_logo_remove.hlsl, register b0. 304 bytes.
+// cs_logo_remove.hlsl, register b0. 336 bytes.
 constexpr int kPyramidLevels = 16;   // the box's own included
 struct RemoveConstants {
 	uint32_t boxX, boxY, boxW, boxH;
 	uint32_t levels, jacobi, update;
 	float detail;   // RemoveOptions::texture
 	float alphaMin, snapLow, snapHigh, trust;
+	uint32_t barsAt;            // the bar's level of each row, then of each column, from this entry
+	uint32_t barDivX, barDivY;  // the plane's pixel in luma pixels, which the bars are counted in
+	float barDark, barFlat;     // RemoveOptions
+	uint32_t pad[3];
 	uint32_t level[kPyramidLevels][4];   // width, height, first entry, unused
 };
-static_assert(sizeof(RemoveConstants) == 304, "cs_logo_remove.hlsl's constant buffer");
+static_assert(sizeof(RemoveConstants) == 336, "cs_logo_remove.hlsl's constant buffer");
+
+// The logo's state between pictures, cs_logo_remove.hlsl's `state`: its strength (a float),
+// then the bars the luma pass found on the picture (Logo::Bars, top, bottom, left, right).
+constexpr uint32_t kStateBytes = 32;
 
 // The pictures the analysis looks at and fits on: one every this many seconds, so that
 // they differ. The logo is looked for from the kLocateFirst-th picture on, given up after
@@ -76,7 +84,7 @@ inline uint32_t PyramidLevels(int w, int h)
 	return l;
 }
 
-// Entries of the pyramid buffer: two box-sized layers, then the levels.
+// Entries of the pyramid: two box-sized layers, then the levels.
 inline uint32_t PyramidEntries(int w, int h)
 {
 	uint32_t n = 2u * w * h;
@@ -86,6 +94,13 @@ inline uint32_t PyramidEntries(int w, int h)
 		n += (uint32_t)w * h;
 	}
 	return n;
+}
+
+// Entries of the buffer the pyramid is kept in: the pyramid, then the bar's level of each
+// row and of each column of the box.
+inline uint32_t PyramidBufferEntries(int w, int h)
+{
+	return PyramidEntries(w, h) + (uint32_t)(w + h);
 }
 
 inline RemoveConstants MakeRemoveConstants(const Maps& m, int plane, const RemoveOptions& o, bool update)
@@ -113,6 +128,11 @@ inline RemoveConstants MakeRemoveConstants(const Maps& m, int plane, const Remov
 	c.snapLow = o.snapLow;
 	c.snapHigh = o.snapHigh;
 	c.trust = o.trust;
+	c.barsAt = PyramidEntries(c.boxW, c.boxH);
+	c.barDivX = dw;
+	c.barDivY = dh;
+	c.barDark = o.barDark;
+	c.barFlat = o.barFlat;
 	return c;
 }
 

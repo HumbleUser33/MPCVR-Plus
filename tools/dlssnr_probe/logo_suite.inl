@@ -2,13 +2,15 @@
 // it, and takes it out (Source/Logo/LogoAnalysis.cpp, which this compiles).
 //
 // The truth: pictures of a film, taken far enough apart to differ, made 1920 x 1080 with
-// black bars as a channel shows a wide film, and five logos of known alpha and colour laid
+// black bars as a channel shows a wide film, and six logos of known alpha and colour laid
 // over them (logo_compose.inl):
 //   translucent  white letters at 55 %, holes in them
 //   outlined     opaque white letters on a dark rim
 //   gradient     a badge from 25 % to 75 %, its text cut out
 //   small        a thin "HD", 18 pixels high
 //   channel      a channel's name: white letters, a red dot, two coloured letters
+//   bar          translucent white letters read upwards, half over the black bar above the
+//                picture: the bar's part can only be told by the logo's colour
 // The renderer's analysis runs as it does on a film, on the pictures in turn: it looks for
 // the logo on the first, fits it on the next, and the pictures after those are the test.
 // Among the pictures it fits on and among the test ones are stretches without the logo,
@@ -111,6 +113,48 @@ private:
 	int m_W0 = 0, m_H0 = 0, m_W = 0, m_H = 0, m_top = 0, m_left = 0;
 	std::vector<BYTE> m_raw;
 };
+
+// The logo taken out of a whole picture, its bars told on the luma first, as the renderer
+// does; and out of the luma alone.
+static void RemoveFrame(const Logo::Maps& m, float s, const Logo::RemoveOptions& o, Plane p[3])
+{
+	const Logo::Bars bars = Logo::FindBars(m, p[0], o);
+	for (int k = 0; k < 3; k++) {
+		Logo::Remove(m, k, s, o, bars, p[k]);
+	}
+}
+
+static void RemoveLuma(const Logo::Maps& m, float s, const Logo::RemoveOptions& o, Plane& luma)
+{
+	Logo::Remove(m, 0, s, o, Logo::FindBars(m, luma, o), luma);
+}
+
+// The logo's colour (luma, 8-bit levels) where it is over the picture, as the fit reads it
+// to tell alpha over a bar (Logo::LogoColours, CDeblender::Options::oneColour): its 10th,
+// 50th and 90th percentiles, each pixel counted by its alpha squared.
+static void PrintColours(const Logo::Maps& m, const Logo::Rect& picture)
+{
+	float c[3] = {};
+	if (!Logo::LogoColours(m, picture, c)) {
+		Out("  %-34s too few pixels\n", "colour over the picture");
+		return;
+	}
+	Out("  %-34s %6.1f %6.1f %6.1f  spread %.1f\n", "colour over the picture, 10/50/90 %", c[0] * 255, c[1] * 255, c[2] * 255,
+		(c[2] - c[0]) * 255);
+}
+
+// How much the picture's first rows at a bar's edge follow the picture past them: under 0.97,
+// blended with the bar (CDeblender::Blend).
+static void PrintFollows(const Logo::CDeblender& fit)
+{
+	const std::vector<float>& f = fit.BlendFollows();
+	static const char* sides[4] = { "top", "bottom", "left", "right" };
+	for (size_t s = 0; s < 4 && 3 * s + 2 < f.size(); s++) {
+		if (f[3 * s] >= 0) {
+			Out("  %-34s %6.3f %6.3f %6.3f\n", std::format("rows at the {} bar follow", sides[s]).c_str(), f[3 * s], f[3 * s + 1], f[3 * s + 2]);
+		}
+	}
+}
 
 // Rounded to 8 bits, as the decoder gives it.
 static void Round8(Frame& f)
@@ -472,11 +516,11 @@ public:
 			return false;
 		}
 		D3D11_BUFFER_DESC s = {};
-		s.ByteWidth = 16;
+		s.ByteWidth = Logo::kStateBytes;
 		s.Usage = D3D11_USAGE_DEFAULT;
 		s.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
 		s.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-		const float one[4] = { 1, 0, 0, 0 };
+		const float one[Logo::kStateBytes / 4] = { 1 };
 		D3D11_SUBRESOURCE_DATA sd = { one };
 		if (FAILED(dev->CreateBuffer(&s, &sd, &m_state))) {
 			return false;
@@ -484,7 +528,7 @@ public:
 		D3D11_UNORDERED_ACCESS_VIEW_DESC u = {};
 		u.Format = DXGI_FORMAT_R32_TYPELESS;
 		u.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-		u.Buffer.NumElements = 4;
+		u.Buffer.NumElements = Logo::kStateBytes / 4;
 		u.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
 		return SUCCEEDED(dev->CreateUnorderedAccessView(m_state, &u, &m_stateUav));
 	}
@@ -528,7 +572,7 @@ public:
 			m_ctx->UpdateSubresource(m_map[k].pTexture, 0, nullptr, (k ? chroma : luma).data(), 8 * w, 0);
 			m_ctx->UpdateSubresource(m_mirror[k].pTexture, 0, nullptr, mirror[k].data(), 4 * w, 0);
 			D3D11_BUFFER_DESC b = {};
-			b.ByteWidth = 16 * Logo::PyramidEntries(w, h);
+			b.ByteWidth = 16 * Logo::PyramidBufferEntries(w, h);
 			b.Usage = D3D11_USAGE_DEFAULT;
 			b.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
 			b.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
@@ -562,7 +606,7 @@ public:
 	float Strength()
 	{
 		D3D11_BUFFER_DESC d = {};
-		d.ByteWidth = 16;
+		d.ByteWidth = Logo::kStateBytes;
 		d.Usage = D3D11_USAGE_STAGING;
 		d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 		CComPtr<ID3D11Buffer> stage;
@@ -580,7 +624,7 @@ public:
 
 	void SetStrength(float s)
 	{
-		const float v[4] = { s, 0, 0, 0 };
+		const float v[Logo::kStateBytes / 4] = { s };
 		m_ctx->UpdateSubresource(m_state, 0, nullptr, v, 0, 0);
 	}
 
@@ -753,9 +797,7 @@ static void PortCheck(ID3D11Device* dev, ID3D11DeviceContext* ctx, const std::ve
 		const float s = Logo::PresenceStep(prev, measured, conf, o);
 		prev = s;
 		Frame c = seen[i];
-		for (int k = 0; k < 3; k++) {
-			Logo::Remove(maps, k, s, o, c.p[k]);
-		}
+		RemoveFrame(maps, s, o, c.p);
 		double dl = 0, dc = 0;
 		for (int k = 0; k < 3; k++) {
 			for (size_t j = 0; j < c.p[k].v.size(); j++) {
@@ -868,7 +910,8 @@ static int RunReal(const wchar_t* film)
 				Out("  %-34s %s\n", std::format("{}", c).c_str(), r.found
 					? std::format("{} x {} at ({}, {}), {} edge pixels, picture {}..{}", r.box.w, r.box.h, r.box.x, r.box.y, r.edgePixels, r.picture.y, r.picture.y + r.picture.h).c_str()
 					: r.still ? "still" : "none");
-				if (c == 60) {
+				// At 60, or later if the film stood still until then.
+				if (c == 60 || (c > 60 && !found.found)) {
 					found = r;
 				}
 			}
@@ -879,7 +922,7 @@ static int RunReal(const wchar_t* film)
 		return 1;
 	}
 	Logo::CDeblender fit;
-	fit.Reset(found.box, 2, 2);
+	fit.Reset(found.box, found.picture, 2, 2);
 	Logo::Maps maps, half;
 	Out("  %-34s %6s %6s %8s %6s\n", "pictures fitted on", "out", "a min", "logo px", "mean a");
 	for (int i = 0; i < nFit && fr.Next(f); i++) {
@@ -897,6 +940,7 @@ static int RunReal(const wchar_t* film)
 					}
 				}
 				Out("  %-34s %6d %6.3f %8d %6.3f\n", std::format("{}", c).c_str(), fit.Dropped(), m.alphaMin, px, px ? sa / px : 0.0);
+				PrintColours(m, found.picture);
 				if (c == 120) {
 					half = m;
 				}
@@ -910,6 +954,10 @@ static int RunReal(const wchar_t* film)
 		Check(false, "the logo fitted");
 		return 1;
 	}
+	PrintColours(maps, found.picture);
+	PrintFollows(fit);
+	Out("  %-34s top %d, bottom %d, left %d, right %d\n", "rows blended with a bar", fit.Blend().top, fit.Blend().bottom,
+		fit.Blend().left, fit.Blend().right);
 	{
 		double d = 0;
 		for (size_t i = 0; i < maps.alpha[0].v.size(); i++) {
@@ -1007,9 +1055,7 @@ static int RunReal(const wchar_t* film)
 		for (size_t i = 0; i < seen.size(); i++) {
 			Frame after = seen[i];
 			const float s = Logo::Presence(maps, seen[i].p[0], o, nullptr);
-			for (int k = 0; k < 3; k++) {
-				Logo::Remove(maps, k, s, o, after.p[k]);
-			}
+			RemoveFrame(maps, s, o, after.p);
 			const Left l = measure(seen[i], after);
 			if (print) {
 				Out("  %-34s %6.2f %8.3f %8.3f\n", std::format("{}", i).c_str(), s, l.outline, l.texture);
@@ -1043,7 +1089,7 @@ static int RunReal(const wchar_t* film)
 		int n = 0;
 		for (const Frame& f : seen) {
 			Frame o = f;
-			Logo::Remove(probe, 0, 1.0f, po, o.p[0]);
+			RemoveLuma(probe, 1.0f, po, o.p[0]);
 			for (int y = 1; y < probe.box.h - 1; y++) {
 				for (int x = 1; x < probe.box.w - 1; x++) {
 					if (probe.alpha[0].at(x, y) < 1) {
@@ -1077,7 +1123,7 @@ static int RunReal(const wchar_t* film)
 		for (const Frame& f : seen) {
 			Frame o = f;
 			const float s = Logo::Presence(maps, f.p[0], ro, nullptr);
-			Logo::Remove(maps, 0, s, ro, o.p[0]);
+			RemoveLuma(maps, s, ro, o.p[0]);
 			for (int y = 0; y < maps.box.h; y++) {
 				for (int x = 0; x < maps.box.w; x++) {
 					const float a = maps.alpha[0].at(x, y);
@@ -1103,8 +1149,9 @@ static int RunReal(const wchar_t* film)
 			for (const Frame& f : seen) {
 				Frame o = f;
 				const float s = Logo::Presence(maps, f.p[0], ro, nullptr);
+				const Logo::Bars bars = Logo::FindBars(maps, o.p[0], ro);
 				for (int k = 1; k < 3; k++) {
-					Logo::Remove(maps, k, s, ro, o.p[k]);
+					Logo::Remove(maps, k, s, ro, bars, o.p[k]);
 				}
 				for (int y = 2; y < Ac.h - 2; y++) {
 					for (int x = 2; x < Ac.w - 2; x++) {
@@ -1175,7 +1222,7 @@ static int RunReal(const wchar_t* film)
 					Logo::RemoveOptions mo = ro;
 					mo.halo = mgn;
 					const float s = Logo::Presence(maps, f.p[0], mo, nullptr);
-					Logo::Remove(maps, 0, s, mo, t.p[0]);
+					RemoveLuma(maps, s, mo, t.p[0]);
 				}
 				double fr = 0;
 				int fn = 0;
@@ -1284,9 +1331,7 @@ static int RunReal(const wchar_t* film)
 						mo.halo = mgn;
 						Frame t = f;
 						const float s = Logo::Presence(maps, f.p[0], mo, nullptr);
-						for (int k = 0; k < 3; k++) {
-							Logo::Remove(maps, k, s, mo, t.p[k]);
-						}
+						RemoveFrame(maps, s, mo, t.p);
 						Blit(canvas, CW, t, around, z, (1 + mgn - Logo::kMarginLeast) * (mw + 8), (int)r * (mh + 8));
 					}
 				}
@@ -1303,9 +1348,7 @@ static int RunReal(const wchar_t* film)
 			for (int r = 0; r < rows; r++) {
 				Frame t = seen[r];
 				const float s = Logo::Presence(maps, seen[r].p[0], to, nullptr);
-				for (int k = 0; k < 3; k++) {
-					Logo::Remove(maps, k, s, to, t.p[k]);
-				}
+				RemoveFrame(maps, s, to, t.p);
 				Blit(canvas, CW, seen[r], around, zoom, 0, r * (th + 8));
 				Blit(canvas, CW, out[r], around, zoom, tw + 8, r * (th + 8));
 				Blit(canvas, CW, t, around, zoom, 2 * tw + 16, r * (th + 8));
@@ -1347,8 +1390,8 @@ static int Run(ID3D11Device* dev, ID3D11DeviceContext* ctx, int mode, const wcha
 
 	for (int x264 = 0; x264 < 2; x264++)
 	for (const LogoCompose::Design& d : designs) {
-		// Through x264 for every logo in the study; for the battery, two.
-		if (x264 && !study && strcmp(d.name, "translucent") && strcmp(d.name, "channel")) {
+		// Through x264 for every logo in the study; for the battery, three.
+		if (x264 && !study && strcmp(d.name, "translucent") && strcmp(d.name, "channel") && strcmp(d.name, "bar")) {
 			continue;
 		}
 		// MPCVR_LOGO_ONLY=<name>[,x264]: one logo, one way, while a change is looked at.
@@ -1395,7 +1438,7 @@ static int Run(ID3D11Device* dev, ID3D11DeviceContext* ctx, int mode, const wcha
 
 		// Fitting it, on the pictures after.
 		Logo::CDeblender fit;
-		fit.Reset(box, 2, 2);
+		fit.Reset(box, found.picture, 2, 2);
 		Logo::Maps maps;
 		Out("  %-34s %6s %6s %6s %7s %7s %4s\n", "pictures fitted on", "found", "box", "IoU", "alpha", "colour", "out");
 		for (int i = 0; i < nFit && fr.Next(f, nullptr); i++) {
@@ -1411,8 +1454,13 @@ static int Run(ID3D11Device* dev, ID3D11DeviceContext* ctx, int mode, const wcha
 				}
 			}
 		}
+		PrintColours(maps, found.picture);
+		PrintFollows(fit);
+		Out("  %-34s top %d, bottom %d, left %d, right %d\n", "rows blended with a bar", fit.Blend().top, fit.Blend().bottom,
+			fit.Blend().left, fit.Blend().right);
 		if (study) {
-			struct Variant { const char* name; Logo::Background bg; int passes; bool chroma; };
+			// The last: a logo across a bar taken as opaque over it, its colour not used.
+			struct Variant { const char* name; Logo::Background bg; int passes; bool chroma; bool colour = true; };
 			const Variant variants[] = {
 				{ "ring mean, 1 pass", Logo::BackgroundFlat, 1, true },
 				{ "ring plane, 1 pass", Logo::BackgroundPlane, 1, true },
@@ -1420,6 +1468,7 @@ static int Run(ID3D11Device* dev, ID3D11DeviceContext* ctx, int mode, const wcha
 				{ "harmonic, 2 passes", Logo::BackgroundHarmonic, 2, true },
 				{ "harmonic, 3 passes", Logo::BackgroundHarmonic, 3, true },
 				{ "harmonic, 3, chroma alpha own", Logo::BackgroundHarmonic, 3, false },
+				{ "harmonic, 3, opaque over a bar", Logo::BackgroundHarmonic, 3, true, false },
 			};
 			Out("  %-34s %6s %6s %6s %7s %7s %4s\n", "background, at 240", "found", "box", "IoU", "alpha", "colour", "out");
 			for (const Variant& v : variants) {
@@ -1427,6 +1476,9 @@ static int Run(ID3D11Device* dev, ID3D11DeviceContext* ctx, int mode, const wcha
 				o.background = v.bg;
 				o.passes = v.passes;
 				o.chromaFromLuma = v.chroma;
+				if (!v.colour) {
+					o.oneColour = 0;
+				}
 				Logo::Maps m;
 				fit.Fit(o, m);
 				PrintFit(v.name, ScoreFit(m, d.truth, box), fit.Dropped());
@@ -1474,9 +1526,7 @@ static int Run(ID3D11Device* dev, ID3D11DeviceContext* ctx, int mode, const wcha
 				if (!trueStrength) {
 					s = Logo::Presence(m, seen[i].p[0], o, nullptr);
 				}
-				for (int k = 0; k < 3; k++) {
-					Logo::Remove(m, k, s, o, out.p[k]);
-				}
+				RemoveFrame(m, s, o, out.p);
 				const RemoveScore r = ScoreRemoval(out, seen[i], clean[i], d.truth);
 				if (strength[i] > 0) {
 					sum.Add(r);
@@ -1533,6 +1583,15 @@ static int Run(ID3D11Device* dev, ID3D11DeviceContext* ctx, int mode, const wcha
 				Logo::RemoveOptions o = ro;
 				o.halo = h;
 				PrintRemove(std::format("margin {}", h).c_str(), removeAll(maps, o, true).first);
+			}
+			// A bar: how dark its rows are taken to be (0: no bar), with the strength as
+			// measured, as it ships; then on the pictures without the logo.
+			for (float dark : { 0.0f, 20.0f, 25.5f }) {
+				Logo::RemoveOptions o = ro;
+				o.barDark = dark / 255;
+				const auto r = removeAll(maps, o, false);
+				PrintRemove(std::format("bar under {:.1f} levels", dark).c_str(), r.first);
+				PrintRemove(std::format("bar under {:.1f}, without it", dark).c_str(), r.second);
 			}
 		}
 	}

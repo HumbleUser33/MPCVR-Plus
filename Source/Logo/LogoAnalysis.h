@@ -69,6 +69,12 @@ struct Rect {
 	bool empty() const { return w <= 0 || h <= 0; }
 };
 
+// Rows or columns counted from each edge of a box: those of a black bar (FindBars), or
+// those the encoder blended with one (CDeblender::Blend).
+struct Bars {
+	int top = 0, bottom = 0, left = 0, right = 0;
+};
+
 // ------------------------------------------------------------------- finding --
 
 // The pixels that keep an edge from one picture to the next, as LogoScan finds them: a
@@ -83,13 +89,14 @@ public:
 		float merge = 1.0f / 160;  // letters this far apart (a share of the width) make one logo
 		float most = 0.25f;        // a logo is at most this share of the width and of the height
 		float busy = 0.02f;        // more of the picture than this kept its edges: it hardly changed
-		int margin = 3;            // edges this close to the picture's border are not a logo's
+		int margin = 3;            // edges this close to the frame's border or a black bar's edge are not a logo's
 	};
 
 	struct Result {
 		bool found = false;
 		bool still = false;        // the pictures hardly changed: too soon to tell
-		Rect box;                  // the logo with a margin round it, in full-size luma pixels
+		Rect box;                  // the logo with a margin round it, in full-size luma pixels; it
+		                           // may reach over a black bar, as a logo across a bar's edge does
 		Rect picture;              // the picture inside any black bars, full-size
 		float score = 0;           // the logo's edges, weighted by their share
 		int edgePixels = 0;
@@ -164,25 +171,51 @@ public:
 		int passes = 3;            // fit, drop pictures without the logo, fit again...
 		bool chromaFromLuma = true;// chroma's alpha from luma's, its colour fitted alone
 		float illPosed = 0.004f;   // the picture under a pixel varied less than this (std): alpha unknown
+		float barLogo = 0.75f / 255;   // over a black bar, a pixel this far from the bar on average is the logo's
+		float oneColour = 0.2f;    // the logo's colour where it is over the picture spreads less than
+		                           // this (10th to 90th percentile): one colour, which tells alpha over a
+		                           // bar. Measured: 6 to 25 levels for a logo of one colour, through x264
+		                           // too, 100 to 220 for one of several (--tlogo, three real films)
 	};
 
-	void Reset(const Rect& box, int divW, int divH);
+	// picture: the picture inside any black bars, full-size (CLocator::Result::picture);
+	// empty when there are none. The parts of the box outside it are a bar's.
+	void Reset(const Rect& box, const Rect& picture, int divW, int divH);
 	void Add(const Crop& c);
 	int Pictures() const { return (int)m_crops.size(); }
 	const Rect& Box() const { return m_box; }
 	bool Fit(const Options& o, Maps& out);
 	// How many pictures the last fit left out as showing no logo.
 	int Dropped() const { return m_dropped; }
+	// The logo's colour (luma) where it is over the picture, if it has one; 0 if not.
+	float Colour() const { return m_colour; }
+	// The picture's rows (columns) found blended with each bar at its edge, in luma pixels;
+	// and how much each of the first three of them follows the picture, side after side
+	// (top, bottom, left, right), -1 where there is no bar.
+	const Bars& Blend() const { return m_blend; }
+	const std::vector<float>& BlendFollows() const { return m_follows; }
 
 private:
 	Rect m_box;
+	Rect m_inside;   // the picture's part of the box, in the box's pixels
 	int m_divW = 2, m_divH = 2;
 	std::vector<Crop> m_crops;
 	int m_dropped = 0;
+	float m_colour = 0;
+	Bars m_blend;
+	std::vector<float> m_follows;
 };
 
-// The picture under the box's unknown pixels, carried in from the known ones.
-void FillHarmonic(const Plane& in, const std::vector<uint8_t>& known, Plane& out, int iterations);
+// The logo's colour (luma) where it is over the picture: its 10th, 50th and 90th
+// percentiles over the pixels at least 20 % opaque, each counted by its alpha squared, as
+// the colour of one is known to its alpha's error over its alpha. picture: the picture
+// inside any black bars, full-size, or empty. False where there are too few such pixels.
+bool LogoColours(const Maps& m, const Rect& picture, float out[3]);
+
+// The picture under the box's unknown pixels, carried in from the known ones. domain: the
+// pixels it is carried across, the others neither filled nor read (all when null).
+void FillHarmonic(const Plane& in, const std::vector<uint8_t>& known, Plane& out, int iterations,
+	const std::vector<uint8_t>* domain = nullptr);
 // Push-pull (Gortler et al.): the known pixels averaged down a pyramid, the holes filled
 // on the way back up. kernel 0: 2 x 2 boxes and bilinear; 1: [1 3 3 1] and bilinear.
 void FillPushPull(const Plane& in, const std::vector<float>& weight, Plane& out, int kernel);
@@ -201,11 +234,27 @@ struct RemoveOptions {
 	float snapLow = 0.15f;     // a strength measured under this is no logo on screen
 	float snapHigh = 0.85f;    // over this, the whole logo
 	float trust = 0.03f;       // the logo must stand out from the picture by this (RMS) to be measured
+	// A row of a black bar: its pixels round the logo average under barDark and spread less
+	// than barFlat (std). Bars measure 15 to 18 levels; a film's dark scenes, above 20 as a
+	// rule, would otherwise be taken for one (--tlogo, Fight Club).
+	float barDark = 20.0f / 255;
+	float barFlat = 2.0f / 255;
 };
+
+// The rows and columns at the box's edges that are a black bar in this picture, counted in
+// luma pixels from each edge of the box. A logo laid across a bar's edge is filled in on
+// the bar from the bar, row by row, and on the picture from the picture: a fill across the
+// edge would smear the one into the other. Its inversion is trusted over the bar as
+// anywhere: over a real bar it gives the bar back. Told on every picture, from the box's
+// pixels round the logo: a row is the bar's when they are near black and flat, and the bar
+// runs from the box's edge inwards. A picture's own black rows (a fade) count too, and
+// filling them from themselves is as right. luma: the whole picture's.
+Bars FindBars(const Maps& m, const Plane& luma, const RemoveOptions& o);
 
 // The logo taken out of one plane of a picture, at strength s (0: no logo on screen).
 // plane: 0 luma, 1 Cb, 2 Cr. The plane is the whole picture's; only the box changes.
-void Remove(const Maps& m, int plane, float s, const RemoveOptions& o, Plane& picture);
+// bars: FindBars on this picture's luma, before the logo is taken out of it.
+void Remove(const Maps& m, int plane, float s, const RemoveOptions& o, const Bars& bars, Plane& picture);
 
 // How strongly the logo is on screen in this picture, from its luma: the least-squares
 // strength that explains the pixels under the logo against the picture filled in round it.

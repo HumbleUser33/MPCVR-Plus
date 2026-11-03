@@ -73,22 +73,22 @@ HRESULT CDX11LogoHider::InitShaders(ID3D11Device* pDevice)
 	if (SUCCEEDED(hr)) hr = constants(m_pPackConstants, sizeof(Logo::PackConstants));
 	if (SUCCEEDED(hr)) hr = constants(m_pRemoveConstants, sizeof(Logo::RemoveConstants));
 
-	// The logo's strength, kept on the GPU from one picture to the next, and a copy the
-	// statistics read now and then.
+	// The logo's strength, kept on the GPU from one picture to the next with the bars the
+	// luma pass found, and a copy the statistics read now and then.
 	if (SUCCEEDED(hr) && !m_pState) {
 		D3D11_BUFFER_DESC desc = {};
-		desc.ByteWidth = 16;
+		desc.ByteWidth = Logo::kStateBytes;
 		desc.Usage = D3D11_USAGE_DEFAULT;
 		desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
 		desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-		const float one[4] = { 1, 0, 0, 0 };
+		const float one[Logo::kStateBytes / 4] = { 1 };
 		D3D11_SUBRESOURCE_DATA init = { one };
 		hr = pDevice->CreateBuffer(&desc, &init, &m_pState);
 		if (SUCCEEDED(hr)) {
 			D3D11_UNORDERED_ACCESS_VIEW_DESC u = {};
 			u.Format = DXGI_FORMAT_R32_TYPELESS;
 			u.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-			u.Buffer.NumElements = 4;
+			u.Buffer.NumElements = Logo::kStateBytes / 4;
 			u.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
 			hr = pDevice->CreateUnorderedAccessView(m_pState, &u, &m_pStateUav);
 		}
@@ -277,7 +277,7 @@ HRESULT CDX11LogoHider::Upload(ID3D11DeviceContext* pContext, const Logo::Maps& 
 		m_pPyramidUav[k].Release();
 		m_pPyramid[k].Release();
 		D3D11_BUFFER_DESC desc = {};
-		desc.ByteWidth = 16 * Logo::PyramidEntries(w, h);
+		desc.ByteWidth = 16 * Logo::PyramidBufferEntries(w, h);
 		desc.Usage = D3D11_USAGE_DEFAULT;
 		desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
 		desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
@@ -470,7 +470,7 @@ bool CDX11LogoHider::Run(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView
 		m_bMaps = true;
 		m_bUploaded = false;
 		if (!same && m_pState) {
-			const float one[4] = { 1, 0, 0, 0 };
+			const float one[Logo::kStateBytes / 4] = { 1 };
 			pContext->UpdateSubresource(m_pState, 0, nullptr, one, 0, 0);
 			m_fShown = 1;
 		}
