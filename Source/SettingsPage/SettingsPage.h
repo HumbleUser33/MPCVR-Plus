@@ -98,6 +98,7 @@ private:
 	void FillCombos();
 	void SetControls();
 	void EnableControls();
+	void ShowLogoStatus();   // what hiding the channel's logo is doing, read from the renderer
 
 	HRESULT OnConnect(IUnknown* pUnknown) override;
 	HRESULT OnDisconnect() override;

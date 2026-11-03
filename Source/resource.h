@@ -163,6 +163,15 @@
 #define IDF_CS_11_DEBAND2               1932
 #define IDF_CS_11_DEBLOCK_SPP1          1933
 #define IDF_CS_11_DEBLOCK_SPP2          1934
+#define IDF_CS_11_LOGO_LUMA             1935
+#define IDF_CS_11_LOGO_CROP1            1936
+#define IDF_CS_11_LOGO_CROP2            1937
+#define IDF_CS_11_LOGO_COPY1            1938
+#define IDF_CS_11_LOGO_COPY2            1939
+#define IDF_CS_11_LOGO_REMOVE1          1940
+#define IDF_CS_11_LOGO_REMOVE2          1941
+#define IDF_CS_11_LOGO_FILL1            1942
+#define IDF_CS_11_LOGO_FILL2            1943
 #define IDF_VS_11_MPV_HOOK              1950
 #define IDF_PS_11_MPV_LUMA              1951
 #define IDF_PS_11_MPV_COMBINE           1952
@@ -367,6 +376,14 @@
 #define IDC_DEBAND_LEVEL_TEXT              1358
 #define IDC_STATIC_CLEAN_NOTE              1359
 #define IDC_STATIC_DEBLOCK                 1360
+#define IDC_CARD_LOGO                      1361
+#define IDC_HIDE_LOGO                      1362
+#define IDC_LOGO_FIND                      1363
+#define IDC_LOGO_FORGET                    1364
+#define IDC_LOGO_STATUS                    1365
+#define IDC_STATIC_LOGO_MARGIN             1366
+#define IDC_LOGO_MARGIN                    1367
+#define IDC_LOGO_MARGIN_TEXT               1368
 #define IDC_STATIC_SDRTM                1066
 #define IDC_COMBO_SDRTM                 1067
 #define IDC_STATIC_DVTM                 1068
@@ -378,7 +395,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        4010
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1361
+#define _APS_NEXT_CONTROL_VALUE         1369
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

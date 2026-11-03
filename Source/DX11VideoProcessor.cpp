@@ -424,6 +424,8 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_iDeblockLevel        = config.iDeblockLevel;
 	m_bDeband              = config.bDeband;
 	m_iDebandLevel         = config.iDebandLevel;
+	m_bHideLogo            = config.bHideLogo;
+	m_iLogoMargin          = config.iLogoMargin;
 	m_iChromaScaling       = config.iChromaScaling;
 	m_iUpscaling           = config.iUpscaling;
 	m_bUpscalingSmall      = config.bUpscalingSmall;
@@ -2461,9 +2463,7 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 	// The artifact removal for a processor keeping its own chroma: the planes are cleaned
 	// out of the decoder's texture and written back into the processor's own, which is
 	// then no longer read in place (DX11VideoProcessorClean.cpp).
-	m_bCleanVP = !disableD3D11VP && !m_bChromaReplacedVP && !m_bCleanFailed
-		&& (m_iDeblock != DEBLOCK_Off || m_bDeband) && CleaningAllowed() && CleanFormatOk(FmtParams)
-		&& !(m_bInterlaced && m_bInterlacedSeen) && CleanPlaneTargetsOk(FmtParams.VP11Format);
+	m_bCleanVP = !disableD3D11VP && !m_bChromaReplacedVP && CleanVPWanted(FmtParams);
 	if (disableD3D11VP) {
 		FmtParams.VP11Format = DXGI_FORMAT_UNKNOWN;
 	}
@@ -5388,11 +5388,14 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	// the screen is cleaned again below.
 	bool changeClean = false;
 	if (config.iDeblock != m_iDeblock || config.iDeblockLevel != m_iDeblockLevel
-			|| config.bDeband != m_bDeband || config.iDebandLevel != m_iDebandLevel) {
+			|| config.bDeband != m_bDeband || config.iDebandLevel != m_iDebandLevel
+			|| config.bHideLogo != m_bHideLogo || config.iLogoMargin != m_iLogoMargin) {
 		m_iDeblock      = config.iDeblock;
 		m_iDeblockLevel = config.iDeblockLevel;
 		m_bDeband       = config.bDeband;
 		m_iDebandLevel  = config.iDebandLevel;
+		m_bHideLogo     = config.bHideLogo;
+		m_iLogoMargin   = config.iLogoMargin;
 		changeClean = true;
 	}
 
@@ -5575,9 +5578,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	// decoder's texture is read in place, which only InitMediaType chooses; and Super
 	// Resolution, chosen, takes the cleaning over (Greying.h).
 	if (changeClean && m_D3D11VP.IsReady() && !m_bChromaReplacedVP) {
-		const bool bCleanVP = !m_bCleanFailed && (m_iDeblock != DEBLOCK_Off || m_bDeband) && CleaningAllowed()
-			&& CleanFormatOk(m_srcParams) && !(m_bInterlaced && m_bInterlacedSeen)
-			&& CleanPlaneTargetsOk(m_srcParams.VP11Format);
+		const bool bCleanVP = CleanVPWanted(m_srcParams);
 		if (bCleanVP != m_bCleanVP) {
 			changeVP = true;
 		}

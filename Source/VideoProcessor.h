@@ -281,6 +281,12 @@ public:
 	// The statistics as drawn on the picture; empty where the processor has none.
 	virtual std::wstring GetStatsText() { return {}; }
 
+	// Hiding a channel's logo (DX11 only): a new analysis, the logos kept forgotten, and
+	// what it is doing, for the settings page.
+	virtual void FindLogo() {}
+	virtual void ForgetLogos() {}
+	virtual std::wstring GetLogoStatus() { return {}; }
+
 	int GetRotation() const { return m_iRotation; }
 	virtual void SetRotation(int value) = 0;
 	bool GetFlip() const { return m_bFlip; }

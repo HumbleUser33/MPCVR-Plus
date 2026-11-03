@@ -56,6 +56,8 @@ struct Greying {
 	bool bDownscalingList;   // Downscaling, and its label
 	bool bSuperRes;          // Video Super Resolution, and its label
 	bool bCleaning;          // Deblocking and Debanding, and their levels
+	bool bLogo;              // Hide the channel logo, and its buttons: kept under RTX Video
+	                         // Super Resolution, which does not hide logos
 };
 
 inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDoViNow)
@@ -107,5 +109,6 @@ inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDo
 	// resizing, and the two step aside rather than clean it twice. They are compute
 	// shaders: Direct3D 11.
 	g.bCleaning = s.bUseD3D11 && !(g.bSuperRes && s.iVPSuperRes != SUPERRES_Disable);
+	g.bLogo = s.bUseD3D11;
 	return g;
 }

@@ -32,6 +32,12 @@
 // changes size, so nothing changes who resizes, and the chroma is upsampled after the
 // cleaning by whoever upsamples it -- an upsampler that sharpens would otherwise
 // sharpen the block edges first (tools/dlssnr_probe --tclean --study).
+//
+// A channel's logo is taken out first, by CDX11LogoHider, in planes of its own the
+// deblocking and the debanding then read: the logo was laid before the codec coded the
+// picture, and what is left of the codec's blocks round it is the deblocking's to take.
+// RTX Video Super Resolution cleans the picture itself but leaves the logo, so the logo is
+// still hidden while the other two step aside for it.
 
 #include "stdafx.h"
 #include "Helper.h"
@@ -74,6 +80,45 @@ bool CDX11VideoProcessor::CleanPlaneTargetsOk(const DXGI_FORMAT fmt) const
 	}
 	UINT support = 0;
 	return SUCCEEDED(m_pDevice->CheckFormatSupport(fmt, &support)) && (support & D3D11_FORMAT_SUPPORT_RENDER_TARGET);
+}
+
+// The logo is hidden in two-plane video: luma, and Cb and Cr together.
+bool CDX11VideoProcessor::LogoFormatOk(const FmtConvParams_t& params) const
+{
+	return CleanFormatOk(params) && params.pDX11Planes->FmtPlane3 == DXGI_FORMAT_UNKNOWN
+		&& params.pDX11Planes->div_chroma_w <= 2 && params.pDX11Planes->div_chroma_h <= 2;
+}
+
+// Whether the processor keeping its own chroma is to be given the planes back: the
+// deblocking or the debanding wanted and allowed, or the logo hidden.
+bool CDX11VideoProcessor::CleanVPWanted(const FmtConvParams_t& params) const
+{
+	const bool bFilters = (m_iDeblock != DEBLOCK_Off || m_bDeband) && CleaningAllowed();
+	const bool bLogo = m_bHideLogo && LogoFormatOk(params);
+	return !m_bCleanFailed && (bFilters || bLogo) && CleanFormatOk(params)
+		&& !(m_bInterlaced && m_bInterlacedSeen) && CleanPlaneTargetsOk(params.VP11Format);
+}
+
+// The film playing, for the library's word on where a logo was found.
+std::wstring CDX11VideoProcessor::LogoFilm() const
+{
+	IFilterGraph* graph = m_pFilter ? m_pFilter->GetFilterGraph() : nullptr;
+	CComPtr<IEnumFilters> filters;
+	if (!graph || FAILED(graph->EnumFilters(&filters))) {
+		return {};
+	}
+	CComPtr<IBaseFilter> filter;
+	while (filters->Next(1, &filter, nullptr) == S_OK) {
+		CComQIPtr<IFileSourceFilter> source(filter);
+		LPOLESTR path = nullptr;
+		if (source && SUCCEEDED(source->GetCurFile(&path, nullptr)) && path) {
+			std::wstring name(path);
+			CoTaskMemFree(path);
+			return name.substr(name.find_last_of(L"\\/") + 1);
+		}
+		filter.Release();
+	}
+	return {};
 }
 
 HRESULT CDX11VideoProcessor::UpdateCleanShaders()
@@ -128,6 +173,7 @@ void CDX11VideoProcessor::ReleaseClean(const bool bShaders)
 	}
 	m_CleanTargets.clear();
 	m_iCleanResult = 0;
+	m_Logo.Release(bShaders);
 	if (bShaders) {
 		for (int c = 0; c < 2; c++) {
 			m_pCSDeblock[0][c].Release();
@@ -146,11 +192,22 @@ void CDX11VideoProcessor::UpdateClean()
 	if (!m_D3D11VP.IsReady()) {
 		m_bCleanVP = false;   // the shaders took the picture after all
 	}
-	const bool bWanted = (m_iDeblock != DEBLOCK_Off || m_bDeband) && CleaningAllowed()
-		&& CleanFormatOk(m_srcParams) && !(m_bInterlaced && m_bInterlacedSeen);
-	m_bCleanActive = bWanted
+	const bool bPlanes = CleanFormatOk(m_srcParams) && !(m_bInterlaced && m_bInterlacedSeen);
+	const bool bFilters = (m_iDeblock != DEBLOCK_Off || m_bDeband) && CleaningAllowed() && bPlanes;
+	const bool bLogo = m_bHideLogo && bPlanes && LogoFormatOk(m_srcParams);
+	m_bCleanActive = (bFilters || bLogo)
 		&& (!m_D3D11VP.IsReady() || m_bChromaReplacedVP || m_bCleanVP)
-		&& SUCCEEDED(UpdateCleanShaders());
+		&& SUCCEEDED(UpdateCleanShaders())
+		&& (!bLogo || SUCCEEDED(m_Logo.InitShaders(m_pDevice)));
+	m_bCleanFilters = m_bCleanActive && bFilters;
+	m_bLogoActive = m_bCleanActive && bLogo;
+	m_Logo.SetMargin(m_iLogoMargin);
+	if (m_bLogoActive) {
+		const DX11PlaneConfig_t* planes = m_srcParams.pDX11Planes;
+		m_Logo.SetFormat(m_TexSrcVideo.desc.Width, m_TexSrcVideo.desc.Height, planes->div_chroma_w, planes->div_chroma_h, LogoFilm());
+	} else if (!m_bHideLogo) {
+		m_Logo.Stop();
+	}
 	if (!m_bCleanActive) {
 		m_bCleanVP = false;
 	}
@@ -159,6 +216,22 @@ void CDX11VideoProcessor::UpdateClean()
 
 void CDX11VideoProcessor::UpdateCleanStatus()
 {
+	m_strLogoWhyNot.clear();
+	if (m_bHideLogo && !m_bLogoActive) {
+		const wchar_t* why = L"not applied";
+		if (m_srcParams.CSType != CS_YUV) {
+			why = L"not on RGB";
+		} else if (!m_srcParams.pDX11Planes || m_srcParams.pDX11Planes->FmtPlane2 == DXGI_FORMAT_UNKNOWN) {
+			why = L"not in packed formats";
+		} else if (m_srcParams.pDX11Planes->FmtPlane3 != DXGI_FORMAT_UNKNOWN) {
+			why = L"not in three-plane formats";
+		} else if (m_bInterlaced && m_bInterlacedSeen) {
+			why = L"not on interlaced pictures";
+		} else if (m_bCleanFailed) {
+			why = L"the processor's planes take no render target here";
+		}
+		m_strLogoWhyNot = why;
+	}
 	if (m_iDeblock == DEBLOCK_Off && !m_bDeband) {
 		m_strCleanStatus.clear();
 		return;
@@ -171,7 +244,7 @@ void CDX11VideoProcessor::UpdateCleanStatus()
 		what += std::format(L"{}deband {}", what.empty() ? L"" : L", ", m_iDebandLevel);
 	}
 
-	if (m_bCleanActive) {
+	if (m_bCleanFilters) {
 		m_strCleanStatus = what + (m_bCleanVP ? L", back into the processor's planes" : L", on the planes");
 		return;
 	}
@@ -213,7 +286,10 @@ int CDX11VideoProcessor::CleanPlaneCount() const
 
 ID3D11ShaderResourceView* CDX11VideoProcessor::SrcPlane(const int i) const
 {
-	if (m_iCleanResult) {
+	if (m_iCleanResult == 3 && i < 2) {
+		return m_Logo.Plane(i);
+	}
+	if (m_iCleanResult == 1 || m_iCleanResult == 2) {
 		const CleanPlane* set = (m_iCleanResult == 2) ? m_CleanB : m_CleanA;
 		if (set[i].tex.pShaderResource) {
 			return set[i].tex.pShaderResource;
@@ -249,24 +325,42 @@ HRESULT CDX11VideoProcessor::CleanTargets(CleanPlane* set)
 	return S_OK;
 }
 
-// The picture in m_TexSrcVideo, cleaned into the sets: the decoder's planes, deblocked
-// into A, debanded into B. The last pass dithers to the processor's depth when the
-// planes are to be written back into its input; the shaders read them at 16 bits.
-void CDX11VideoProcessor::CleanRun()
+// The picture in m_TexSrcVideo, cleaned into the sets: the logo taken out into the
+// hider's planes (3), the planes deblocked into A (1), debanded into B (2). The last pass
+// dithers to the processor's depth when the planes are to be written back into its input;
+// the shaders read them at 16 bits. rt is the picture's time; newPicture is false for the
+// same picture again (a level changed while paused).
+void CDX11VideoProcessor::CleanRun(const REFERENCE_TIME rt, const bool newPicture)
 {
 	m_iCleanResult = 0;
-	const bool bDeblock = m_iDeblock != DEBLOCK_Off;
-	CComPtr<ID3D11ComputeShader>* const deblock = m_pCSDeblock[m_iDeblock == DEBLOCK_SPP ? 1 : 0];
-	if (!m_bCleanActive || !m_pCleanConstants || (bDeblock && !deblock[0]) || (m_bDeband && !m_pCSDeband[0])) {
-		return;
-	}
-	if ((bDeblock && FAILED(CleanTargets(m_CleanA))) || (m_bDeband && FAILED(CleanTargets(m_CleanB)))) {
+	if (!m_bCleanActive) {
 		return;
 	}
 
 	// Nothing may still hold a plane as a render target: these passes dispatch, so they
 	// set none of their own, and Direct3D would answer the read with zeros.
 	m_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+
+	ID3D11ShaderResourceView* in[3] = { SrcPlane(0), SrcPlane(1), SrcPlane(2) };
+	if (m_bLogoActive) {
+		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::Logo);
+		if (m_Logo.Run(m_pDeviceContext, in[0], in[1], rt, newPicture)) {
+			in[0] = m_Logo.Plane(0);
+			in[1] = m_Logo.Plane(1);
+			m_iCleanResult = 3;
+		}
+		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Logo);
+	}
+
+	const bool bDeblock = m_bCleanFilters && m_iDeblock != DEBLOCK_Off;
+	const bool bDeband = m_bCleanFilters && m_bDeband;
+	CComPtr<ID3D11ComputeShader>* const deblock = m_pCSDeblock[m_iDeblock == DEBLOCK_SPP ? 1 : 0];
+	if (!m_pCleanConstants || (bDeblock && !deblock[0]) || (bDeband && !m_pCSDeband[0])) {
+		return;
+	}
+	if ((bDeblock && FAILED(CleanTargets(m_CleanA))) || (bDeband && FAILED(CleanTargets(m_CleanB)))) {
+		return;
+	}
 
 	const bool bLimited = m_srcExFmt.NominalRange != DXVA2_NominalRange_0_255;
 	const bool bDeep = m_srcParams.CDepth > 8;
@@ -281,7 +375,6 @@ void CDX11VideoProcessor::CleanRun()
 	}
 
 	const int count = CleanPlaneCount();
-	ID3D11ShaderResourceView* in[3] = { SrcPlane(0), SrcPlane(1), SrcPlane(2) };
 
 	auto dispatch = [&](ID3D11ComputeShader* cs, const Clean::Constants& c, ID3D11ShaderResourceView* srv, ID3D11UnorderedAccessView* uav) {
 		D3D11_MAPPED_SUBRESOURCE mr;
@@ -307,14 +400,14 @@ void CDX11VideoProcessor::CleanRun()
 		for (int i = 0; i < count; i++) {
 			const CleanPlane& p = m_CleanA[i];
 			const Clean::Constants c = Clean::DeblockConstants(m_iDeblock, m_iDeblockLevel, p.tex.desc.Width, p.tex.desc.Height,
-				m_bDeband ? 0.0f : step);
+				bDeband ? 0.0f : step);
 			dispatch(deblock[p.channels - 1], c, in[i], p.pUav);
 			in[i] = p.tex.pShaderResource;
 		}
 		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Deblock);
 		m_iCleanResult = 1;
 	}
-	if (m_bDeband) {
+	if (bDeband) {
 		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::Deband);
 		for (int i = 0; i < count; i++) {
 			const CleanPlane& p = m_CleanB[i];
@@ -343,8 +436,10 @@ void CDX11VideoProcessor::CleanPass(IMediaSample* pSample)
 		m_uCleanSeed = (uint32_t)(rtStart / 10000) ^ (uint32_t)((uint64_t)rtStart >> 32);
 	} else {
 		m_uCleanSeed++;
+		rtStart = INT64_MIN;   // the logo's analysis then takes one picture in so many
 	}
-	CleanRun();
+	m_rtCleaned = rtStart;
+	CleanRun(rtStart, true);
 }
 
 // The cleaned planes into the processor's next input, a plane at a time, each through
@@ -389,7 +484,8 @@ HRESULT CDX11VideoProcessor::CleanToVPInput(ID3D11Texture2D* pInput)
 	const CleanPlane* set = (m_iCleanResult == 2) ? m_CleanB : m_CleanA;
 	ID3D11RenderTargetView* views[2] = { targets->pLuma, targets->pChroma };
 	for (int i = 0; i < 2; i++) {
-		const UINT w = set[i].tex.desc.Width, h = set[i].tex.desc.Height;
+		const Tex2D_t& tex = (m_iCleanResult == 3) ? m_Logo.PlaneTex(i) : set[i].tex;
+		const UINT w = tex.desc.Width, h = tex.desc.Height;
 		const CRect rect(0, 0, w, h);
 		HRESULT hr = FillVertexBuffer(m_pDeviceContext, m_pVertexBuffer, w, h, rect, 0, false);
 		if (FAILED(hr)) {
@@ -397,7 +493,7 @@ HRESULT CDX11VideoProcessor::CleanToVPInput(ID3D11Texture2D* pInput)
 		}
 		D3D11_VIEWPORT viewport = { 0, 0, (FLOAT)w, (FLOAT)h, 0, 1 };
 		TextureBlt11(m_pDeviceContext, views[i], viewport, m_pVSimpleInputLayout, m_pVS_Simple, m_pPS_Simple,
-			set[i].tex.pShaderResource, m_pSamplerPoint, nullptr, m_pVertexBuffer);
+			tex.pShaderResource, m_pSamplerPoint, nullptr, m_pVertexBuffer);
 	}
 	// The processor reads what was just drawn into.
 	m_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
@@ -413,7 +509,7 @@ void CDX11VideoProcessor::CleanAgain()
 	if (!m_bCleanActive || !m_TexSrcVideo.pTexture || m_SampleFormat != D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE) {
 		return;
 	}
-	CleanRun();
+	CleanRun(m_rtCleaned, false);
 	if (m_D3D11VP.IsReady()) {
 		if (m_bChromaReplacedVP) {
 			ConvertTo444Pass(m_D3D11VP.GetInputUav());
@@ -422,4 +518,25 @@ void CDX11VideoProcessor::CleanAgain()
 			CleanToVPInput(m_D3D11VP.HoldFrame().pTexture);
 		}
 	}
+}
+
+// "Find the logo": a new analysis on the pictures to come, the logo hidden meanwhile kept.
+void CDX11VideoProcessor::FindLogo()
+{
+	if (m_bLogoActive) {
+		m_Logo.Find();
+	}
+}
+
+void CDX11VideoProcessor::ForgetLogos()
+{
+	m_Logo.Forget();
+}
+
+std::wstring CDX11VideoProcessor::GetLogoStatus()
+{
+	if (!m_bHideLogo) {
+		return {};
+	}
+	return m_bLogoActive ? m_Logo.Status() : m_strLogoWhyNot;
 }

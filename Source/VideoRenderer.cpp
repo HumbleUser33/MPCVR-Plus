@@ -55,6 +55,8 @@
 #define OPT_DeblockLevel                   L"DeblockLevel"
 #define OPT_Deband                         L"Deband"
 #define OPT_DebandLevel                    L"DebandLevel"
+#define OPT_HideLogo                       L"HideLogo"
+#define OPT_LogoMargin                     L"LogoMargin"
 #define OPT_ChromaUpsampling               L"ChromaUpsampling"
 #define OPT_Upscaling                      L"Upscaling"
 #define OPT_Downscaling                    L"Downscaling"
@@ -189,6 +191,12 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DebandLevel, dw)) {
 		sets.iDebandLevel = discard<int>(dw, CLEAN_LEVEL_DEF, CLEAN_LEVEL_MIN, CLEAN_LEVEL_MAX);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HideLogo, dw)) {
+		sets.bHideLogo = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_LogoMargin, dw)) {
+		sets.iLogoMargin = discard<int>(dw, LOGO_MARGIN_DEF, LOGO_MARGIN_MIN, LOGO_MARGIN_MAX);
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ChromaUpsampling, dw)) {
 		sets.iChromaScaling = discard<int>(dw, CHROMA_CatmullRom, 0, CHROMA_COUNT-1);
@@ -369,6 +377,8 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_DeblockLevel,        sets.iDeblockLevel);
 	key.SetDWORDValue(OPT_Deband,              sets.bDeband);
 	key.SetDWORDValue(OPT_DebandLevel,         sets.iDebandLevel);
+	key.SetDWORDValue(OPT_HideLogo,            sets.bHideLogo);
+	key.SetDWORDValue(OPT_LogoMargin,          sets.iLogoMargin);
 	key.SetDWORDValue(OPT_ChromaUpsampling,    sets.iChromaScaling);
 	key.SetDWORDValue(OPT_Upscaling,           sets.iUpscaling);
 	key.SetDWORDValue(OPT_Downscaling,         sets.iDownscaling);
@@ -2145,14 +2155,17 @@ STDMETHODIMP CMpcVideoRenderer::Flt_GetString(LPCSTR field, LPWSTR* value, unsig
 	// One line describing the DLSS 5 NR session, or the DLSS Super Resolution one,
 	// for the property page. "statsText" is the statistics as drawn on the picture,
 	// for tools that log them.
+	// "logoStatus": what hiding the channel's logo is doing.
 	const bool bNR = !strcmp(field, "dlssStatus");
 	const bool bSR = !strcmp(field, "dlssSRStatus");
 	const bool bStats = !strcmp(field, "statsText");
-	if (bNR || bSR || bStats) {
+	const bool bLogo = !strcmp(field, "logoStatus");
+	if (bNR || bSR || bStats || bLogo) {
 		CAutoLock cRendererLock(&m_RendererLock);
 		std::wstring str;
 		if (m_VideoProcessor) {
-			str = bStats ? m_VideoProcessor->GetStatsText()
+			str = bLogo ? m_VideoProcessor->GetLogoStatus()
+				: bStats ? m_VideoProcessor->GetStatsText()
 				: bSR ? m_VideoProcessor->GetDlssSRStatus() : m_VideoProcessor->GetDlssStatus();
 		}
 		const size_t len = str.size();
@@ -2193,6 +2206,28 @@ STDMETHODIMP CMpcVideoRenderer::Flt_SetBool(LPCSTR field, bool value)
 {
 	if (!strcmp(field, "cmd_redraw") && value) {
 		Redraw();
+		return S_OK;
+	}
+
+	// The settings page's two buttons for the channel's logo: they act at once, as the
+	// preset buttons do, with no Apply.
+	if (!strcmp(field, "cmd_findLogo") && value) {
+		CAutoLock cRendererLock(&m_RendererLock);
+		if (m_VideoProcessor) {
+			m_VideoProcessor->FindLogo();
+		}
+		return S_OK;
+	}
+	if (!strcmp(field, "cmd_forgetLogos") && value) {
+		{
+			CAutoLock cRendererLock(&m_RendererLock);
+			if (m_VideoProcessor) {
+				m_VideoProcessor->ForgetLogos();
+			}
+		}
+		if (m_State != State_Running) {
+			Redraw();
+		}
 		return S_OK;
 	}
 

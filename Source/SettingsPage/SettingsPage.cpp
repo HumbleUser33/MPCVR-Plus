@@ -325,6 +325,22 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_DEBAND_LEVEL,
 		L"Strength from 1 to 5. Raise it until the bands are gone; too high flattens soft "
 		"shading." },
+	{ IDC_HIDE_LOGO,
+		L"Hides a TV channel's logo: worked out from under it where it is see-through, filled in "
+		"from round it where it is opaque. Each logo found is kept, and hidden again on the next "
+		"films of the same size.\n"
+		"Progressive video, Direct3D 11. Stays on with RTX Video Super Resolution, which does not "
+		"hide logos." },
+	{ IDC_LOGO_MARGIN,
+		L"Pixels round the logo worked with it, for an edge the encoder smeared: raise it if a "
+		"faint outline of the logo still shows. Each pixel more makes the patch filled in larger, "
+		"which shows on a detailed background: 1 is recommended." },
+	{ IDC_LOGO_FIND,
+		L"Looks for the logo on the film playing: about 15 seconds of the film to find it, and it is "
+		"hidden from about 30; it gets better over the next minute and a half. Ticks the box and "
+		"takes effect at once, with no Apply. The logo must stay put." },
+	{ IDC_LOGO_FORGET,
+		L"Forgets every logo kept, and stops hiding the one on screen." },
 
 	// DLSS 5 NR
 	{ IDC_DLSSNR_ENABLE,
@@ -756,6 +772,10 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_SHARPEN_LEVEL, TBM_SETTIC, 0, 1);
 	Send(IDC_SHARPEN_LEVEL, TBM_SETLINESIZE, 0, 1);
 	Send(IDC_SHARPEN_LEVEL, TBM_SETPAGESIZE, 0, 1);
+	Send(IDC_LOGO_MARGIN, TBM_SETRANGE, 0, MAKELONG(LOGO_MARGIN_MIN, LOGO_MARGIN_MAX));
+	Send(IDC_LOGO_MARGIN, TBM_SETTIC, 0, 1);
+	Send(IDC_LOGO_MARGIN, TBM_SETLINESIZE, 0, 1);
+	Send(IDC_LOGO_MARGIN, TBM_SETPAGESIZE, 0, 1);
 	for (const int id : { IDC_DEBLOCK_LEVEL, IDC_DEBAND_LEVEL }) {
 		Send(id, TBM_SETRANGE, 0, MAKELONG(CLEAN_LEVEL_MIN, CLEAN_LEVEL_MAX));
 		Send(id, TBM_SETTIC, 0, 1);
@@ -833,6 +853,9 @@ void CVRSettingsPPage::SetControls()
 	Send(IDC_DEBLOCK_LEVEL, TBM_SETPOS, 1, m_SetsPP.iDeblockLevel);
 	SetText(IDC_DEBLOCK_LEVEL_TEXT, std::to_wstring(m_SetsPP.iDeblockLevel).c_str());
 	SetCheck(IDC_DEBAND, m_SetsPP.bDeband);
+	SetCheck(IDC_HIDE_LOGO, m_SetsPP.bHideLogo);
+	Send(IDC_LOGO_MARGIN, TBM_SETPOS, 1, m_SetsPP.iLogoMargin);
+	SetText(IDC_LOGO_MARGIN_TEXT, std::format(L"{} px", m_SetsPP.iLogoMargin).c_str());
 	Send(IDC_DEBAND_LEVEL, TBM_SETPOS, 1, m_SetsPP.iDebandLevel);
 	SetText(IDC_DEBAND_LEVEL_TEXT, std::to_wstring(m_SetsPP.iDebandLevel).c_str());
 
@@ -975,6 +998,12 @@ void CVRSettingsPPage::EnableControls()
 		grey.bCleaning ? L"On the decoded video, before it is converted or resized."
 		: !m_SetsPP.bUseD3D11 ? L"Needs Direct3D 11."
 		: L"Left to RTX Video Super Resolution, which cleans the picture itself.");
+	for (const int id : { IDC_HIDE_LOGO, IDC_LOGO_FIND, IDC_LOGO_FORGET, IDC_LOGO_STATUS }) {
+		Enable(id, grey.bLogo);
+	}
+	for (const int id : { IDC_STATIC_LOGO_MARGIN, IDC_LOGO_MARGIN, IDC_LOGO_MARGIN_TEXT }) {
+		Enable(id, grey.bLogo && m_SetsPP.bHideLogo);
+	}
 
 	// Render ahead and the chroma replacement belong to the Direct3D 11 processor.
 	Enable(IDC_CHECK26, m_SetsPP.bUseD3D11);
@@ -1114,6 +1143,7 @@ HRESULT CVRSettingsPPage::OnActivate()
 			SetText(s.id, status.empty() ? L"" : (L"Status: " + status).c_str());
 		}
 	}
+	ShowLogoStatus();
 
 	SetControls();
 	EnableControls();
@@ -1201,6 +1231,10 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 			}
 			EnableControls();
 		}
+		// What hiding the logo is doing: it moves as the film plays.
+		if (uMsg == WM_TIMER) {
+			ShowLogoStatus();
+		}
 	}
 
 	if (uMsg == WM_COMMAND) {
@@ -1233,6 +1267,35 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 			return (INT_PTR)1;
 		}
 
+		// The logo's two buttons act at once, as the preset buttons do: the analysis needs
+		// the film playing, not the page closed.
+		if (action == BN_CLICKED && nID == IDC_LOGO_FIND) {
+			m_SetsPP.bHideLogo = true;
+			SetCheck(IDC_HIDE_LOGO, true);
+			Settings_t current;
+			m_pVideoRenderer->GetSettings(current);
+			if (!current.bHideLogo) {
+				current.bHideLogo = true;
+				m_pVideoRenderer->SetSettings(current);
+				m_pVideoRenderer->SaveSettings();
+			}
+			if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
+				pIExFilterConfig->Flt_SetBool("cmd_findLogo", true);
+			}
+			ShowLogoStatus();
+			return (INT_PTR)1;
+		}
+		if (action == BN_CLICKED && nID == IDC_LOGO_FORGET) {
+			if (::MessageBoxW(m_hWnd, L"Forget every logo kept, and stop hiding the one on screen?",
+					L"Channel logo", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+				if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
+					pIExFilterConfig->Flt_SetBool("cmd_forgetLogos", true);
+				}
+				ShowLogoStatus();
+			}
+			return (INT_PTR)1;
+		}
+
 		if (action == BN_CLICKED) {
 			// bEnables: the box decides whether other controls still serve.
 			const struct { int id; bool* pValue; bool bEnables; } checks[] = {
@@ -1246,6 +1309,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK9,  &m_SetsPP.VPFmts.bYUY2,         true  },
 				{ IDC_CHECK10, &m_SetsPP.bUseDither,           false },
 				{ IDC_DEBAND,  &m_SetsPP.bDeband,              true  },
+				{ IDC_HIDE_LOGO, &m_SetsPP.bHideLogo,          true  },
 				{ IDC_CHECK11, &m_SetsPP.bExclusiveFS,         false },
 				{ IDC_CHECK13, &m_SetsPP.bAdjustPresentTime,   false },
 				{ IDC_CHECK14, &m_SetsPP.bConvertToSdr,        true  },
@@ -1439,6 +1503,15 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 			{ IDC_DEBLOCK_LEVEL, IDC_DEBLOCK_LEVEL_TEXT, &m_SetsPP.iDeblockLevel },
 			{ IDC_DEBAND_LEVEL,  IDC_DEBAND_LEVEL_TEXT,  &m_SetsPP.iDebandLevel  },
 		};
+		if (hCtrl == Item(IDC_LOGO_MARGIN)) {
+			const int value = (int)Send(IDC_LOGO_MARGIN, TBM_GETPOS);
+			if (value != m_SetsPP.iLogoMargin) {
+				m_SetsPP.iLogoMargin = value;
+				SetText(IDC_LOGO_MARGIN_TEXT, std::format(L"{} px", value).c_str());
+				SetDirty();
+			}
+			return (INT_PTR)1;
+		}
 		for (const auto& c : cleanLevels) {
 			if (hCtrl == Item(c.slider)) {
 				const int value = (int)Send(c.slider, TBM_GETPOS);
@@ -1573,6 +1646,19 @@ int CVRSettingsPPage::PresetKeyShown(int slot)
 {
 	const int vk = (int)Combo_CurData(Item(IDC_PRESET_KEY1 + slot));
 	return vk ? (vk | (int)Combo_CurData(Item(IDC_PRESET_MOD1 + slot))) : 0;
+}
+
+void CVRSettingsPPage::ShowLogoStatus()
+{
+	std::wstring status;
+	if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
+		LPWSTR pstr = nullptr;
+		if (S_OK == pIExFilterConfig->Flt_GetString("logoStatus", &pstr, nullptr) && pstr) {
+			status = pstr;
+			CoTaskMemFree(pstr);
+		}
+	}
+	SetText(IDC_LOGO_STATUS, status.empty() ? L"" : (L"Logo: " + status).c_str());
 }
 
 void CVRSettingsPPage::ShowPresets()

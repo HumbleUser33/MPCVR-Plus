@@ -28,6 +28,7 @@
 #include "IVideoRenderer.h"
 #include "DX11Helper.h"
 #include "D3D11VP.h"
+#include "DX11LogoHider.h"
 #include "D3DUtil/D3D11Font.h"
 #include "OsdPlus/Overlay.h"
 #include "D3DUtil/D3D11Geometry.h"
@@ -285,6 +286,19 @@ private:
 		CComPtr<ID3D11RenderTargetView> pLuma, pChroma;
 	};
 	std::vector<CleanTarget> m_CleanTargets;   // the processor's input textures, a render target a plane
+	bool m_bCleanFilters = false;  // the deblocking or the debanding runs on this media type
+	// Hiding a channel's logo, the first step of the cleaning (DX11LogoHider.cpp,
+	// DX11VideoProcessorClean.cpp): the setting, whether this media type gets it, and the
+	// time of the picture last cleaned, for a redraw of it.
+	bool m_bHideLogo = false;
+	int  m_iLogoMargin = LOGO_MARGIN_DEF;
+	bool m_bLogoActive = false;
+	std::wstring m_strLogoWhyNot;  // for the statistics, when asked for and not done
+	REFERENCE_TIME m_rtCleaned = 0;
+	CDX11LogoHider m_Logo;
+	bool LogoFormatOk(const FmtConvParams_t& params) const;
+	bool CleanVPWanted(const FmtConvParams_t& params) const;
+	std::wstring LogoFilm() const;
 	bool CleaningAllowed() const;
 	bool CleanFormatOk(const FmtConvParams_t& params) const;
 	bool CleanPlaneTargetsOk(const DXGI_FORMAT fmt) const;
@@ -295,7 +309,7 @@ private:
 	void CleanPlaneInfo(const int i, UINT& w, UINT& h, int& channels) const;
 	int CleanPlaneCount() const;
 	HRESULT CleanTargets(CleanPlane* set);
-	void CleanRun();
+	void CleanRun(const REFERENCE_TIME rt, const bool newPicture);
 	void CleanPass(IMediaSample* pSample);
 	HRESULT CleanToVPInput(ID3D11Texture2D* pInput);
 	void CleanAgain();
@@ -758,6 +772,9 @@ private:
 	//void UpdateStatsPostProc();
 	HRESULT DrawStats(ID3D11Texture2D* pRenderTarget);
 	std::wstring GetStatsText() override;
+	void FindLogo() override;
+	void ForgetLogos() override;
+	std::wstring GetLogoStatus() override;
 	int GetRenderAhead() override;
 
 public:

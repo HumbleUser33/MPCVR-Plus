@@ -80,6 +80,10 @@
     <ClCompile Include="Upscale\MpvShader.cpp" />
     <ClCompile Include="DX11VideoProcessor.cpp" />
     <ClCompile Include="DX11VideoProcessorClean.cpp" />
+    <ClCompile Include="DX11LogoHider.cpp" />
+    <ClCompile Include="Logo\LogoAnalysis.cpp" />
+    <ClCompile Include="Logo\LogoLibrary.cpp" />
+    <ClCompile Include="Logo\LogoWorker.cpp" />
     <ClCompile Include="DX11VideoProcessorDlss.cpp" />
     <ClCompile Include="DX11VideoProcessorMpv.cpp" />
     <ClCompile Include="DX11VideoProcessorPresent.cpp" />
@@ -147,6 +151,11 @@
     <ClInclude Include="PropPage.h" />
     <ClInclude Include="SettingsPage\SettingsPage.h" />
     <ClInclude Include="Clean\CleanParams.h" />
+    <ClInclude Include="DX11LogoHider.h" />
+    <ClInclude Include="Logo\LogoAnalysis.h" />
+    <ClInclude Include="Logo\LogoLibrary.h" />
+    <ClInclude Include="Logo\LogoParams.h" />
+    <ClInclude Include="Logo\LogoWorker.h" />
     <ClInclude Include="renbase2.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="Shaders.h" />

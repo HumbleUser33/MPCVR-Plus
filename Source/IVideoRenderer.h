@@ -208,6 +208,10 @@ enum : int {
 constexpr inline auto CLEAN_LEVEL_MIN = 1;
 constexpr inline auto CLEAN_LEVEL_MAX = 5;
 constexpr inline auto CLEAN_LEVEL_DEF = 3;
+// The margin round a channel's logo worked with it, in luma pixels (Logo::kMargin*).
+constexpr inline auto LOGO_MARGIN_MIN = 0;
+constexpr inline auto LOGO_MARGIN_MAX = 3;
+constexpr inline auto LOGO_MARGIN_DEF = 1;
 
 // The picture delay, in milliseconds. Later is what a slow sound asks for; earlier is
 // there for a television that takes longer over the picture than the sound takes to
@@ -340,6 +344,15 @@ struct Settings_t {
 	bool bDeband;
 	int  iDebandLevel;
 
+	// A channel's logo hidden: found by "Find the logo" on the settings page, or
+	// recognised from the logos kept, and taken out of the decoded planes before the
+	// deblocking. Progressive two-plane video, Direct3D 11; RTX Video Super Resolution
+	// leaves it on, as it does not hide logos.
+	bool bHideLogo;
+	// The pixels round the logo worked with it, LOGO_MARGIN_*: for an edge the encoder
+	// smeared further than the analysis saw.
+	int  iLogoMargin;
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -432,6 +445,8 @@ struct Settings_t {
 		iDeblockLevel                   = CLEAN_LEVEL_DEF;
 		bDeband                         = false;
 		iDebandLevel                    = CLEAN_LEVEL_DEF;
+		bHideLogo                       = false;
+		iLogoMargin                     = LOGO_MARGIN_DEF;
 	}
 };
 
