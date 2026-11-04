@@ -101,7 +101,9 @@ tools\dlssnr_probe\build.cmd           REM the measurement tools
 tools\dlssnr_probe\run_all.cmd         REM the whole battery, one report
 ```
 
-Compare the report with `tools/dlssnr_probe/baseline/`. "0 failures" is necessary and not
+`run_all.cmd` ends by masking the working folder and the user's profile in the report
+(`mask_report.py`), so that it can be committed as the reference. Compare the report with
+`tools/dlssnr_probe/baseline/`. "0 failures" is necessary and not
 sufficient — the numbers are what tell you nothing regressed.
 
 The tools compile the filter's own sources, so they measure the shipped code, not a copy of
@@ -174,7 +176,7 @@ A copy of the working folder carries all of this; a clone carries none of it, an
 - `nvngx_dlssnr.dll` and `nvngx_dlss.dll`, at the root: NVIDIA's, never committed and never
   put in a release zip. The harness's DLSS suites need them.
 - `tools/dlssnr_probe/upscale_refs/`: the 4K film frames every picture-quality suite reads,
-  and a film. Not ours to redistribute. `run_all.cmd` measures on `4K1.png` from there, and
+  and a film, `film.mkv`. Not ours to redistribute. `run_all.cmd` measures on `4K1.png` from there, and
   plays the film for the two steps that need the hardware video processor on real pictures.
   Those two also take LAV Filters from where an installed MPC-HC or MPC-BE keeps them
   (`file_graph.inl`), read and never written.

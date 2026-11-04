@@ -109,6 +109,9 @@ IF "%NAMED%"=="%RAN%" >> "%REPORT%" ECHO 0 failure(s)
 IF NOT "%NAMED%"=="%RAN%" >> "%REPORT%" ECHO 1 failure(s)
 ECHO.>> "%REPORT%"
 ECHO Finished %DATE% %TIME%>> "%REPORT%"
+REM The working folder and the user's profile taken out of the report, so that it can be
+REM committed as the reference without saying whose disk it was measured on.
+python "%~dp0mask_report.py" "%REPORT%" >NUL 2>&1 || ECHO The report keeps this PC's paths: python did not run mask_report.py.
 ECHO.
 ECHO Report: %REPORT%
 FINDSTR /C:"[STEP]" /C:"failure(s)" /C:"check(s) failed" "%REPORT%"

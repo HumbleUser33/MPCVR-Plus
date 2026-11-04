@@ -6,8 +6,8 @@
 # panel named -- which is the one thing the bench's own board builder cannot do.
 
 param(
-  [string]$Dir  = "C:\Users\Bruno\Desktop\MPCVR-DLSS5\tools\dlssnr_probe",
-  [string]$Out  = "C:\Users\Bruno\Desktop\MPCVR-DLSS5\tools\dlssnr_probe",
+  [string]$Dir  = (Join-Path $PSScriptRoot "dlssnr_probe"),
+  [string]$Out  = (Join-Path $PSScriptRoot "dlssnr_probe"),
   [int]$Zoom    = 2,
   [int]$Columns = 4
 )

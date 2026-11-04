@@ -335,7 +335,7 @@ pipeline's "frame, upload to done", printed bare as mean / 95th percentile / max
   95th percentile between about 10.5 and 16.5 noted on the 25th;
 - with Catmull-Rom alone, a maximum of 0.57 ms then, 0.78 now.
 
-Three batteries ran on the way, in the worktree `E:\MPCVR-0.11`:
+Three batteries ran on the way, in a worktree of its own, `MPCVR-0.11`:
 
 - at `00d7d36`, the merge: 5 moved. Two were the chroma suite's pictures with RTX Video HDR
   on, 30.00 and 30.03 dB (the second with the 4:4:4 pre-pass) read 46.82 and 52.72: the
@@ -348,6 +348,6 @@ Three batteries ran on the way, in the worktree `E:\MPCVR-0.11`:
   time, the two rows above.
 
 Each of those three counted 26 rows new, none of them a measurement: the report prints the
-paths of the DLLs and the pictures it loads, and the comparison reads the `0.11` of
-`E:\MPCVR-0.11` in them as a number. This report, run in the main folder, has none. NGX's
+paths of the DLLs and the pictures it loads, and the comparison reads the `0.11` of the
+worktree's name in them as a number. This report, run in the main folder, has none. NGX's
 lines about `nvngx_dlssnr.dll`'s signature are the eleven of the report before.

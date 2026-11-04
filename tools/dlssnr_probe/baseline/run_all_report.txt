@@ -15,7 +15,7 @@ CDlssNR harness -- the filter's own code, outside the player
 === CDlssNR::Init ===
   [ok  ] Init
 DLSS 5 Neural Rendering:
-  DLL       : E:\MPCVR-DLSS5\nvngx_dlssnr.dll
+  DLL       : <repo>\nvngx_dlssnr.dll
   Snippet   : 0x01360800, SDK version 0x13
   Transport : Direct3D 12 interop, nvngx.dll shim
   Arch      : reported as Blackwell
@@ -23,9 +23,9 @@ DLSS 5 Neural Rendering:
   Guides    : none
   Log       :
     architecture override active (reporting 0x1B0)
-    snippet: E:\MPCVR-DLSS5\nvngx_dlssnr.dll
+    snippet: <repo>\nvngx_dlssnr.dll
     snippet 0x01360800, SDK version 0x13
-    shim: E:\MPCVR-DLSS5\tools\dlssnr_probe\nvngx.dll
+    shim: <repo>\tools\dlssnr_probe\nvngx.dll
     private D3D12 device on NVIDIA GeForce RTX 4060
     runtime: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370\_nvngx.dll
     core init: 0xBAD0000C OutOfDate
@@ -35,16 +35,16 @@ DLSS 5 Neural Rendering:
   [ok  ] shared texture pair
   [ok  ] CreateFeature
 DLSS 5 Neural Rendering:
-  DLL       : E:\MPCVR-DLSS5\nvngx_dlssnr.dll
+  DLL       : <repo>\nvngx_dlssnr.dll
   Snippet   : 0x01360800, SDK version 0x13
   Transport : Direct3D 12 interop, nvngx.dll shim
   Arch      : reported as Blackwell
   State     : ready 1920x1080 preset 0
   Guides    : none
   Log       :
-    snippet: E:\MPCVR-DLSS5\nvngx_dlssnr.dll
+    snippet: <repo>\nvngx_dlssnr.dll
     snippet 0x01360800, SDK version 0x13
-    shim: E:\MPCVR-DLSS5\tools\dlssnr_probe\nvngx.dll
+    shim: <repo>\tools\dlssnr_probe\nvngx.dll
     private D3D12 device on NVIDIA GeForce RTX 4060
     runtime: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370\_nvngx.dll
     core init: 0xBAD0000C OutOfDate
@@ -86,7 +86,7 @@ CDlssNR harness -- the filter's own code, outside the player
 === CDlssNR::Init ===
   [ok  ] Init
 DLSS 5 Neural Rendering:
-  DLL       : E:\MPCVR-DLSS5\nvngx_dlssnr.dll
+  DLL       : <repo>\nvngx_dlssnr.dll
   Snippet   : 0x01360800, SDK version 0x13
   Transport : Direct3D 12 interop, nvngx.dll shim
   Arch      : reported as Blackwell
@@ -94,9 +94,9 @@ DLSS 5 Neural Rendering:
   Guides    : none
   Log       :
     architecture override active (reporting 0x1B0)
-    snippet: E:\MPCVR-DLSS5\nvngx_dlssnr.dll
+    snippet: <repo>\nvngx_dlssnr.dll
     snippet 0x01360800, SDK version 0x13
-    shim: E:\MPCVR-DLSS5\tools\dlssnr_probe\nvngx.dll
+    shim: <repo>\tools\dlssnr_probe\nvngx.dll
     private D3D12 device on NVIDIA GeForce RTX 4060
     runtime: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370\_nvngx.dll
     core init: 0xBAD0000C OutOfDate
@@ -424,7 +424,7 @@ CDlssNR harness -- the filter's own code, outside the player
 === CDlssNR::Init ===
   [ok  ] Init
 DLSS 5 Neural Rendering:
-  DLL       : E:\MPCVR-DLSS5\nvngx_dlssnr.dll
+  DLL       : <repo>\nvngx_dlssnr.dll
   Snippet   : 0x01360800, SDK version 0x13
   Transport : Direct3D 12 interop, nvngx.dll shim
   Arch      : reported as Blackwell
@@ -432,9 +432,9 @@ DLSS 5 Neural Rendering:
   Guides    : none
   Log       :
     architecture override active (reporting 0x1B0)
-    snippet: E:\MPCVR-DLSS5\nvngx_dlssnr.dll
+    snippet: <repo>\nvngx_dlssnr.dll
     snippet 0x01360800, SDK version 0x13
-    shim: E:\MPCVR-DLSS5\tools\dlssnr_probe\nvngx.dll
+    shim: <repo>\tools\dlssnr_probe\nvngx.dll
     private D3D12 device on NVIDIA GeForce RTX 4060
     runtime: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370\_nvngx.dll
     core init: 0xBAD0000C OutOfDate
@@ -784,7 +784,7 @@ CDlssNR harness -- the filter's own code, outside the player
   [ok  ] D3D11CreateDevice
 
 === The renderer's DLSS chain, frame by frame ===
-[2026-11-03 14:02:30] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:02:30] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:02:30] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:02:30] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:02:30] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -794,7 +794,7 @@ CDlssNR harness -- the filter's own code, outside the player
 [2026-11-03 14:02:30] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:02:30] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:02:30] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:02:30] [NGXInitContext:245] called from module dlssnr_harness.exe at E:\MPCVR-DLSS5\tools\dlssnr_probe
+[2026-11-03 14:02:30] [NGXInitContext:245] called from module dlssnr_harness.exe at <repo>\tools\dlssnr_probe
 [2026-11-03 14:02:30] [NGXLoadConfig:1145] [streamline-ota]
 [2026-11-03 14:02:30] [NGXLoadConfig:1151] app_84D32F0=1
 [2026-11-03 14:02:30] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
@@ -804,7 +804,7 @@ CDlssNR harness -- the filter's own code, outside the player
 [2026-11-03 14:02:30] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlss, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:02:30] [NGXSecureLoadFeature:1384] Feature dlss failed to load (cmsid 101950511) from cache (location: C:\ProgramData\NVIDIA\NGX\models\dlss\versions\0\files, name: 160_613A42F.bin)
 [2026-11-03 14:02:30] [NGXSecureLoadFeature:1384] Feature dlss failed to load (cmsid 241534723) from cache (location: C:\ProgramData\NVIDIA\NGX\models\dlss\versions\0\files, name: 160_E658703.bin)
-[2026-11-03 14:02:30] [NGXSecureLoadFeature:1499] app 613A42F feature dlss snippet: E:\MPCVR-DLSS5/nvngx_dlss.dll version: 310.9.1
+[2026-11-03 14:02:30] [NGXSecureLoadFeature:1499] app 613A42F feature dlss snippet: <repo>/nvngx_dlss.dll version: 310.9.1
 [2026-11-03 14:02:30] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlinpainting, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:02:30] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlisr, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:02:30] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlslowmo, denial value 0 for Cms ID 613a42f
@@ -819,11 +819,11 @@ CDlssNR harness -- the filter's own code, outside the player
 [2026-11-03 14:02:30] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlssd, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:02:30] [NGXContextDenyListData::IsFeatureDenied:676] Feature truehdr, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:02:30] [NGXContextDenyListData::IsFeatureDenied:676] Feature latewarp, denial value 0 for Cms ID 613a42f
-[2026-11-03 14:02:30] [NGXContextDeny[2026-11-03 14:02:30] [tid:4888][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_1.log) enabled successfully
+[2026-11-03 14:02:30] [NGXContextDeny[2026-11-03 14:02:30] [tid:4888][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_1.log) enabled successfully
 [2026-11-03 14:02:30] [tid:4888][NGXInitLog:208] App logging hooks successfully initialized
 [2026-11-03 14:02:30] [tid:4888][NGXInitLog:214] Build v310.9.1 CL 38868064
 [2026-11-03 14:02:30] [tid:4888][NGXInitLog:216] Built with APP_NAME = default
-[2026-11-03 14:02:30] [tid:4888][NGXInitLog:226] Loaded from path "E:\MPCVR-DLSS5/nvngx_dlss.dll" by dlssnr_harness.exe
+[2026-11-03 14:02:30] [tid:4888][NGXInitLog:226] Loaded from path "<repo>/nvngx_dlss.dll" by dlssnr_harness.exe
 [2026-11-03 14:02:30] [tid:4888][NGXCubinD3D11::Init:223] Enabling texmode_raw
 [2026-11-03 14:02:30] [tid:4888][NGXCubinD3D11::Init:227] ID3D11Device::GetCreationFlags() = 0x0
 [2026-11-03 14:02:30] [tid:4888][NGXCubinKernelMap::InitCubins:42] Loading NGXCubin kernels
@@ -880,10 +880,10 @@ Catmull-Rom alone
 ListData::IsFeatureDenied:676] Feature vsr, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:02:30] [NGXContextDenyListData::IsFeatureDenied:676] Feature fgx, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:02:30] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlssnr, denial value 0 for Cms ID 613a42f
-[2026-11-03 14:02:30] [NGXLoadAndValidateSnippet:1586] nvLoadSignedLibraryW() failed on snippet 'E:\MPCVR-DLSS5/nvngx_dlssnr.dll' missing or corrupted - last error La signature numérique de l’objet n’a pas pu se vérifier.
+[2026-11-03 14:02:30] [NGXLoadAndValidateSnippet:1586] nvLoadSignedLibraryW() failed on snippet '<repo>/nvngx_dlssnr.dll' missing or corrupted - last error La signature numérique de l’objet n’a pas pu se vérifier.
 
-[2026-11-03 14:02:30] [NGXLoadMetaDataViaGetFileVersionInfo:1420] swscanf_s() failed on snippet 'E:\MPCVR-DLSS5/nvngx_dlssnr.dll' missing or corrupted
-[2026-11-03 14:02:30] [`anonymous-namespace'::SnippetLocationInfo::load:720] Error: NGXLoadFromPath failed for E:\MPCVR-DLSS5: 0xBAD00000
+[2026-11-03 14:02:30] [NGXLoadMetaDataViaGetFileVersionInfo:1420] swscanf_s() failed on snippet '<repo>/nvngx_dlssnr.dll' missing or corrupted
+[2026-11-03 14:02:30] [`anonymous-namespace'::SnippetLocationInfo::load:720] Error: NGXLoadFromPath failed for <repo>: 0xBAD00000
 [2026-11-03 14:02:30] [NVSDK_NGX_CreateFeature_Validate:729] app id is 101950511 
 
 ========================================================================
@@ -4487,7 +4487,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    frames       : 263 shown while measuring, 0 skipped, 0 late (1 while settling)
    state changes: pause 0.00 s, run 0.00 s, stop 0.00 s
 
-[2026-11-03 14:23:11] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:23:11] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:23:11] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:23:11] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:23:11] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -4497,7 +4497,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 [2026-11-03 14:23:11] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:23:11] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:23:11] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:23:11] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at E:\MPCVR-DLSS5\_bin\Filter_x64
+[2026-11-03 14:23:11] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at <repo>\_bin\Filter_x64
 [2026-11-03 14:23:11] [NGXLoadConfig:1145] [streamline-ota]
 [2026-11-03 14:23:11] [NGXLoadConfig:1151] app_84D32F0=1
 [2026-11-03 14:23:11] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
@@ -4539,7 +4539,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 [2026-11-03 14:23:12] [NGXLoadMetaDataViaGetFileVersionInfo:1420] swscanf_s() failed on snippet 'C:\Program Files\MPC-HC\MPCVR\dlss/nvngx_dlssnr.dll' missing or corrupted
 [2026-11-03 14:23:12] [`anonymous-namespace'::SnippetLocationInfo::load:720] Error: NGXLoadFromPath failed for C:\Program Files\MPC-HC\MPCVR\dlss: 0xBAD00000
 [2026-11-03 14:23:12] [NVSDK_NGX_CreateFeature_Validate:729] app id is 101950511 
-[2026-11-03 14:23:31] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:23:31] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:23:31] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:23:31] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:23:31] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -4549,7 +4549,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 [2026-11-03 14:23:31] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:23:31] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:23:31] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:23:31] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at E:\MPCVR-DLSS5\_bin\Filter_x64
+[2026-11-03 14:23:31] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at <repo>\_bin\Filter_x64
 [2026-11-03 14:23:31] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:23:31] [NGXReportStatusFeedback:1103] Override shared memory was opened successfully
 [2026-11-03 14:23:31] [NGXReportStatusFeedback:1115] Override shared memory was mapped successfully
@@ -4564,7 +4564,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 [2026-11-03 14:23:31] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlcolorize, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:23:31] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlstyletransfer, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:23:31] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlvdenoiser, denial value 0 for Cms ID 613a42f
-[2026-11-03 14:23:31] [NGXContextDenyListData::IsFeatureDenied:676] Fe[2026-11-03 14:23:12] [tid:2552][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
+[2026-11-03 14:23:31] [NGXContextDenyListData::IsFeatureDenied:676] Fe[2026-11-03 14:23:12] [tid:2552][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
 [2026-11-03 14:23:12] [tid:2552][NGXInitLog:208] App logging hooks successfully initialized
 [2026-11-03 14:23:12] [tid:2552][NGXInitLog:214] Build v310.9.16 CL 38955375
 [2026-11-03 14:23:12] [tid:2552][NGXInitLog:216] Built with APP_NAME = default
@@ -4594,7 +4594,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 [2026-11-03 14:23:12] [tid:3084][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (Perf) Using App hint Preset M
 [2026-11-03 14:23:12] [tid:3084][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraPerf) Using App hint Preset M
 [2026-11-03 14:23:12] [tid:3084][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraQuality) Using App hint Preset M
-[2026-11-03 14:23:31] [tid:2552][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC V== DLSS SR, render ahead on
+[2026-11-03 14:23:31] [tid:2552][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC V== DLSS SR, render ahead on
    DLSS SR      : 800x450 -> 1280x720 DLSS SR Bal/M, Optical Flow, global motion
    DLSS (ms)    : OF 1.2, SR 1.0
    Render ahead : asked  15 ms early, ready in   3.5 (max   4.0), 1 not in time
@@ -4618,7 +4618,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:23:31] [NGXLoadMetaDataViaGetFileVersionInfo:1420] swscanf_s() failed on snippet 'C:\Program Files\MPC-HC\MPCVR\dlss/nvngx_dlssnr.dll' missing or corrupted
 [2026-11-03 14:23:31] [`anonymous-namespace'::SnippetLocationInfo::load:720] Error: NGXLoadFromPath failed for C:\Program Files\MPC-HC\MPCVR\dlss: 0xBAD00000
 [2026-11-03 14:23:31] [NVSDK_NGX_CreateFeature_Validate:729] app id is 101950511 
-[2026-11-03 14:23:50] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:23:50] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:23:50] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:23:50] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:23:50] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -4628,7 +4628,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:23:50] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:23:50] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:23:51] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:23:51] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at E:\MPCVR-DLSS5\_bin\Filter_x64
+[2026-11-03 14:23:51] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at <repo>\_bin\Filter_x64
 [2026-11-03 14:23:51] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:23:51] [NGXReportStatusFeedback:1103] Override shared memory was opened successfully
 [2026-11-03 14:23:51] [NGXReportStatusFeedback:1115] Override shared memory was mapped successfully
@@ -4667,7 +4667,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:23:31] [tid:11644][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (Perf) Using App hint Preset M
 [2026-11-03 14:23:31] [tid:11644][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraPerf) Using App hint Preset M
 [2026-11-03 14:23:31] [tid:11644][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraQuality) Using App hint Preset M
-[2026-11-03 14:23:51] [tid:2552][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
+[2026-11-03 14:23:51] [tid:2552][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
 [2026-11-03 14:23:51] [tid:2552][NGXInitLog:208] App logg== NR + SR, render ahead off
    DLSS 5 NR    : cinematic/P0 i1.50 t0.30 s0.50 k0.90 auto
    DLSS SR      : 800x450 -> 1280x720 DLSS SR Bal/M, Optical Flow, global motion
@@ -4700,7 +4700,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:23:51] [`anonymous-namespace'::SnippetLocationInfo::load:720] Error: NGXLoadFromPath failed for C:\Program Files\MPC-HC\MPCVR\dlss: 0xBAD00000
 [2026-11-03 14:23:51] [NGXInitValidateSnippets:291] error: installed NGX API is older than the one used by client application - please update your driver.
 [2026-11-03 14:23:52] [NVSDK_NGX_CreateFeature_Validate:729] app id is 101950511 
-[2026-11-03 14:24:10] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:24:10] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:24:10] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:24:10] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:24:10] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -4710,7 +4710,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:24:10] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:24:10] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:24:11] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:24:11] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at E:\MPCVR-DLSS5\_bin\Filter_x64
+[2026-11-03 14:24:11] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at <repo>\_bin\Filter_x64
 [2026-11-03 14:24:11] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:24:11] [NGXReportStatusFeedback:1103] Override shared memorying hooks successfully initialized
 [2026-11-03 14:23:51] [tid:2552][NGXInitLog:214] Build v310.9.16 CL 38955375
@@ -4741,7 +4741,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:23:52] [tid:11356][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (Perf) Using App hint Preset M
 [2026-11-03 14:23:52] [tid:11356][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraPerf) Using App hint Preset M
 [2026-11-03 14:23:52] [tid:11356][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraQuality) Using App hint Preset M
-[2026-11-03 14:24:11] [tid:2552][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
+[2026-11-03 14:24:11] [tid:2552][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
 [2026-11-03 14:24:11] [tid:2552][NGXInitLog:208] App logging hooks successfully initialized
 [2026-11-03 14:24:11] [tid:2552][NGXInitLog:214] Build v310.9.16 CL 38955375
 [2026-11-03== NR + SR, render ahead on
@@ -4823,7 +4823,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 == Catmull-Rom, chroma Catmull-Rom
    processor    : shaders, chroma Catmull-Rom
    scaling      : 800x450 -> 1280x720 Catmull-Rom
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_0.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_0.bmp
    Render ahead : asked  16 ms early, ready in   1.4 (max   2.0), 1 not in time
    On screen    :   +8.2 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -1.6, sd 4.2, min -8, p5 -8, p95 +4, max +4  (40 samples)
@@ -4834,7 +4834,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    processor    : shaders, chroma Catmull-Rom
    scaling      : 800x450 -> 1280x720 Jinc2m
    against the first: mean difference 3.87 levels, 3.465% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_1.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_1.bmp
    Render ahead : asked  13 ms early, ready in   1.4 (max   1.8), 0 not in time
    On screen    :   +3.4 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean +2.2, sd 4.6, min -5, p5 -4, p95 +8, max +8  (40 samples)
@@ -4846,7 +4846,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 800x450 -> 1280x720 FSRCNNX 8
    prescale (ms): luma 0.6
    against the first: mean difference 12.07 levels, 16.711% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_2.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_2.bmp
    Render ahead : asked  12 ms early, ready in   1.4 (max   1.9), 0 not in time
    On screen    :   -4.7 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean +1.8, sd 4.5, min -5, p5 -4, p95 +8, max +8  (40 samples)
@@ -4858,7 +4858,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 800x450 -> 1280x720 FSRCNNX 16
    prescale (ms): luma 1.5
    against the first: mean difference 12.87 levels, 18.445% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_3.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_3.bmp
    Render ahead : asked  14 ms early, ready in   3.2 (max   3.7), 1 not in time
    On screen    :   +7.8 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -1.8, sd 4.6, min -8, p5 -8, p95 +8, max +8  (40 samples)
@@ -4870,7 +4870,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 800x450 -> 1280x720 RAVU-zoom
    prescale (ms): luma 0.7
    against the first: mean difference 3.17 levels, 3.105% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_4.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_4.bmp
    Render ahead : asked  15 ms early, ready in   2.0 (max   3.0), 1 not in time
    On screen    :   -5.7 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean +0.6, sd 4.4, min -6, p5 -5, p95 +7, max +7  (40 samples)
@@ -4882,7 +4882,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 800x450 -> 1280x720 FSRCNNX 8 AR
    prescale (ms): luma 0.6
    against the first: mean difference 10.68 levels, 13.412% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_5.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_5.bmp
    Render ahead : asked  14 ms early, ready in   1.5 (max   2.8), 0 not in time
    On screen    :   +3.1 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean +1.1, sd 4.4, min -5, p5 -5, p95 +7, max +8  (40 samples)
@@ -4894,7 +4894,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 800x450 -> 1280x720 FSRCNNX 16 AR
    prescale (ms): luma 1.5
    against the first: mean difference 10.91 levels, 13.829% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_6.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_6.bmp
    Render ahead : asked  15 ms early, ready in   3.2 (max   3.7), 1 not in time
    On screen    :   -0.4 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -0.8, sd 4.8, min -8, p5 -8, p95 +8, max +8  (40 samples)
@@ -4906,7 +4906,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 800x450 -> 1280x720 ArtCNN C4F16 DS
    prescale (ms): luma 1.4
    against the first: mean difference 11.99 levels, 16.503% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_7.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_7.bmp
    Render ahead : asked  15 ms early, ready in   3.1 (max   3.4), 1 not in time
    On screen    :   +3.2 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean +1.3, sd 4.5, min -5, p5 -5, p95 +7, max +8  (40 samples)
@@ -4918,7 +4918,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 800x450 -> 1280x720 Catmull-Rom
    prescale (ms): chroma 0.2
    against the first: mean difference 0.59 levels, 0.341% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_8.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_8.bmp
    Render ahead : asked   9 ms early, ready in   1.4 (max   1.9), 2 not in time
    On screen    :   +7.1 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -0.4, sd 5.0, min -8, p5 -8, p95 +8, max +8  (40 samples)
@@ -4930,7 +4930,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 800x450 -> 1280x720 RAVU-zoom
    prescale (ms): luma 0.6, chroma 0.2
    against the first: mean difference 3.63 levels, 3.449% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_9.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_9.bmp
    Render ahead : asked  14 ms early, ready in   2.4 (max   3.4), 1 not in time
    On screen    :   -5.1 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean +1.4, sd 4.4, min -5, p5 -4, p95 +8, max +8  (40 samples)
@@ -4942,7 +4942,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 800x450 -> 1280x720 ArtCNN C4F16 DS
    prescale (ms): luma 1.4
    against the first: mean difference 12.15 levels, 16.723% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_10.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_10.bmp
    Render ahead : asked  15 ms early, ready in   3.1 (max   3.5), 1 not in time
    On screen    :   -5.9 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean +0.8, sd 4.5, min -6, p5 -5, p95 +7, max +7  (40 samples)
@@ -4962,7 +4962,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 == Catmull-Rom, chroma Catmull-Rom
    processor    : shaders, chroma Catmull-Rom
    scaling      : 1920x800 -> 3840x1600 Catmull-Rom
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_0.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_0.bmp
    Render ahead : asked  18 ms early, ready in   3.0 (max   3.3), 3 not in time
    On screen    :   +0.1 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -3.1, sd 4.3, min -8, p5 -8, p95 +2, max +2  (20 samples)
@@ -4973,7 +4973,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    processor    : shaders, chroma Catmull-Rom
    scaling      : 1920x800 -> 3840x1600 Jinc2m
    against the first: mean difference 2.97 levels, 2.137% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_1.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_1.bmp
    Render ahead : asked  17 ms early, ready in   3.0 (max   3.4), 3 not in time
    On screen    :   -7.9 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -0.9, sd 4.0, min -8, p5 -7, p95 +3, max +3  (20 samples)
@@ -4985,7 +4985,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 1920x800 -> 3840x1600 FSRCNNX 8
    prescale (ms): luma 2.7
    against the first: mean difference 5.36 levels, 6.628% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_2.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_2.bmp
    Render ahead : asked  19 ms early, ready in   5.0 (max   6.1), 66 not in time
    On screen    :   -7.0 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -0.9, sd 4.1, min -7, p5 -7, p95 +3, max +3  (20 samples)
@@ -4997,7 +4997,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 1920x800 -> 3840x1600 FSRCNNX 16
    prescale (ms): luma 7.5
    against the first: mean difference 6.26 levels, 10.046% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_3.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_3.bmp
    Render ahead : asked  24 ms early, ready in   7.2 (max  10.6), 86 not in time
    On screen    :   -7.5 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -0.6, sd 4.0, min -7, p5 -7, p95 +3, max +3  (20 samples)
@@ -5009,7 +5009,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 1920x800 -> 3840x1600 RAVU-zoom
    prescale (ms): luma 1.8
    against the first: mean difference 2.47 levels, 1.579% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_4.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_4.bmp
    Render ahead : asked  19 ms early, ready in   4.3 (max   5.0), 9 not in time
    On screen    :   -7.8 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -1.7, sd 4.1, min -8, p5 -7, p95 +3, max +3  (20 samples)
@@ -5021,7 +5021,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 1920x800 -> 3840x1600 FSRCNNX 8 AR
    prescale (ms): luma 2.7
    against the first: mean difference 4.00 levels, 2.699% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_5.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_5.bmp
    Render ahead : asked  13 ms early, ready in   4.8 (max   6.1), 61 not in time
    On screen    :   +7.1 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean +2.3, sd 5.1, min -8, p5 -8, p95 +8, max +8  (20 samples)
@@ -5033,7 +5033,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 1920x800 -> 3840x1600 FSRCNNX 16 AR
    prescale (ms): luma 7.5
    against the first: mean difference 4.49 levels, 3.679% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_6.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_6.bmp
    Render ahead : asked  24 ms early, ready in   7.1 (max  10.8), 87 not in time
    On screen    :   -7.5 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -0.6, sd 4.0, min -7, p5 -7, p95 +3, max +3  (20 samples)
@@ -5045,7 +5045,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 1920x800 -> 3840x1600 ArtCNN C4F16 DS
    prescale (ms): luma 5.3
    against the first: mean difference 4.63 levels, 6.420% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_7.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_7.bmp
    Render ahead : asked  19 ms early, ready in   5.9 (max   8.6), 87 not in time
    On screen    :   -4.5 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean +2.0, sd 3.9, min -4, p5 -4, p95 +6, max +6  (20 samples)
@@ -5057,7 +5057,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 1920x800 -> 3840x1600 Catmull-Rom
    prescale (ms): chroma 0.6
    against the first: mean difference 0.43 levels, 0.360% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_8.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_8.bmp
    Render ahead : asked  15 ms early, ready in   3.0 (max   3.4), 0 not in time
    On screen    :   -5.3 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean +1.1, sd 4.1, min -5, p5 -5, p95 +5, max +5  (20 samples)
@@ -5069,7 +5069,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 1920x800 -> 3840x1600 RAVU-zoom
    prescale (ms): luma 1.8, chroma 0.6
    against the first: mean difference 2.81 levels, 1.975% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_9.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_9.bmp
    Render ahead : asked  19 ms early, ready in   4.5 (max   5.0), 35 not in time
    On screen    :   +0.7 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -2.9, sd 4.4, min -8, p5 -8, p95 +3, max +3  (20 samples)
@@ -5081,7 +5081,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    scaling      : 1920x800 -> 3840x1600 ArtCNN C4F16 DS
    prescale (ms): luma 5.3
    against the first: mean difference 4.84 levels, 6.425% of values beyond 24
-   picture      : E:\MPCVR-DLSS5\tools\dlssnr_probe\scalers_10.bmp
+   picture      : <repo>\tools\dlssnr_probe\scalers_10.bmp
    Render ahead : asked  22 ms early, ready in   6.0 (max   8.1), 88 not in time
    On screen    :   -7.7 ms, scheduled: repeated 0, dropped 0, shown late 0
    sync offset  : mean -0.8, sd 3.9, min -8, p5 -7, p95 +3, max +3  (20 samples)
@@ -5404,7 +5404,7 @@ window, as the player does. A call that does not come back in 3 s is a freeze.
   Upscaling to FSRCNNX 16 AR                 0.00    24.0   moving  D3D11 VP to R10G10B10A2_UNORM, converts chroma, resizes | 800x450 -> 1280x720 D3D11
   Super Resolution on                        0.00    24.0   moving  D3D11 VP to B8G8R8A8_UNORM, converts chroma, resizes | 800x450 -> 1280x720 D3D11 SuperResolution*
   Super Resolution off                       0.00    24.0   moving  D3D11 VP to R10G10B10A2_UNORM, converts chroma | 800x450 -> 1280x720 FSRCNNX 16 AR
-[2026-11-03 14:41:14] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:41:14] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:41:14] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:41:14] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:41:14] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -5414,7 +5414,7 @@ window, as the player does. A call that does not come back in 3 s is a freeze.
 [2026-11-03 14:41:14] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:41:14] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:41:14] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:41:14] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at E:\MPCVR-DLSS5\_bin\Filter_x64
+[2026-11-03 14:41:14] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at <repo>\_bin\Filter_x64
 [2026-11-03 14:41:14] [NGXLoadConfig:1145] [streamline-ota]
 [2026-11-03 14:41:14] [NGXLoadConfig:1151] app_84D32F0=1
 [2026-11-03 14:41:14] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
@@ -5443,7 +5443,7 @@ window, as the player does. A call that does not come back in 3 s is a freeze.
   DLSS SR off                                0.02    24.0   moving  D3D11 VP to R10G10B10A2_UNORM, converts chroma | 800x450 -> 1280x720 FSRCNNX 16 AR
 
 0 failure(s)
-[2026-11-03 14:41:15] [tid:12496][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
+[2026-11-03 14:41:15] [tid:12496][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
 [2026-11-03 14:41:15] [tid:12496][NGXInitLog:208] App logging hooks successfully initialized
 [2026-11-03 14:41:15] [tid:12496][NGXInitLog:214] Build v310.9.16 CL 38955375
 [2026-11-03 14:41:15] [tid:12496][NGXInitLog:216] Built with APP_NAME = default
@@ -5582,7 +5582,7 @@ Frames        :   121 received, skipped 0 late + 0 fields, failed 0
   Upscaling to FSRCNNX 16 AR                 0.02    24.0   moving  D3D11 VP to R10G10B10A2_UNORM, converts chroma, resizes | 800x450 -> 1280x720 D3D11
   Super Resolution on                        0.00    24.7   moving  D3D11 VP to R10G10B10A2_UNORM, converts chroma, resizes | 800x450 -> 1280x720 D3D11 SuperResolution*
   Super Resolution off                       0.00    24.0   moving  D3D11 VP to R10G10B10A2_UNORM, converts chroma | 800x450 -> 1280x720 FSRCNNX 16 AR
-[2026-11-03 14:43:30] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:43:30] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:43:30] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:43:30] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:43:30] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -5592,7 +5592,7 @@ Frames        :   121 received, skipped 0 late + 0 fields, failed 0
 [2026-11-03 14:43:30] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:43:30] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:43:31] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:43:31] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at E:\MPCVR-DLSS5\_bin\Filter_x64
+[2026-11-03 14:43:31] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at <repo>\_bin\Filter_x64
 [2026-11-03 14:43:31] [NGXLoadConfig:1145] [streamline-ota]
 [2026-11-03 14:43:31] [NGXLoadConfig:1151] app_84D32F0=1
 [2026-11-03 14:43:31] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
@@ -5621,7 +5621,7 @@ Frames        :   121 received, skipped 0 late + 0 fields, failed 0
   DLSS SR off                                0.01    24.0   moving  D3D11 VP to R10G10B10A2_UNORM, converts chroma | 800x450 -> 1280x720 FSRCNNX 16 AR
 
 0 failure(s)
-[2026-11-03 14:43:31] [tid:1584][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
+[2026-11-03 14:43:31] [tid:1584][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
 [2026-11-03 14:43:31] [tid:1584][NGXInitLog:208] App logging hooks successfully initialized
 [2026-11-03 14:43:31] [tid:1584][NGXInitLog:214] Build v310.9.16 CL 38955375
 [2026-11-03 14:43:31] [tid:1584][NGXInitLog:216] Built with APP_NAME = default
@@ -5666,7 +5666,7 @@ Frames        :   121 received, skipped 0 late + 0 fields, failed 0
 ========================================================================
 section 3: Detail
 property page 1680x827 shown for 2 s
-picture: E:\MPCVR-DLSS5\tools\dlssnr_probe\proppage.bmp
+picture: <repo>\tools\dlssnr_probe\proppage.bmp
 
 -- the page as it opens
   Use for resizing               live   , ticked
@@ -5713,7 +5713,7 @@ Downscaling, best first:
 ========================================================================
 section 4: DLSS 5 NR
 property page 1680x827 shown for 2 s
-picture: E:\MPCVR-DLSS5\tools\dlssnr_probe\proppage.bmp
+picture: <repo>\tools\dlssnr_probe\proppage.bmp
 
 -- the page as it opens
   Use for resizing               live   , ticked
@@ -5760,7 +5760,7 @@ Downscaling, best first:
 ========================================================================
 section 3: Detail
 property page 1680x827 shown for 2 s
-picture: E:\MPCVR-DLSS5\tools\dlssnr_probe\proppage.bmp
+picture: <repo>\tools\dlssnr_probe\proppage.bmp
 
 -- the page as it opens
   Use for resizing               live   , ticked
@@ -5816,7 +5816,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
    frames       : 526 shown while measuring, 0 skipped, 0 late (1 while settling)
    state changes: pause 0.00 s, run 0.00 s, stop 0.00 s
 
-[2026-11-03 14:44:16] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:44:16] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:44:16] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:44:16] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:44:16] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -5826,7 +5826,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 [2026-11-03 14:44:16] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:44:16] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:44:16] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:44:16] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at E:\MPCVR-DLSS5\_bin\Filter_x64
+[2026-11-03 14:44:16] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at <repo>\_bin\Filter_x64
 [2026-11-03 14:44:16] [NGXLoadConfig:1145] [streamline-ota]
 [2026-11-03 14:44:16] [NGXLoadConfig:1151] app_84D32F0=1
 [2026-11-03 14:44:16] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
@@ -5868,7 +5868,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 [2026-11-03 14:44:17] [NGXLoadMetaDataViaGetFileVersionInfo:1420] swscanf_s() failed on snippet 'C:\Program Files\MPC-HC\MPCVR\dlss/nvngx_dlssnr.dll' missing or corrupted
 [2026-11-03 14:44:17] [`anonymous-namespace'::SnippetLocationInfo::load:720] Error: NGXLoadFromPath failed for C:\Program Files\MPC-HC\MPCVR\dlss: 0xBAD00000
 [2026-11-03 14:44:17] [NVSDK_NGX_CreateFeature_Validate:729] app id is 101950511 
-[2026-11-03 14:44:47] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:44:47] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:44:47] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:44:47] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:44:47] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -5878,7 +5878,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 [2026-11-03 14:44:47] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:44:47] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:44:47] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:44:47] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at E:\MPCVR-DLSS5\_bin\Filter_x64
+[2026-11-03 14:44:47] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at <repo>\_bin\Filter_x64
 [2026-11-03 14:44:47] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:44:47] [NGXReportStatusFeedback:1103] Override shared memory was opened successfully
 [2026-11-03 14:44:47] [NGXReportStatusFeedback:1115] Override shared memory was mapped successfully
@@ -5893,7 +5893,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 [2026-11-03 14:44:47] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlcolorize, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:44:47] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlstyletransfer, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:44:47] [NGXContextDenyListData::IsFeatureDenied:676] Feature dlvdenoiser, denial value 0 for Cms ID 613a42f
-[2026-11-03 14:44:47] [NGXContextDenyListData::IsFeatureDenied:676] Fe[2026-11-03 14:44:17] [tid:3044][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
+[2026-11-03 14:44:47] [NGXContextDenyListData::IsFeatureDenied:676] Fe[2026-11-03 14:44:17] [tid:3044][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
 [2026-11-03 14:44:17] [tid:3044][NGXInitLog:208] App logging hooks successfully initialized
 [2026-11-03 14:44:17] [tid:3044][NGXInitLog:214] Build v310.9.16 CL 38955375
 [2026-11-03 14:44:17] [tid:3044][NGXInitLog:216] Built with APP_NAME = default
@@ -5923,7 +5923,7 @@ where the renderer chose one ("scheduled"); when Present returned, where it did 
 [2026-11-03 14:44:17] [tid:12556][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (Perf) Using App hint Preset M
 [2026-11-03 14:44:17] [tid:12556][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraPerf) Using App hint Preset M
 [2026-11-03 14:44:17] [tid:12556][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraQuality) Using App hint Preset M
-[2026-11-03 14:44:47] [tid:3044][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE F== DLSS SR, render ahead on
+[2026-11-03 14:44:47] [tid:3044][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE F== DLSS SR, render ahead on
    DLSS SR      : 800x450 -> 1280x720 DLSS SR Bal/M, Optical Flow, global motion
    DLSS (ms)    : OF 1.2, SR 1.0
    Render ahead : asked  18 ms early, ready in   3.5 (max   4.5), 1 not in time
@@ -5947,7 +5947,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:44:47] [NGXLoadMetaDataViaGetFileVersionInfo:1420] swscanf_s() failed on snippet 'C:\Program Files\MPC-HC\MPCVR\dlss/nvngx_dlssnr.dll' missing or corrupted
 [2026-11-03 14:44:47] [`anonymous-namespace'::SnippetLocationInfo::load:720] Error: NGXLoadFromPath failed for C:\Program Files\MPC-HC\MPCVR\dlss: 0xBAD00000
 [2026-11-03 14:44:48] [NVSDK_NGX_CreateFeature_Validate:729] app id is 101950511 
-[2026-11-03 14:45:18] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:45:18] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:45:18] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:45:18] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:45:18] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -5957,7 +5957,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:45:18] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:45:18] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:45:18] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:45:18] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at E:\MPCVR-DLSS5\_bin\Filter_x64
+[2026-11-03 14:45:18] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at <repo>\_bin\Filter_x64
 [2026-11-03 14:45:18] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:45:18] [NGXReportStatusFeedback:1103] Override shared memory was opened successfully
 [2026-11-03 14:45:18] [NGXReportStatusFeedback:1115] Override shared memory was mapped successfully
@@ -5996,7 +5996,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:44:48] [tid:12396][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (Perf) Using App hint Preset M
 [2026-11-03 14:44:48] [tid:12396][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraPerf) Using App hint Preset M
 [2026-11-03 14:44:48] [tid:12396][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraQuality) Using App hint Preset M
-[2026-11-03 14:45:18] [tid:3044][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
+[2026-11-03 14:45:18] [tid:3044][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
 [2026-11-03 14:45:18] [tid:3044][NGXInitLog:2== NR + SR, render ahead off
    DLSS 5 NR    : cinematic/P0 i1.50 t0.30 s0.50 k0.90 auto
    DLSS SR      : 800x450 -> 1280x720 DLSS SR Bal/M, Optical Flow, global motion
@@ -6029,7 +6029,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:45:18] [`anonymous-namespace'::SnippetLocationInfo::load:720] Error: NGXLoadFromPath failed for C:\Program Files\MPC-HC\MPCVR\dlss: 0xBAD00000
 [2026-11-03 14:45:18] [NGXInitValidateSnippets:291] error: installed NGX API is older than the one used by client application - please update your driver.
 [2026-11-03 14:45:19] [NVSDK_NGX_CreateFeature_Validate:729] app id is 101950511 
-[2026-11-03 14:45:49] [ngx::util::openLogFileInPath:246] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
+[2026-11-03 14:45:49] [ngx::util::openLogFileInPath:246] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\/nvngx.log) enabled successfully
 [2026-11-03 14:45:49] [NGXSafeInitializeLog:139] App logging hooks successfully initialized
 [2026-11-03 14:45:49] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_ccd7fbb71bb72370
 [2026-11-03 14:45:49] [NGXGetPath:1046] using path for models: C:\ProgramData\NVIDIA\NGX\models
@@ -6039,7 +6039,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:45:49] [NGXLoadConfig:1145] [dlss]
 [2026-11-03 14:45:49] [NGXLoadConfig:1151] app_E658700=310.9.16
 [2026-11-03 14:45:49] [NGXDRSInit:182] NvAPI_DRS_FindApplicationByName -166
-[2026-11-03 14:45:49] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at E:\MPCVR-DLSS5\_bin\Filter_x64
+[2026-11-03 14:45:49] [NGXInitContext:245] called from module MpcVideoRenderer64.ax at <repo>\_bin\Filter_x64
 [2026-11-03 14:45:49] [NGXContextDenyListData::IsFeatureDenied:676] Feature dldenoiser, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:45:49] [NGXReportStatusFeedback:1103] Override shared memory08] App logging hooks successfully initialized
 [2026-11-03 14:45:18] [tid:3044][NGXInitLog:214] Build v310.9.16 CL 38955375
@@ -6070,7 +6070,7 @@ ature dlisp, denial value 0 for Cms ID 613a42f
 [2026-11-03 14:45:19] [tid:10404][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (Perf) Using App hint Preset M
 [2026-11-03 14:45:19] [tid:10404][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraPerf) Using App hint Preset M
 [2026-11-03 14:45:19] [tid:10404][NgxDltss::FillCreationParams::<lambda_cef418e50ae0bb979313c68b3f92b7fd>::operator ():2763] Info: (UltraQuality) Using App hint Preset M
-[2026-11-03 14:45:49] [tid:3044][util::setLogFilename:284] Logging to requested file (C:\Users\Admin\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
+[2026-11-03 14:45:49] [tid:3044][util::setLogFilename:284] Logging to requested file (%USERPROFILE%\AppData\Local\MPC-BE Filters\MPC Video Renderer\ngx\//nvngx_dlss_310_9_16.log) enabled successfully
 [2026-11-03 14:45:49] [tid:3044][NGXInitLog:208] App logging hooks successfully initialized
 [2026-11-03 14:45:49] [tid:3044][NGXInitLog:214] Build v310.9.16 CL 38955375== NR + SR, render ahead on
    DLSS 5 NR    : cinematic/P0 i1.50 t0.30 s0.50 k0.90 auto

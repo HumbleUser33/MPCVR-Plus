@@ -25,6 +25,17 @@
     Which compiler made a build is otherwise only in the linker version of the
     file's header, so each project says it.
   -->
+  <!--
+    The linker writes the program database's full path into the file it makes, so a
+    released filter carried the folder it was built in, the user's name with it. Only the
+    database's file name is written now: a debugger finds it by that name and the
+    identifier beside it, as it does a Microsoft DLL's.
+  -->
+  <ItemDefinitionGroup>
+    <Link>
+      <AdditionalOptions>/PDBALTPATH:%_PDB% %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
   <Target Name="SayCompiler" BeforeTargets="ClCompile">
     <Message Importance="high" Text="MSVC $(VCToolsVersion)" />
   </Target>
