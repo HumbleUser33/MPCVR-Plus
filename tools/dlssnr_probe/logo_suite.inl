@@ -1368,7 +1368,7 @@ static int Run(ID3D11Device* dev, ID3D11DeviceContext* ctx, int mode, const wcha
 		return RunReal(film);
 	}
 	const bool study = mode == 1;
-	const std::wstring path = film && *film ? film : L"upscale_refs\\Fight Club (1999).mkv";
+	const std::wstring path = film && *film ? film : L"upscale_refs\\film.mkv";
 	const double start = 600;
 	const int every = 10;
 	const int nLocate = study ? 90 : 60, nFit = study ? 240 : 120, nTest = 24;

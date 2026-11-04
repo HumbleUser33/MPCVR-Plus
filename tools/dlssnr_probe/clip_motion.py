@@ -10,7 +10,7 @@ pixels. Read-only on the frames; ffmpeg and ffprobe on PATH, and numpy.
 
 What moves on its own is left out: at every step, the 16 x 16 blocks whose mean squared
 difference passes 2.5 times the median block's. That matters more than anything else
-here. On Cyrano (2026-10-15), whose wall weaves 0.48 pixel a frame on average behind
+here. On film A of the manual (2026-10-15), whose wall weaves 0.48 pixel a frame on average behind
 actors who walk, phase correlation over the whole frame -- this file's first way --
 came out 0.13 pixel from it and left 21 % more difference on the still part; the same
 registration with every pixel taken in, 0.34 pixel on the flow frames.

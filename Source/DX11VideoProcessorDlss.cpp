@@ -697,7 +697,7 @@ bool CDX11VideoProcessor::VPSuperResAllowed(const int depth) const
 // for RTX Video HDR (kRtxHdrMinPixels) the source enlarged, keeping its shape, just past
 // 640x360 pixels -- 640x270 to 740x312 -- for the shaders to enlarge the rest. A small
 // picture the shaders enlarged was otherwise shown without RTX Video HDR. It costs some
-// of the shaders' enlargement: Fight Club reduced to 640x266 and enlarged back to 1920x800
+// of the shaders' enlargement: a film reduced to 640x266 and enlarged back to 1920x800
 // by FSRCNNX 16 AR came to 35.70 dB of luma PSNR against the original with it, 37.32
 // without, and the processor enlarging alone to 35.40. Not for DLSS 5 NR before the
 // resizing, nor DLSS SR: both start from the source's own size.
@@ -718,7 +718,7 @@ CSize CDX11VideoProcessor::VPConvertTexSize() const
 // HDR desktop, writes HDR10 there -- PQ, BT.2020 -- whatever output colour space it was
 // given, and without RTX Video HDR the swap chain is SDR and shows it as such: a picture
 // under 115 nits with a tenth of its colour (playback_test --vpturns, an XviD 640x270 and
-// Fight Club re-encoded in 8 bits, at every size tried; the 10-bit original was right).
+// a 10-bit film re-encoded in 8 bits, at every size tried; the original was right).
 // Given eight bits to write, it writes what it was asked: mean, peak and colour within
 // 0.001 of the processor's without Super Resolution, and its detail kept (0.0168 against
 // 0.0119). Eight bits lose nothing of an 8-bit source. Seen on an HDR desktop only, so

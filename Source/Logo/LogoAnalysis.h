@@ -236,7 +236,7 @@ struct RemoveOptions {
 	float trust = 0.03f;       // the logo must stand out from the picture by this (RMS) to be measured
 	// A row of a black bar: its pixels round the logo average under barDark and spread less
 	// than barFlat (std). Bars measure 15 to 18 levels; a film's dark scenes, above 20 as a
-	// rule, would otherwise be taken for one (--tlogo, Fight Club).
+	// rule, would otherwise be taken for one (--tlogo, the bench's film).
 	float barDark = 20.0f / 255;
 	float barFlat = 2.0f / 255;
 };

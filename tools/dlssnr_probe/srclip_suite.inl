@@ -4,7 +4,7 @@
 // Included by harness.cpp after sr_still_suite.inl, whose readers it uses. --tsrstill
 // grains a still picture with noise of its own making; a film brings its own grain,
 // its compression's blocks, its noise -- and its weave. The wall that shimmered behind
-// the actors in Cyrano (2026-10-15) is not still at all: the whole picture moves by 0.2
+// the actors in film A of the manual (2026-10-15) is not still at all: the whole picture moves by 0.2
 // to 1 source pixel from one frame to the next, 0.48 on average, and 62 % of the frames
 // move more than the 0.4 pixel under which CDlssStabilizer::ForDlssSR called the global
 // motion none.

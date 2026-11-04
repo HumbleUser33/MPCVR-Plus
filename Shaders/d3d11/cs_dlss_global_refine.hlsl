@@ -2,7 +2,8 @@
 //
 // The median of Optical Flow's trusted blocks is right to the engine's 1/32 of a flow
 // pixel on a picture that holds still, but on a film that weaves -- the whole picture
-// moving by 0.2 to 1 source pixel from one frame to the next, as Cyrano does -- it came
+// moving by 0.2 to 1 source pixel from one frame to the next, as film A of the manual's
+// "A film that weaves" does -- it came
 // out short of the film's own motion, and fell under the 0.4-pixel dead zone PASS 4 then
 // had on 77 % of the frames (tools/dlssnr_probe --tsrclip). DLSS Super Resolution
 // resampled its history to the wrong place, and a wall that only weaves shimmered more
@@ -12,7 +13,7 @@
 // difference, from the median. What moves on its own must take no part, and Optical Flow's
 // own vectors do not tell it well enough: actors walking a pixel or two a frame lie within
 // a flow pixel of the weave, and taking them in left the estimate 0.34 source pixel from
-// the best registration of the source frames on Cyrano. Their residual tells it: 16 x 16
+// the best registration of the source frames on that film. Their residual tells it: 16 x 16
 // groups whose mean squared difference, at the current estimate, passes `robust` times the
 // median group's are left out, and the same estimate comes within 0.02 pixel
 // (tools/dlssnr_probe/clip_motion.py --compare). Each step is two passes:

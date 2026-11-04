@@ -25,7 +25,7 @@ PUSHD "%~dp0"
 SET "REPORT=%~1"
 IF "%REPORT%"=="" SET "REPORT=%~dp0run_all_report.txt"
 SET "REF=upscale_refs\4K1.png"
-SET "FILM=upscale_refs\Fight Club (1999).mkv"
+SET "FILM=upscale_refs\film.mkv"
 
 IF NOT EXIST "dlssnr_harness.exe" (
   ECHO dlssnr_harness.exe is missing. Run build.cmd first.

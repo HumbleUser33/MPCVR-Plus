@@ -303,7 +303,7 @@ void EstimateApart(const Plane& in, const std::vector<uint8_t>& known, const Bar
 // clear of the blend. A row is blended when the ring's pixels on it follow less than
 // kBlendFollows of the changes of those on the row kEdgeBlend in from the edge, over the
 // pictures fitted on. Measured (--tlogo --real): 0.19, 0.61 and 0.95 on the three rows after
-// the bar of Thelma et Louise, 0.37 then 1.00 and 1.04 on Poupoupidou's; 0.994 to 1.001 on a
+// the bar of one TV recording, 0.37 then 1.00 and 1.04 on another's; 0.994 to 1.001 on a
 // bar with no blend, through x264 too (--tlogo).
 constexpr int kEdgeBlend = 3;
 constexpr double kBlendFollows = 0.97;

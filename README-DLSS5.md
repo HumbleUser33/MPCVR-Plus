@@ -297,19 +297,19 @@ and one that does not fit the 41.7 ms a picture lasts is left out undrawn:
 
 | film | working size | drawing (median) | pictures drawn |
 |---|---|---|---|
-| The Shepherd, 3840x2160 HDR | 100 % | 71.6 ms | 440 of 873 |
+| a 3840x2160 HDR film | 100 % | 71.6 ms | 440 of 873 |
 | | 75 % | 51.4 ms | 462 of 908 |
 | | 60 % | 36.6 ms | 876 of 911 |
 | | 55 % | 32.5 ms | 910 of 912 |
 | | 50 % | 29.0 ms | 907 of 909 |
-| Kill Bill, 3840x1600 HDR | 100 % | 56.6 ms | 432 of 856 |
+| a 3840x1600 HDR film | 100 % | 56.6 ms | 432 of 856 |
 | | 75 % | 36.1 ms | 881 of 885 |
 | | 70 % | 32.7 ms | 884 of 886 |
 | | 60 % | 25.7 ms | 890 of 892 |
 
 Where every picture but a few was drawn, those few are the first, while the session starts,
-and one more in Kill Bill at 75 %, 9.4 s in. On this card a 3840x2160 film wants 55 % and a
-3840x1600 one 75 %; a faster card wants less taken off, and the statistics' *Total* line, against
+and one more in the 3840x1600 film at 75 %, 9.4 s in. On this card a 3840x2160 film wants 55 %
+and a 3840x1600 one 75 %; a faster card wants less taken off, and the statistics' *Total* line, against
 the frame it names, says how much room is left. A new working size is taken on Apply, and the network starts
 again at it: seven pictures went undrawn in the bench while it did
 (`playback_test --nrscale 100 --nrscaleto 70`).
@@ -419,7 +419,7 @@ where it was in the last eight frames and no longer is, the picture differs from
 with no object at all by 3.4 to 3.9 thousandths of luma against 2.9 to 4.0 without vectors
 (×1000, at a quarter of the resolution), and exact vectors leave the same, 3.5 to 4.0: the
 larger effect building up again on what the object uncovers. The raw vectors the box sent
-steadied less, and least on a film that weaves: on the wall of *Cyrano*, DLSS 5 NR and the
+steadied less, and least on a film that weaves: on the wall of *film A* (below), DLSS 5 NR and the
 stabilizer shimmered 1.21 times the source without vectors, 1.12 with the raw ones, 1.04 with
 the cleaned ones (`--tsrclipnr`).
 
@@ -604,7 +604,7 @@ the grain's: hence *Experimental* on the option.
 
 **A film that weaves.** On film a background that holds still is not still: the frame moves in
 the gate, and a scanned picture moves by a fraction of a pixel from one frame to the next. On
-*Cyrano* (2021), the wall behind the actors at 00:32:24, which shimmered under DLSS SR, moves
+*film A*, the wall behind the actors at 00:32:24, which shimmered under DLSS SR, moves
 0.48 source pixel a frame on average, and 62 % of the frames more than 0.4. The median of
 Optical Flow's blocks came out short of that motion, and under the 0.4-pixel dead zone PASS 4
 then had on 77 % of the frames: DLSS was told the wall had not moved, resampled its history to
@@ -624,7 +624,7 @@ taken to zero measured worse, on films that hardly move, than the same motion fo
 moves on its own left out. The figure is the shimmer of what holds still once that motion is
 taken out, against the source's own:
 
-| | *Cyrano*, the wall | *Boudu* (1932) | *Casimir* (1950) |
+| | *Film A*, the wall | *Film B* (1932) | *Film C* (1950) |
 |---|---|---|---|
 | The film's weave, pixel a frame | 0.48 | 0.03 | 0.01 |
 | The median global motion (until 2.0) | 1.14× | 0.47× | 0.79× |
@@ -634,7 +634,7 @@ taken out, against the source's own:
 | Preset K, refined | 0.21× | 0.26× | 0.48× |
 
 The refinement costs 0.1 to 0.3 ms a frame at 1080p, timed in turns with the median on the same
-frames. Preset K is steadier still, and softer: 8 % less detail on the wall of *Cyrano*. With
+frames. Preset K is steadier still, and softer: 8 % less detail on the wall of *film A*. With
 DLSS 5 NR before DLSS SR, as the filter chains them, the wall went from 1.51 to 0.43 times the
 source's shimmer (`--tsrclipnr`); and DLSS SR's vectors computed on the picture before the
 network serve as well as those computed after it, 0.43 either way, which is what one Optical
@@ -644,12 +644,12 @@ Flow shared by the two would see. DLSS SR keeps its own, on the picture it enlar
 the picture before a cut belonged to another shot: where a bright shot followed a darker one,
 it blended the dark one in, and the bright parts of the new shot came out darker for two or
 three pictures — seen in playback, not when stepping picture by picture. A seek resets DLSS; a
-cut did not. `--tsrcut` measures it on the cuts seen in playback, *La Firme* at 16:17 and
-*Cyrano* at 36:59, and one two seconds before the first: what the enlarged picture, brought
+cut did not. `--tsrcut` measures it on the cuts seen in playback, *film D* at 16:17 and
+*film A* at 36:59, and one two seconds before the first: what the enlarged picture, brought
 back to the source's size, lacks on the pixels that brightened across the cut, against the
 level the new shot settles at, ×1000 on luma, on the first three pictures of the new shot:
 
-| | *La Firme*, 16:15 | *La Firme*, 16:17 | *Cyrano*, 36:59 |
+| | *Film D*, 16:15 | *Film D*, 16:17 | *Film A*, 36:59 |
 |---|---|---|---|
 | 2.1 | 62.9, 7.6, 3.6 | 85.3, 24.8, 9.8 | 114.6, 35.3, 12.3 |
 | **Now** | **0.1, 0.3, -0.1** | **0.6, 0.4, -0.3** | **0.5, 0.2, 0.5** |
@@ -669,12 +669,12 @@ structure — the correlation under 0.25 and the difference three times.
 
 The light alone missed the cuts out of a shot that already changed a lot on every picture, a
 chase or a car under trees; the correlation alone missed the flashes, which DLSS dims with the
-pictures before them as it darkens a bright shot after a dark one: a flash of *Dances with
-Wolves* came out 41.9 thousandths of luma too dark over three quarters of the picture, and is
+pictures before them as it darkens a bright shot after a dark one: a flash of *film G* came
+out 41.9 thousandths of luma too dark over three quarters of the picture, and is
 right now (0.0). `--tcutscan` runs the detection alone over minutes of a film, beside ffmpeg's
-own scene score of each picture. Over 48 minutes of six films — *La Firme*, *Cyrano*, *Fight
-Club*, *Indiana Jones and the Last Crusade* in HDR, *Les assassins sont parmi nous* (1946) and
-the buffalo hunt of *Dances with Wolves* — it called 571 pictures, every one of the 296 where
+own scene score of each picture. Over 48 minutes of six films — *film D*, *film A*, the
+bench's film, *film E* in HDR, *film F* (1946) and a hunt in *film G* — it called 571
+pictures, every one of the 296 where
 ffmpeg's score passes 0.3 among them. Of the other 275, 169 have a correlation of 0.1 at most,
 cuts ffmpeg scores lower; 45 are flashes and flickering lights; the rest are the splices of the
 1946 print and the dust of the hunt. What came closest without being called is dust and blur
@@ -1212,7 +1212,7 @@ under 340 with the shaders. Where the shaders resize and RTX Video HDR is on, th
 enlarges such a picture first, keeping its shape, just past 640x360 (640x270 to 740x312), and
 the shaders enlarge the rest; the Processor step says `to 740x312 for RTX Video HDR`, and the
 Scaling step starts from there (`740x312 -> 3840x1620 FSRCNNX 16 AR`). It costs
-some of the shaders' enlargement, measured on Fight Club reduced to 640x266 and enlarged back
+some of the shaders' enlargement, measured on a film reduced to 640x266 and enlarged back
 to 1920x800, against the original:
 
 | Enlarged by | Luma PSNR | Detail kept |
@@ -1443,8 +1443,8 @@ is not always there: each picture, the shader measures how strongly it is on scr
 out that much of it, so advertising and the logo's own fades leave no inverted ghost.
 
 **Across a black bar.** A channel shows a wide film between black bars and leaves its logo
-where it always is, so the logo often sits half over the bar and half over the picture --
-Arte's, on *Thelma et Louise* or *Poupoupidou*. The two halves are kept apart:
+where it always is, so the logo often sits half over the bar and half over the picture,
+as on two of the recordings tried. The two halves are kept apart:
 
 - *Fitting it*: over the bar the picture under the logo never changes, and the line cannot
   tell alpha from colour there. But the logo's colour can be read where it is over the
@@ -1458,18 +1458,18 @@ Arte's, on *Thelma et Louise* or *Poupoupidou*. The two halves are kept apart:
   of the two, the picture darkened by as much all along the edge, which the line reads as a
   black logo laid across the whole box. A row is taken as blended when the picture round the
   logo on it follows less than 0.97 of the changes of the row three in: 0.19, 0.61 and 0.95
-  on the three after the bar of *Thelma et Louise*, 0.37 on the one of *Poupoupidou*, 0.994
+  on the three after the bar of one recording, 0.37 on the one of the other, 0.994
   to 1.04 where there is no blend. The logo's alpha does not depend on what is under it: the
   rows blended take it from the first row clear of the blend.
 - *Taking it out*: on every picture the shader tells which rows (and columns) at the box's
   edges are a bar's -- near black, under 20 levels, and flat round the logo, from the box's
   edge inwards. Bars measure 15 to 18 levels. Under 25, with a bar's rows filled rather than
-  inverted, dark scenes of Fight Club passed for one, and the bench's outlined logo came back
+  inverted, dark scenes of the bench's film passed for one, and its outlined logo came back
   at 45.6 dB instead of 51.1; under 20, with the inversion trusted, it is 51.1 as without the
   bars told. On a bar's row the fill is that row's own level and the inversion is trusted as
   anywhere: over a real bar it gives the bar back. (Taking an inversion within a few levels of the bar as the bar was measured too:
-  nothing gained on the bench's logo across the bar, a little less of Arte's outline left on
-  the two films, 0.028 and 0.033 against 0.033 and 0.040, and 0.3 dB lost on the outlined
+  nothing gained on the bench's logo across the bar, a little less of the channel's outline
+  left on the two recordings, 0.028 and 0.033 against 0.033 and 0.040, and 0.3 dB lost on the outlined
   logo, where a dark scene passes for a bar.) The picture's side is filled from the picture
   alone: a fill across the edge smears the bar into the picture and the picture into the bar.
 
@@ -1494,7 +1494,7 @@ input. A logo that moves or changes, such as an animated one, is not what this i
 
 ### What it is worth
 
-`dlssnr_harness --tlogo` lays six logos of known alpha and colour over pictures of Fight Club
+`dlssnr_harness --tlogo` lays six logos of known alpha and colour over pictures of a film
 taken 0.4 s apart and made 1920 x 1080 with black bars, as a channel shows a wide film:
 white letters at 55 % with holes in them, opaque letters on a dark rim, a badge from 25 to 75 %
 with its text cut out, a thin "HD" 18 pixels high, a channel's name in white with a red
@@ -1545,30 +1545,30 @@ bar's part taken as opaque (`--study`); taken out, the place comes back at 40.2 
 with the bar's rows taken for picture. The logo's colour where it is over the picture, from its
 10th to its 90th percentile over the pixels at least 20 % opaque, each counted by its alpha
 squared as its colour is known to its alpha's error over its alpha, spreads 1.7 to 22.2 levels
-on the logos of one colour (through x264 too, and Arte's on the two films) and 99 to 221 on
-those of several: one colour is taken under 51 levels.
+on the logos of one colour (through x264 too, and the channel's on the two recordings) and 99
+to 221 on those of several: one colour is taken under 51 levels.
 
-**On a real recording**, *Le Rouge et le Noir* (France TV, 1080p25 H.264 at 3.2 Mbit/s, the
-opaque white "france" with a coloured dot and "tv" in a corner over a wide film between bars):
+**On a real recording**, a TV film (1080p25 H.264 at 3.2 Mbit/s, the channel's name in opaque
+white with a coloured dot, in a corner over a wide film between bars):
 the logo is found 15 seconds into the film and hidden from 27 s, and the analysis is done at
 113 s (`playback_test --logo`). Fitted on 120 pictures and on 240, alpha differs by 0.002.
 
-**Across a bar, on real recordings**: Arte's logo, translucent white letters read upwards in
-the top left corner, half over the bar of a wide film. On *Thelma et Louise* (1080p25 HEVC)
+**Across a bar, on real recordings**: a channel's logo, translucent white letters in the top
+left corner, half over the bar of a wide film. On one recording (1080p25 HEVC)
 a locator that leaves the bars out boxes 58 x 88 pixels from row 136 there, half the logo;
 this one holds all of it, 64 x 188 from row 36, fitted at 0.32 opaque on average over the bar
-as over the picture. On *Poupoupidou* (720p25 H.264) the same, 52 x 132. What is left of the
+as over the picture. On another (720p25 H.264) the same, 52 x 132. What is left of the
 outline it found once it is taken out (0: gone, 1: untouched, `--tlogo --real`): 0.033 and
 0.040. In the filter (`playback_test --logo`), *Find the logo* pressed ten minutes into
-*Thelma et Louise*: Arte's logo kept from another of its films hides it from the first half
-second, the logo is found whole 11 seconds in and the analysis done at 100 s, whether the
+the first: the same channel's logo, kept from another of its films, hides it from the first
+half second, the logo is found whole 11 seconds in and the analysis done at 100 s, whether the
 processor or the shaders enlarge; 0.1 ms a picture.
 
 **What it costs**, a picture, on the RTX 4060 (`--tlogo`): 0.067 to 0.125 ms at 1080p and 0.25
 to 0.46 ms at 2160p, depending on the logo's size, of which copying the two planes takes 0.03
 and 0.19 ms, and telling the bars on every picture 0.012 to 0.022 ms at 1080p. The analysis
 copies one picture back every 0.4 s and works on it on its own thread. The statistics give the
-figure for the film playing, on the *Logo* step: 0.1 ms on *Le Rouge et le Noir*.
+figure for the film playing, on the *Logo* step: 0.1 ms on the TV film above.
 
 ## Sharpening
 
@@ -1743,7 +1743,7 @@ its time, the same after 20 s as at the start, with the Sync offset reading +8 t
 For a while the renderer then left one picture out when that had lasted -- eight pictures
 running waiting more than a refresh -- and counted it in the statistics as *caught up*. It is
 gone since 2.5. It only ever saw pictures render ahead did not schedule, and there it did harm:
-measured in MPC-HC on Fight Club at 23.976 Hz with render ahead off, it left a picture out every
+measured in MPC-HC on a film at 23.976 Hz with render ahead off, it left a picture out every
 half second, 245 in 135 s, each a jump followed by a picture shown twice; upstream's own filter
 showed 1 to 4 pictures twice in the same two minutes. Without it the same run shows one. A film
 that starts late with render ahead off now stays late, as it does upstream; render ahead keeps
@@ -1856,7 +1856,7 @@ What it cannot do:
   20 ms of GPU a picture out of 40. The schedule then calls the following pictures a refresh
   later, or leaves one out when that would put them too far from their time, and is back in
   step within two pictures. It used to stay a refresh late for good. The trace now says when
-  the GPU was done with each picture and how DXGI put it on the screen: on Fight Club at
+  the GPU was done with each picture and how DXGI put it on the screen: on a film at
   23.976 Hz, three such pictures in 305 s, two with the statistics hidden, every one finished
   by the GPU 3.5 to 7.6 ms before its `Present` and every picture of the film composed by the
   desktop. Upstream's filter shows it as often (see *What the screen shows*). The compositor
@@ -1916,7 +1916,7 @@ not schedule, a film's first ones and those of the *Discard* swap effect, to the
 The renderer's own figures stop at the swap chain, so the screen itself was read:
 `cadence_watch` (see *Diagnostic tools*) takes every image Windows put on it through the desktop
 duplication, with the time it went there, and `cadence_report.py` says on how many refreshes
-each picture of the film stayed. Fight Club, 4K HDR output on the Panasonic television, the
+each picture of the film stayed. A film, 4K HDR output on the Panasonic television, the
 video processor resizing with Super Resolution and RTX Video HDR, in MPC-HC, two minutes of film
 for each line, on an RTX 4060:
 
@@ -2306,13 +2306,13 @@ of their own, kept at the *Subtitle and OSD brightness* over an HDR picture.
 The whole of the statistics goes out in six calls at most, the labels in one and each section's
 values in one, with spaces where the rest is: every printable ASCII character of Consolas
 advances as a space does. Two calls a line made 64 to 70 a picture, each setting the pipeline
-again. Fight Club in the bench, statistics shown, two runs of each alternated: the render
+again. A film in the bench, statistics shown, two runs of each alternated: the render
 thread's drawing a picture went from a median of 0.74 and 0.76 ms to 0.70 and 0.71 without DLSS,
 and from 2.04 to 2.00 with DLSS 5 NR and DLSS SR, about half of what OSD Plus had added. A label
 with any other character keeps a call of its own for its value. `osd_draw_test` (see
 *Diagnostic tools*) requires the same pixels both ways.
 
-The lines OSD Plus adds, Fight Club through LAV in the bench
+The lines OSD Plus adds, a film through LAV in the bench
 (`playback_test --file <film> --stats 1`):
 
     Codec         : AV01
@@ -2375,7 +2375,7 @@ for as long the driver reports no GPU work done and Windows' scheduler sends non
 compositor's flip waits behind it, and one that goes more than about 40 ms after the vertical
 blank loses the refresh. Every hold-up fell on that thread's period, 1.006 s; without an AI
 upscaler its turns never passed 3.5 ms and nothing was held up. Hardware decoding, the
-statistics and the film's cuts had nothing to do with it. Fight Club from 15:27 to 21:27 at
+statistics and the film's cuts had nothing to do with it. A film from 15:27 to 21:27 at
 23.976 Hz in MPC-HC 2.8.4, 4K HDR, the video processor resizing with RTX Video Super
 Resolution and RTX Video HDR, RTX 4060 (driver 32.0.16.1742), traced with ETW (xperf: the GPU
 scheduler, the compositor, DXGI, thread switches) beside the pacing trace:

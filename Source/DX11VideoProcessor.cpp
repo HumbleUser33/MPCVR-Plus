@@ -2937,7 +2937,7 @@ HRESULT CDX11VideoProcessor::ProcessSample(IMediaSample* pSample)
 	// A film that started late used to be caught up here, one picture left out when
 	// eight in a row had waited more than a refresh: with render ahead off, the only
 	// pictures it saw, it left one out every half second at 23.976 fps on a screen at
-	// 23.976 Hz, 245 in 135 s of Fight Club, each a jump and a picture shown twice.
+	// 23.976 Hz, 245 in 135 s of a film, each a jump and a picture shown twice.
 	// The schedule keeps the step itself, and upstream never had it.
 
 	int so = (int)std::clamp(m_RenderStats.syncoffset, -UNITS, UNITS);

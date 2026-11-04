@@ -724,7 +724,7 @@ Com1080AV1.png -- 957x399 luma to 1914x798
   RAVU-zoom, filter's shift   58.759
   RAVU-zoom, no shift        58.759
 
-FightClub41943.png -- 960x399 luma to 1920x798
+Film41943.png -- 960x399 luma to 1920x798
   shader                       psnr       max      time
   FSRCNNX_x2_8-0-4-1          99.00  0.000000   0.41 ms   6 textures, 18 MB
   FSRCNNX_x2_16-0-4-1         99.00  0.000000   1.34 ms  12 textures, 35 MB
@@ -2290,7 +2290,7 @@ Com1080AV1.png -- reference 1914x798 (narrower than 3840: ranks the methods, but
   ravu-zoom-ar-r3            33.485   29.036  0.8891   0.546  0.00011   0.586   1.902   0.83 ms
   ravu-zoom-ar-r3 AR         33.459   29.000  0.8890   0.542  0.00010   0.578   1.914   0.83 ms
 
-FightClub41943.png -- reference 1920x798 (narrower than 3840: ranks the methods, but does not stand for a 4K screen)
+Film41943.png -- reference 1920x798 (narrower than 3840: ranks the methods, but does not stand for a 4K screen)
 
   960x399 -> 1920x798 (x2), clean
   method                       psnr   psnr-d    ssim   sharp     halo   grain   block      time
@@ -3307,7 +3307,7 @@ Com1080AV1.png -- 956x398, chroma 478x199, control: chroma a linear function of 
   nnedi3-nns32-win8x4        47.009   41.041   0.9868    26.803   0.29 ms
   nnedi3-nns32-win8x4 AR     46.948   40.963   0.9867    26.802   0.29 ms
 
-FightClub41943.png -- 1920x798, chroma 960x399
+Film41943.png -- 1920x798, chroma 960x399
   method                     psnr-c   psnr-e   ssim-c  psnr-rgb      time
   Bilinear                   49.244   41.002   0.9944    46.459       cpu
   Catmull-Rom                50.835   42.656   0.9960    48.030       cpu
@@ -3332,7 +3332,7 @@ FightClub41943.png -- 1920x798, chroma 960x399
   nnedi3-nns32-win8x4        50.185   41.933   0.9955    47.360   1.06 ms
   nnedi3-nns32-win8x4 AR     50.167   41.910   0.9955    47.343   1.06 ms
 
-FightClub41943.png -- 960x398, chroma 480x199
+Film41943.png -- 960x398, chroma 480x199
   method                     psnr-c   psnr-e   ssim-c  psnr-rgb      time
   Bilinear                   44.022   36.809   0.9844    41.362       cpu
   Catmull-Rom                45.358   38.124   0.9884    42.689       cpu
@@ -3357,7 +3357,7 @@ FightClub41943.png -- 960x398, chroma 480x199
   nnedi3-nns32-win8x4        45.727   38.547   0.9891    43.013   0.29 ms
   nnedi3-nns32-win8x4 AR     45.699   38.516   0.9890    42.983   0.29 ms
 
-FightClub41943.png -- 960x398, chroma 480x199, control: chroma a linear function of luma
+Film41943.png -- 960x398, chroma 480x199, control: chroma a linear function of luma
   method                     psnr-c   psnr-e   ssim-c  psnr-rgb      time
   Bilinear                   42.902   35.047   0.9809    18.377       cpu
   Catmull-Rom                44.176   36.321   0.9856    18.383       cpu
@@ -6474,7 +6474,7 @@ the statistics on: the same bytes are required.
 
 ========================================================================
 [STEP] the processor enlarging after DLSS 5 NR
-[CMD ] playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --file "upscale_refs\Fight Club (1999).mkv"
+[CMD ] playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --file "upscale_refs\film.mkv"
 ========================================================================
 Film 800x450 at 23.976 fps in a 2880x1200 window, 4 s per configuration after 5 s to settle.
 Sync offset in ms: the refresh chosen for the picture against the picture's time,
@@ -6568,7 +6568,7 @@ of 16x16 blocks, in 8-bit levels. A filter moves neither; a wrong matrix or rang
 
 ========================================================================
 [STEP] the processor after DLSS 5 NR, PQ picture
-[CMD ] playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --hdrout 1 --rtxhdr 1 --file "upscale_refs\Fight Club (1999).mkv"
+[CMD ] playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --hdrout 1 --rtxhdr 1 --file "upscale_refs\film.mkv"
 ========================================================================
 Film 800x450 at 23.976 fps in a 2880x1200 window, 4 s per configuration after 5 s to settle.
 Sync offset in ms: the refresh chosen for the picture against the picture's time,
