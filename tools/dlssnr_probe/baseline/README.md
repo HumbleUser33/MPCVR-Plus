@@ -1,13 +1,11 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 3 November 2026, on an
+`run_all_report.txt` here is what the whole battery measured on 5 November 2026, on an
 RTX 4060 (driver 32.0.16.1742) with the Windows desktop in HDR and Windows' hardware-accelerated
 GPU scheduling on, all thirty-one steps green. The filter and the tools are the code of
-`3daa7bf`, both built by MSVC 14.44; the report's commit line names `03f1c21`, its parent's
-parent, because the battery ran on the working folder before the two commits that hold the
-logo across a black bar and the list of the logos kept were made. The one change since is
-`playback_test` putting the logo library back as it found it, which no step of the battery
-runs. It is the thing a merge from upstream is compared against, at step 8 of
+`c86cfba`, as the report's commit line says, both built by MSVC 14.44. `run_all.cmd` masks
+the working folder and the user's profile in it (`<repo>`, `%USERPROFILE%`). It is the thing a
+merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
 
 ```
@@ -39,6 +37,27 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## With AMD CAS, a settings key of its own, and no hang on a Dolby Vision film
+
+Against the report it replaces (`03f1c21`, 3 November), 3155 rows compared, 13 moved, one gone
+and one new, no failure in either. The settings now come from the filter's own key, copied
+from the original renderer's, so the battery measured the same settings as before.
+
+- The gone row and the new one are a fault of the report before, not of the code: in the
+  block of the channel's name through x264, two outputs had crossed and the line read
+  `pictures looked at  found  60  1.000 1.79`, its `box` and the `pictures fitted on` header
+  lost. This report prints them as the other blocks do, and the comparison's rank for the
+  `60` row of that logo moved with it.
+- Eleven rows of the logo step, all of the three logos through x264: x264 does not encode the
+  film the same from one run to the next, as the section below found; the largest, the logo
+  across the bar through x264, 46.55 to 46.30 dB.
+- The pipeline's bare "frame, upload to done", its maximum at 19.76 ms where it read 9.56, as it
+  has flipped since the 25th of October, and a 95th percentile of 0.57 where it was 0.74.
+
+The sharpeners on film (`--tsharpen`) did not move: AMD CAS was among the six measured there
+since 1.6. Its levels are checked through the filter by `playback_test --sharpencal`, which is
+not a step of the battery.
 
 ## With a logo across a black bar
 
