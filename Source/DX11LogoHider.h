@@ -45,9 +45,11 @@ public:
 
 	// The picture's planes: luma W x H, chroma divided by divW x divH. What was found is
 	// kept while they stay the same; a new size starts again from the library.
-	void SetFormat(int W, int H, int divW, int divH, const std::wstring& film);
+	void SetFormat(int W, int H, int divW, int divH);
 	void SetMargin(int margin);   // luma pixels round the logo worked as well
-	void Find();     // a new analysis, the logo hidden meanwhile kept until it gives one
+	// A new analysis, the logo hidden meanwhile kept until it gives one; film is the name
+	// the library keeps it under.
+	void Find(const std::wstring& film);
 	void Forget();   // the library emptied and the logo dropped
 	void Stop();     // the worker stopped and nothing hidden
 

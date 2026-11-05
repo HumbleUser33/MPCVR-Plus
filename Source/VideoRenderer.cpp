@@ -1012,6 +1012,32 @@ HRESULT CMpcVideoRenderer::SetMediaType(const CMediaType *pmt)
 	return S_OK;
 }
 
+// The film's name is read here, once: the graph is being built on this thread and answers
+// at once. Asked again from InitMediaType, it was asked on the streaming thread too -- a
+// Dolby Vision film sets its media type again on its first picture -- with the renderer's
+// locks held, and the graph then waited for the thread starting it, which was waiting for
+// those locks: the player hung as the film opened, whenever the logo was to be hidden.
+HRESULT CMpcVideoRenderer::CompleteConnect(IPin* pReceivePin)
+{
+	m_strFilm.clear();
+	CComPtr<IEnumFilters> filters;
+	if (m_pGraph && SUCCEEDED(m_pGraph->EnumFilters(&filters))) {
+		CComPtr<IBaseFilter> filter;
+		while (filters->Next(1, &filter, nullptr) == S_OK) {
+			CComQIPtr<IFileSourceFilter> source(filter);
+			LPOLESTR path = nullptr;
+			if (source && SUCCEEDED(source->GetCurFile(&path, nullptr)) && path) {
+				const std::wstring name(path);
+				CoTaskMemFree(path);
+				m_strFilm = name.substr(name.find_last_of(L"\\/") + 1);
+				break;
+			}
+			filter.Release();
+		}
+	}
+	return __super::CompleteConnect(pReceivePin);
+}
+
 HRESULT CMpcVideoRenderer::DoRenderSample(IMediaSample* pSample)
 {
 	CheckPointer(pSample, E_POINTER);

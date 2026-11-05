@@ -144,7 +144,7 @@ void CDX11LogoHider::Release(const bool bShaders)
 	}
 }
 
-void CDX11LogoHider::SetFormat(int W, int H, int divW, int divH, const std::wstring& film)
+void CDX11LogoHider::SetFormat(int W, int H, int divW, int divH)
 {
 	if (W == m_W && H == m_H && divW == m_divW && divH == m_divH && (m_bMaps || Working())) {
 		return;
@@ -154,7 +154,6 @@ void CDX11LogoHider::SetFormat(int W, int H, int divW, int divH, const std::wstr
 	m_H = H;
 	m_divW = divW;
 	m_divH = divH;
-	m_film = film;
 	m_Chosen.clear();
 	m_rtSampled = kNoTime;
 	m_fShown = 1;
@@ -173,9 +172,10 @@ void CDX11LogoHider::SetMargin(int margin)
 	}
 }
 
-void CDX11LogoHider::Find()
+void CDX11LogoHider::Find(const std::wstring& film)
 {
 	if (m_W > 0 && m_H > 0) {
+		m_film = film;
 		m_rtSampled = kNoTime;
 		m_Chosen.clear();
 		m_Worker.Start(m_W, m_H, m_divW, m_divH, m_film);

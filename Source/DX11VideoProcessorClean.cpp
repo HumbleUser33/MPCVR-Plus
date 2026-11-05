@@ -99,26 +99,12 @@ bool CDX11VideoProcessor::CleanVPWanted(const FmtConvParams_t& params) const
 		&& !(m_bInterlaced && m_bInterlacedSeen) && CleanPlaneTargetsOk(params.VP11Format);
 }
 
-// The film playing, for the library's word on where a logo was found.
+// The film playing, for the library's word on where a logo was found: as the filter read it
+// when its pin connected. Never asked of the graph from here, which runs on the streaming
+// thread with the renderer's locks held (CMpcVideoRenderer::CompleteConnect).
 std::wstring CDX11VideoProcessor::LogoFilm() const
 {
-	IFilterGraph* graph = m_pFilter ? m_pFilter->GetFilterGraph() : nullptr;
-	CComPtr<IEnumFilters> filters;
-	if (!graph || FAILED(graph->EnumFilters(&filters))) {
-		return {};
-	}
-	CComPtr<IBaseFilter> filter;
-	while (filters->Next(1, &filter, nullptr) == S_OK) {
-		CComQIPtr<IFileSourceFilter> source(filter);
-		LPOLESTR path = nullptr;
-		if (source && SUCCEEDED(source->GetCurFile(&path, nullptr)) && path) {
-			std::wstring name(path);
-			CoTaskMemFree(path);
-			return name.substr(name.find_last_of(L"\\/") + 1);
-		}
-		filter.Release();
-	}
-	return {};
+	return m_pFilter ? m_pFilter->m_strFilm : std::wstring();
 }
 
 HRESULT CDX11VideoProcessor::UpdateCleanShaders()
@@ -204,7 +190,7 @@ void CDX11VideoProcessor::UpdateClean()
 	m_Logo.SetMargin(m_iLogoMargin);
 	if (m_bLogoActive) {
 		const DX11PlaneConfig_t* planes = m_srcParams.pDX11Planes;
-		m_Logo.SetFormat(m_TexSrcVideo.desc.Width, m_TexSrcVideo.desc.Height, planes->div_chroma_w, planes->div_chroma_h, LogoFilm());
+		m_Logo.SetFormat(m_TexSrcVideo.desc.Width, m_TexSrcVideo.desc.Height, planes->div_chroma_w, planes->div_chroma_h);
 	} else if (!m_bHideLogo) {
 		m_Logo.Stop();
 	}
@@ -524,7 +510,7 @@ void CDX11VideoProcessor::CleanAgain()
 void CDX11VideoProcessor::FindLogo()
 {
 	if (m_bLogoActive) {
-		m_Logo.Find();
+		m_Logo.Find(LogoFilm());
 	}
 }
 
