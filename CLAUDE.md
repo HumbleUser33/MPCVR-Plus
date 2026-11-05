@@ -195,7 +195,11 @@ it does not say:
 
 - **A player writes its settings as it closes**, a copy of it too. Before driving one with
   `mpchc_drive`, export `HKCU\Software\MPC-HC` and
-  `HKCU\Software\MPC-BE Filters\MPC Video Renderer`, and import them back afterwards.
+  `HKCU\Software\MPC-BE Filters\MPC Video Renderer Plus`, and import them back afterwards.
+  The filter's settings are under that key since 2.8; `...\MPC Video Renderer` is the original
+  renderer's, which MPC-HC's own copy uses, and the filter copies it once into its own when it
+  has none (`TakeSettingsOver`). A test on a machine with no key of ours yet deletes the one it
+  made, so that the first real start does the copy.
 - **A test puts back what it moved**: the display mode if it changed it, the filter's
   registry key if it wrote it.
 - **Never send a window of another process a message whose parameter points into our own

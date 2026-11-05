@@ -44,7 +44,7 @@ the feature is off, and the rendering is bit-identical to upstream in that state
 |---|---|
 | GPU | NVIDIA RTX. Developed and tested on an RTX 3050 (Ampere), driver r596 |
 | OS | Windows 10 1703 or later (shared fences), x64 only |
-| Player | MPC-BE or any DirectShow player that lets you force a renderer |
+| Player | MPC-BE, MPC-HC, or any DirectShow player that lets you force a renderer (*In MPC-BE and in MPC-HC*, below) |
 | DLL | `nvngx_dlssnr.dll` — **not included, see below** |
 | Optical Flow | `nvofapi64.dll`, installed with the NVIDIA driver (RTX 20 series and later). Optional: without it nothing is steadied, and the statistics say why |
 | DLSS Super Resolution | Optional: `nvngx_dlss.dll` 310.5 or later (DLSS 4.5), from the public [NVIDIA/DLSS](https://github.com/NVIDIA/DLSS) repository (`lib/Windows_x86_64/rel`). Developed with 310.9.1 |
@@ -65,6 +65,29 @@ The **DLSS 5 NR** tab of the settings page has a **DLL** field and a browse butt
 it elsewhere.
 `nvngx_dlss.dll`, for DLSS Super Resolution, is searched the same way and has its own field;
 it must keep its name, because the driver's NGX runtime loads it by name from that folder.
+
+### In MPC-BE and in MPC-HC
+
+Both players know this renderer as **MPC Video Renderer**, by the identifier it shares with the
+original, and have one place for it in their list: a renderer with an identifier of its own is
+one neither of them could choose at all. So MPCVR-Plus takes the original's place, in each
+player in its own way.
+
+- **MPC-BE** uses the renderer registered in Windows. `Install_MPCVR_64.cmd`, run as
+  administrator, registers this one. Installing or updating MPC-BE registers its own copy
+  again, and the last one registered is the one used.
+- **MPC-HC** uses the copy in its own folder first, `MPCVR\MpcVideoRenderer64.ax` beside
+  `mpc-hc64.exe`, and a registered renderer only when that copy is not there: registering
+  MPCVR-Plus changes nothing in MPC-HC. Put `MpcVideoRenderer64.ax` and the `dlss` folder in
+  that `MPCVR` folder instead, keeping the original's file aside to put it back. An update of
+  MPC-HC puts its own copy back.
+- **Both renderers on one machine** -- MPC-BE with one and MPC-HC with the other, or two
+  MPC-HC, one of them portable, each with its own copy in its `MPCVR` folder -- keep their own
+  settings. MPCVR-Plus's are under `HKCU\Software\MPC-BE Filters\MPC Video Renderer Plus`, and
+  the first time it runs it copies the original's key there, presets included, and leaves the
+  original's as it was. Through 2.7 the two shared the original's key, and the original set the
+  methods it does not have -- the upscalers, Spline36, the chroma methods added here -- back to
+  its own defaults the first time its page was applied.
 
 ---
 
@@ -2043,7 +2066,8 @@ and was not the fault: the pointer stayed exactly as before.
 ## Settings
 
 All the settings are on one page of the renderer's properties, in eight tabs, and are stored
-under `HKCU\Software\MPC-BE Filters\MPC Video Renderer`. Each tab opens on a line saying what it
+under `HKCU\Software\MPC-BE Filters\MPC Video Renderer Plus`, apart from the original
+renderer's (*In MPC-BE and in MPC-HC*). Each tab opens on a line saying what it
 is for, and each control has a tooltip saying what it does, when it applies and what it needs.
 The tables below say the same, with the measurements the tooltips leave out. DLSS needs the
 64-bit filter: in the 32-bit one the **DLSS 5 NR** tab is not there.
@@ -2196,7 +2220,7 @@ Adaptive-Sharpen on Ctrl+F7 in the last, and presses F7, Ctrl+F7, Ctrl+F6 and F6
 playback: F7 alone and Ctrl+F6 change nothing, the Scaling line follows the other two, and no frame is skipped.
 
 They are stored beside the settings, in `HKCU\Software\MPC-BE Filters\MPC Video
-Renderer\Presets\1` to `\10`, under the same value names as the settings themselves plus
+Renderer Plus\Presets\1` to `\10`, under the same value names as the settings themselves plus
 `Name` and `Key` (the virtual key, plus 0x100 for Shift, 0x200 for Ctrl, 0x400 for Alt), written and read by the same code: a setting added later is in the presets
 without anyone thinking of it.
 

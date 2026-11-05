@@ -140,7 +140,8 @@ static const struct {
 // Which section was being looked at when the page was last closed. It lives
 // beside the settings but is not one of them: Settings_t is append-only and
 // shared with upstream, and where the user had scrolled to is nobody's setting.
-static const wchar_t* const kRegKey = L"Software\\MPC-BE Filters\\MPC Video Renderer";
+// The filter's own key (OPT_REGKEY_VIDEORENDERER in VideoRenderer.cpp).
+static const wchar_t* const kRegKey = L"Software\\MPC-BE Filters\\MPC Video Renderer Plus";
 static const wchar_t* const kRegSection = L"SettingsPageSection";
 
 static int LastSectionLookedAt()

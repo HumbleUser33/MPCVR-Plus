@@ -34,7 +34,9 @@
 
 #define WM_SWITCH_FULLSCREEN (WM_APP + 0x1000)
 
-#define OPT_REGKEY_VIDEORENDERER           L"Software\\MPC-BE Filters\\MPC Video Renderer"
+// MPCVR-Plus keeps its settings apart from the original renderer's (TakeSettingsOver).
+#define OPT_REGKEY_VIDEORENDERER           L"Software\\MPC-BE Filters\\MPC Video Renderer Plus"
+#define OPT_REGKEY_ORIGINAL                L"Software\\MPC-BE Filters\\MPC Video Renderer"
 #define OPT_UseD3D11                       L"UseD3D11"
 #define OPT_ShowStatistics                 L"ShowStatistics"
 #define OPT_ResizeStatistics               L"ResizeStatistics"
@@ -428,6 +430,35 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_VideoDelay,          (DWORD)sets.iVideoDelay);
 }
 
+// The settings are this renderer's own. The original is often on the same machine -- MPC-HC
+// carries it in its MPCVR folder, MPC-BE installs it -- and a key shared with it was read
+// by a renderer that knows none of the methods added to the lists here, which it set back
+// to its defaults and wrote back so the first time its page was applied. The first time,
+// the original's key is copied, settings and presets, and left as it is; a key of ours
+// that exists, even empty, is never copied over (Reset_Settings.cmd leaves one).
+static void TakeSettingsOver()
+{
+	CRegKey plus;
+	if (ERROR_SUCCESS == plus.Open(HKEY_CURRENT_USER, OPT_REGKEY_VIDEORENDERER, KEY_READ)) {
+		return;
+	}
+	CRegKey original;
+	if (ERROR_SUCCESS != original.Open(HKEY_CURRENT_USER, OPT_REGKEY_ORIGINAL, KEY_READ)) {
+		return;
+	}
+	// RegCopyTreeW wants every right on the key it copies into: with KEY_READ | KEY_WRITE
+	// it is ERROR_ACCESS_DENIED and nothing is copied. A copy that fails takes its empty
+	// key away again, or the defaults would stay for good; the next start tries again.
+	if (ERROR_SUCCESS == plus.Create(HKEY_CURRENT_USER, OPT_REGKEY_VIDEORENDERER, REG_NONE, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS)) {
+		const LSTATUS ret = RegCopyTreeW(original, nullptr, plus);
+		if (ret != ERROR_SUCCESS) {
+			DLog(L"TakeSettingsOver() : the original's settings were not copied, error {}", ret);
+			plus.Close();
+			RegDeleteTreeW(HKEY_CURRENT_USER, OPT_REGKEY_VIDEORENDERER);
+		}
+	}
+}
+
 // Presets: ten keys beside the settings, each holding a whole Settings_t under
 // the same names, the name the user gave it and the key that recalls it.
 static std::wstring PresetKeyPath(int slot)
@@ -542,6 +573,7 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 
 	// read settings
 
+	TakeSettingsOver();
 	CRegKey key;
 	if (ERROR_SUCCESS == key.Open(HKEY_CURRENT_USER, OPT_REGKEY_VIDEORENDERER, KEY_READ)) {
 		ReadSettings(key, m_Sets);

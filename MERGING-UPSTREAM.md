@@ -169,6 +169,7 @@ notice its absence.
 | Lanczos weights kept finite at integer scale | `Shaders/d3d11/ps_interpolation_lanczos*.hlsl` | `--tupscale` |
 | The paused picture kept across a processor rebuild | `Source/D3D11VP.h`, `DX11VideoProcessor.cpp` | `vp_rebuild_test` |
 | `Tex2D_t::CheckCreate` minding the texture type | `Source/DX11Helper.h` | it compiles, and `--frames 300` |
+| Settings under a key of its own, copied once from the original's | `Source/VideoRenderer.cpp` (`OPT_REGKEY_VIDEORENDERER`, `TakeSettingsOver`), `Source/SettingsPage/SettingsPage.cpp` (`kRegKey`), `distrib/Reset_Settings.cmd` | `playback_test --file <film>`: `settings kept:`; the key in `regedit` |
 | The measurement tools themselves | `tools/dlssnr_probe/` | `build.cmd` |
 
 ## Traps we have already fallen into
