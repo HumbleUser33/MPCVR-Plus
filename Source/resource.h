@@ -172,6 +172,10 @@
 #define IDF_CS_11_LOGO_REMOVE2          1941
 #define IDF_CS_11_LOGO_FILL1            1942
 #define IDF_CS_11_LOGO_FILL2            1943
+// AMD CAS, the third sharpening method, and its two passes ending on the dither.
+#define IDF_PS_11_SHARPEN_CAS           1944
+#define IDF_PS_11_SHARPEN_CAS_DITHER    1945
+#define IDF_PS_11_SHARPEN_CAS_DITHER10  1946
 #define IDF_VS_11_MPV_HOOK              1950
 #define IDF_PS_11_MPV_LUMA              1951
 #define IDF_PS_11_MPV_COMBINE           1952

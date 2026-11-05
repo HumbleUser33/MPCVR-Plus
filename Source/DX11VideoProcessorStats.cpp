@@ -331,7 +331,8 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 			Add(L"tone mapping");
 		}
 		if (m_pPSSharpen) {
-			Add(std::format(L"{} {}", m_iSharpen == SHARPEN_UnsharpClamp ? L"Unsharp + Clamp" : L"Adaptive-Sharpen",
+			Add(std::format(L"{} {}", m_iSharpen == SHARPEN_UnsharpClamp ? L"Unsharp + Clamp"
+				: m_iSharpen == SHARPEN_CAS ? L"AMD CAS" : L"Adaptive-Sharpen",
 				m_iSharpenLevel));
 		}
 		if (m_pPostScaleShaders.size()) {

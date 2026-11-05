@@ -137,14 +137,18 @@ SET fxc_cs5=%fxcexe% /nologo /O2 /T cs_5_0
 
 SET fxc_ps5=%fxcexe% /nologo /O2 /T ps_5_0
 REM Sharpening. PASS 2 is the unsharp mask held to what the neighbours cover;
-REM PASS 5 is adaptive-sharpen, which needs shader model 5 for its 25 taps.
+REM PASS 5 is adaptive-sharpen, which needs shader model 5 for its 25 taps; PASS 3 is
+REM AMD's contrast adaptive sharpening.
 %fxc_ps4% /Fo "%workdir%\ps_sharpen_unsharp.cso"        "d3d11\ps_sharpen.hlsl" /DPASS=2
 %fxc_ps5% /Fo "%workdir%\ps_sharpen_adaptive.cso"       "d3d11\ps_sharpen.hlsl" /DPASS=5
+%fxc_ps4% /Fo "%workdir%\ps_sharpen_cas.cso"            "d3d11\ps_sharpen.hlsl" /DPASS=3
 REM The same, ending on the dither when they are the last step before it.
 %fxc_ps4% /Fo "%workdir%\ps_sharpen_unsharp_dither.cso"     "d3d11\ps_sharpen.hlsl" /DPASS=2 /DQUANTIZATION=255
 %fxc_ps4% /Fo "%workdir%\ps_sharpen_unsharp_dither10.cso"   "d3d11\ps_sharpen.hlsl" /DPASS=2 /DQUANTIZATION=1023
 %fxc_ps5% /Fo "%workdir%\ps_sharpen_adaptive_dither.cso"    "d3d11\ps_sharpen.hlsl" /DPASS=5 /DQUANTIZATION=255
 %fxc_ps5% /Fo "%workdir%\ps_sharpen_adaptive_dither10.cso"  "d3d11\ps_sharpen.hlsl" /DPASS=5 /DQUANTIZATION=1023
+%fxc_ps4% /Fo "%workdir%\ps_sharpen_cas_dither.cso"         "d3d11\ps_sharpen.hlsl" /DPASS=3 /DQUANTIZATION=255
+%fxc_ps4% /Fo "%workdir%\ps_sharpen_cas_dither10.cso"       "d3d11\ps_sharpen.hlsl" /DPASS=3 /DQUANTIZATION=1023
 
 REM Artifact removal on the decoded planes: one channel (a plane of its own) or two
 REM (Cb and Cr together). The deblocking is PP7 (MODE 1) or SPP over 8 grids (MODE 0),

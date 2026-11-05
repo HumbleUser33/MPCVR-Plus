@@ -923,19 +923,31 @@ UINT CDX11VideoProcessor::GetPostScaleSteps()
 	return nSteps;
 }
 
-// What level 1 to 5 is worth to each method. The two are not on the same scale,
-// and neither of them is on the scale the bench measured them on: a picture the
+// What level 1 to 5 is worth to each method. The three are not on the same scale,
+// and none of them is on the scale the bench measured them on: a picture the
 // bench had blurred by halving it and enlarging it again is far softer than
 // anything this renderer produces, and adaptive-sharpen -- which holds back where
 // the edges are already steep -- then does almost nothing. So the levels are
 // calibrated here instead, on a 1080p film enlarged to 3200x1334 through the
 // filter itself, as the gain in mean gradient each strength really buys:
 // +4, +8, +13, +20 and +28 per cent. Level 3 is the +13 the bench's own quality
-// measurements settle on (tools/dlssnr_probe --tsharpen).
+// measurements settle on (tools/dlssnr_probe --tsharpen). AMD CAS came later: each of its
+// levels gives, on the same chain, the gain Adaptive-Sharpen's gives, read off both curves
+// through the filter (playback_test --sharpencal) under Catmull-Rom, Jinc2 and FSRCNNX 16 AR,
+// which agree to 0.05 of a strength.
 static const float s_SharpenStrength[SHARPEN_COUNT][SHARPEN_LEVEL_MAX] = {
 	{ 0.00f, 0.00f, 0.00f, 0.00f, 0.00f },   // SHARPEN_Disabled
 	{ 0.22f, 0.33f, 0.46f, 0.68f, 0.99f },   // SHARPEN_Adaptive
 	{ 0.45f, 0.62f, 0.83f, 1.17f, 1.49f },   // SHARPEN_UnsharpClamp
+	{ 0.30f, 0.43f, 0.57f, 0.78f, 1.05f },   // SHARPEN_CAS
+};
+
+// Each method's pass, and the same ending on the dither in 8 and in 10 bits.
+static const UINT s_SharpenPass[SHARPEN_COUNT][3] = {
+	{ 0, 0, 0 },   // SHARPEN_Disabled
+	{ IDF_PS_11_SHARPEN_ADAPTIVE, IDF_PS_11_SHARPEN_ADAPTIVE_DITHER, IDF_PS_11_SHARPEN_ADAPTIVE_DITHER10 },
+	{ IDF_PS_11_SHARPEN_UNSHARP, IDF_PS_11_SHARPEN_UNSHARP_DITHER, IDF_PS_11_SHARPEN_UNSHARP_DITHER10 },
+	{ IDF_PS_11_SHARPEN_CAS, IDF_PS_11_SHARPEN_CAS_DITHER, IDF_PS_11_SHARPEN_CAS_DITHER10 },
 };
 
 // How far the unsharp mask may be pulled back into the range its neighbours
@@ -1051,7 +1063,7 @@ bool CDX11VideoProcessor::UpdateSharpenShader()
 		return bChanged || bTookDither != SharpenTakesDither();
 	}
 
-	const UINT resid = (m_iSharpen == SHARPEN_Adaptive) ? IDF_PS_11_SHARPEN_ADAPTIVE : IDF_PS_11_SHARPEN_UNSHARP;
+	const UINT resid = s_SharpenPass[std::clamp(m_iSharpen, 0, SHARPEN_COUNT - 1)][0];
 	if (FAILED(CreatePShaderFromResource(&m_pPSSharpen, resid))) {
 		DLog(L"CDX11VideoProcessor::UpdateSharpenShader() : the sharpening shader would not load");
 		m_pSharpenConstants.Release();
@@ -1085,9 +1097,7 @@ void CDX11VideoProcessor::UpdateSharpenDitherShader()
 		return;
 	}
 	const bool b10 = (m_SwapChainFmt == DXGI_FORMAT_R10G10B10A2_UNORM);
-	const UINT resid = (m_iSharpen == SHARPEN_Adaptive)
-		? (b10 ? IDF_PS_11_SHARPEN_ADAPTIVE_DITHER10 : IDF_PS_11_SHARPEN_ADAPTIVE_DITHER)
-		: (b10 ? IDF_PS_11_SHARPEN_UNSHARP_DITHER10 : IDF_PS_11_SHARPEN_UNSHARP_DITHER);
+	const UINT resid = s_SharpenPass[std::clamp(m_iSharpen, 0, SHARPEN_COUNT - 1)][b10 ? 2 : 1];
 	if (FAILED(CreatePShaderFromResource(&m_pPSSharpenDither, resid))) {
 		DLog(L"CDX11VideoProcessor::UpdateSharpenDitherShader() : no sharpening with the dither, the dither stays a step");
 		m_pPSSharpenDither.Release();
@@ -4701,7 +4711,7 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 				(float)pTex->desc.Width, (float)pTex->desc.Height,
 				1.0f / pTex->desc.Width, 1.0f / pTex->desc.Height,
 				1.0f, 1.0f,
-				s_SharpenStrength[method][level - 1], s_SharpenClamp,
+				m_fSharpenTestStrength > 0 ? m_fSharpenTestStrength : s_SharpenStrength[method][level - 1], s_SharpenClamp,
 				(float)pTex->desc.Width / dither_size, (float)pTex->desc.Height / dither_size, 0, 0
 			};
 			D3D11_MAPPED_SUBRESOURCE mr = {};
@@ -5383,6 +5393,12 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		changeNumTextures = UpdateSharpenShader() || changeNumTextures;
 	}
 	m_iSharpenLevel = config.iSharpenLevel;   // read afresh with every picture
+	// MPCVR_SHARPEN_STRENGTH=x in the environment replaces the level's strength, read with
+	// every change of the settings: playback_test --sharpencal reads each method's curve
+	// through the filter with it, to calibrate the levels.
+	wchar_t testStrength[32] = {};
+	const DWORD nTest = GetEnvironmentVariableW(L"MPCVR_SHARPEN_STRENGTH", testStrength, (DWORD)std::size(testStrength));
+	m_fSharpenTestStrength = (nTest && nTest < std::size(testStrength)) ? std::max(0.0f, (float)_wtof(testStrength)) : 0.0f;
 
 	// The artifact removal: its levels are taken at the next picture, and the picture on
 	// the screen is cleaned again below.

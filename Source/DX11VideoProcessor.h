@@ -245,6 +245,7 @@ private:
 	// levels, and the shader that does it.
 	int m_iSharpen = SHARPEN_Disabled;
 	int m_iSharpenLevel = SHARPEN_LEVEL_DEF;
+	float m_fSharpenTestStrength = 0;   // MPCVR_SHARPEN_STRENGTH, 0 when not set
 	CComPtr<ID3D11PixelShader> m_pPSSharpen;
 	CComPtr<ID3D11Buffer> m_pSharpenConstants;
 	// The same method ending on the dither, for when sharpening is the last step

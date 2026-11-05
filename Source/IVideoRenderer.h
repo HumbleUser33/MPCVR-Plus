@@ -177,14 +177,15 @@ struct VPEnableFormats_t {
 	bool bOther;
 };
 
-// Sharpening, after the resize. Two methods, because they do not win on the same
-// ground: adaptive-sharpen is the only one that does not amplify grain, and the
-// unsharp mask held to what its neighbours cover is five times cheaper and rings
-// less on a clean picture (tools/dlssnr_probe --tsharpen).
+// Sharpening, after the resize. Adaptive-sharpen is the only one that does not amplify
+// grain, and the unsharp mask held to what its neighbours cover is five times cheaper and
+// rings less on a clean picture (tools/dlssnr_probe --tsharpen); AMD's CAS sits between
+// them and is the one asked for by name. Appended: the list saves its position.
 enum : int {
     SHARPEN_Disabled = 0,
     SHARPEN_Adaptive,
     SHARPEN_UnsharpClamp,
+    SHARPEN_CAS,
     SHARPEN_COUNT
 };
 

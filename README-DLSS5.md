@@ -1596,7 +1596,7 @@ figure for the film playing, on the *Logo* step: 0.1 ms on the TV film above.
 ## Sharpening
 
 A sharpener restores nothing: it exaggerates. The whole question is *where it is allowed to*,
-and the two offered here answer it differently. The pass runs after the resize and before the
+and the three offered here answer it differently. The pass runs after the resize and before the
 dither, so it works whatever enlarged the picture -- the hardware processor, a prescaler, or
 nothing at all on a film already at the screen's size, which is the case nothing else in this
 filter can reach. Subtitles are drawn after it and are never sharpened.
@@ -1610,6 +1610,12 @@ extreme.
 really covers -- the principle of AviSynth's LimitedSharpenFaster, and the same clamp the
 prescalers already use against the networks. At an edge that range spans the whole step, so the
 step still gets steeper; what it cannot do any more is shoot past it, which is the halo.
+
+**AMD CAS** is the contrast adaptive sharpening of AMD's FidelityFX (MIT), written again for
+this pass: a cross of four neighbours drawn from the pixel by a weight that falls where the 3x3
+around it already spans a wide range, so that it cannot overshoot what that 3x3 holds. AMD moves
+the kernel's peak between -1/8 and -1/5 with its own sharpness knob; the middle is taken here,
+and the level does the rest. It came after the other two, asked for by name.
 
 ### What each one is worth
 
@@ -1630,7 +1636,9 @@ edges, x1000; `grain` is the fine detail left in flat areas, output over referen
 | CAS + the same clamp | 44.75 | 0.052 | 3.824 | 38.77 | 37.64 | 0.83 ms |
 | RCAS (FSR 1) | 44.73 | 0.055 | 3.901 | 38.63 | 37.62 | 0.51 ms |
 
-The two that ship are the two ends of one trade. **Adaptive-Sharpen is the only one that does
+Adaptive-Sharpen and Unsharp + Clamp are the two ends of one trade, and AMD CAS sits
+between them, a little behind both on the grainy and the compressed source, nearly as light as
+the unsharp mask. **Adaptive-Sharpen is the only one that does
 not amplify the grain** -- on a clean master it leaves *less* fine detail in flat areas than
 doing nothing at all -- and on the two sources that matter, grain and compression, it is the
 only one that costs almost nothing: 0.16 dB and 0.05 dB, where the next best costs 0.38 and
@@ -1645,24 +1653,36 @@ which leaves B - Y and R - Y exactly as they were.
 
 ### The five levels
 
-A level means the same amount of sharpening whichever method is chosen. The two are not on the
-same scale -- and neither is on the scale the comparison above was made on, since a picture
+A level means the same amount of sharpening whichever method is chosen. The methods are not on
+the same scale -- and neither is on the scale the comparison above was made on, since a picture
 halved and enlarged again is far softer than anything this renderer produces, and
 Adaptive-Sharpen holds back where the edges are already steep. So the levels are calibrated
 through the filter itself, on a 1080p film enlarged to 3200x1334, as the gain in mean gradient
 each one really buys:
 
-| Level | gain in detail | Adaptive-Sharpen | Unsharp + Clamp |
-|---|---|---|---|
-| 1 | +4 % | 0.22 | 0.45 |
-| 2 | +8 % | 0.33 | 0.62 |
-| **3** (default) | **+13 %** | **0.46** | **0.83** |
-| 4 | +20 % | 0.68 | 1.17 |
-| 5 | +28 % | 0.99 | 1.49 |
+| Level | gain in detail | Adaptive-Sharpen | Unsharp + Clamp | AMD CAS |
+|---|---|---|---|---|
+| 1 | +4 % | 0.22 | 0.45 | 0.30 |
+| 2 | +8 % | 0.33 | 0.62 | 0.43 |
+| **3** (default) | **+13 %** | **0.46** | **0.83** | **0.57** |
+| 4 | +20 % | 0.68 | 1.17 | 0.78 |
+| 5 | +28 % | 0.99 | 1.49 | 1.05 |
 
 Measured back through the filter, level 1 gives +3.7 % and +2.8 %, level 3 +13.2 % and +13.0 %,
 level 5 +28.3 % and +27.9 %. Level 3 is the +13 the quality measurements settle on; 4 and 5 are
 past it, for a taste rather than for fidelity.
+
+**AMD CAS's levels** were read later, with a tool of their own: `playback_test --sharpencal`
+plays the film, pauses it on the same picture under every setting, and reads the displayed
+picture's mean luma gradient with each method at a run of strengths, set through
+`MPCVR_SHARPEN_STRENGTH`. Each CAS level is the strength that gives, on the same chain, the gain
+Adaptive-Sharpen's level gives, and the three chains it was read on -- the shaders enlarging
+with Catmull-Rom, Jinc2 and FSRCNNX 16 AR, 1920x800 to 3200x1334 -- agree to 0.05 of a
+strength. Read back as they ship, under Jinc2, levels 1 to 5 give +6.9, +10.1, +13.6, +19.0
+and +26.1 % for AMD CAS against +7.5, +10.7, +14.2, +19.7 and +26.9 % for Adaptive-Sharpen. On
+that picture Unsharp + Clamp gives less than both, +4.6, +6.4, +8.7, +12.7 and +16.6 %: the
+levels of the first two were made equal on a picture and a chain the 1.6 calibration did not
+record, and on this one they are not.
 
 It adds to RTX Video Super Resolution and to DLSS, which sharpen in their own way; nothing here
 prevents that, and the tooltip says so.
@@ -2120,7 +2140,7 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 | Strength | 3 | Five levels, each made for one strength of damage, for each method: level 3 for MPEG-2 at quantizer 8. Greyed while Deblocking is Off |
 | Debanding | off | Smooths the steps compression leaves in gradients, on the decoded planes. Same conditions as Deblocking |
 | Strength | 3 | Five levels; see *Deblocking and debanding*. Greyed while Debanding is off |
-| Sharpening: Method | Off | *Adaptive-Sharpen* or *Unsharp + Clamp*, run after the resize, so it also reaches a film already at the screen's size. See *Sharpening* for what each is worth. Needs Direct3D 11 |
+| Sharpening: Method | Off | *Adaptive-Sharpen*, *Unsharp + Clamp* or *AMD CAS*, run after the resize, so it also reaches a film already at the screen's size. See *Sharpening* for what each is worth. Needs Direct3D 11 |
 | Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Off |
 | Use dithering | on | A very fine noise before output, so that skies and fades to black show no banding |
 | Hide the channel logo | off | Hides a TV channel's logo, worked out from under it where it is see-through and filled in from round it where it is opaque, before anything else touches the picture. Each logo found is kept, and recognised on the next films of the same size. See *Hiding a channel's logo*. Stays on with RTX Video Super Resolution; needs Direct3D 11 |
@@ -2696,6 +2716,7 @@ mpchc_drive.exe --attach 40     watch a running MPC-HC: windows made or lost, po
 dlssnr_harness.exe --tdownscale  what each downscaler keeps and what it lets fold back
 dlssnr_harness.exe --tdownport   and that those shaders are the kernels they are written from
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio
+playback_test.exe --sharpencal --file <film> --window 3200x1334 --vpscale 0 --calup 5   each sharpener's gain in detail against its strength, and its levels read back
 playback_test.exe --scalers --size 3836x2160 --window 3840x2160 --small 5   the stand-in under 5 %
 playback_test.exe --dlaa --size 1920x1080 --window 1920x1080   DLSS SR with nothing to enlarge
 playback_test.exe --mainpage 10 --hover 1042   the tip that comes up on a control, greyed or not
@@ -2788,8 +2809,9 @@ everything that runs them is part of this fork and GPLv3 like the rest.
 The **Adaptive-Sharpen** pass in `Shaders/d3d11/ps_sharpen.hlsl` is translated from
 **bacondither**'s mpv shader, version 2021-10-17 (`github.com/bacondither/Adaptive-sharpen`),
 Copyright (c) 2015-2021 bacondither, under the **BSD 2-clause** licence; its notice travels
-with the pass. The three-line contrast-adaptive kernel measured beside it comes from AMD's
-FidelityFX (MIT) and is not shipped.
+with the pass. The **AMD CAS** pass beside it is AMD FidelityFX Contrast Adaptive Sharpening,
+Copyright (c) Advanced Micro Devices, Inc., under the **MIT** licence, its algorithm written
+again for this pass.
 
 The **debanding** in `Shaders/d3d11/cs_deband.hlsl` is a translation of **libplacebo**'s
 `pl_shader_deband` (v7.351.0, `code.videolan.org/videolan/libplacebo`), Copyright its authors,

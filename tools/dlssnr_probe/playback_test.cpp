@@ -96,6 +96,12 @@ static bool g_bChroma444 = false;      // this run feeds AYUV, the reference
 // --clean: the same machinery, the 4:2:0 picture's planes coded as MPEG-2 intra blocks at
 // this quantiser_scale_code first, and each run asking for its own artifact removal.
 static bool g_bClean = false;
+// --sharpencal --file <film>: each sharpening method at a run of strengths, set through
+// MPCVR_SHARPEN_STRENGTH, the displayed picture's mean luma gradient against the same
+// picture unsharpened, and the strength that gives each level's gain (+4, +8, +13, +20 and
+// +28 %). --calup N: the Upscaling method it is read under (UPSCALE_*), else the registry's.
+static bool g_bSharpenCal = false;
+static int g_calUpscaling = -1;
 static constexpr int kCleanQ = 8;
 static int g_filmDeblock = -1;         // --file: --deblock N, 0 off
 static int g_filmDeblockMethod = DEBLOCK_PP7;   // --file: --spp, the heavier method
@@ -126,8 +132,9 @@ static int g_filmToSdr = -1;      // --tosdr 0|1
 static int g_filmPreferDovi = -1; // --prefdovi 0|1
 // --asis: leave the settings exactly as the registry has them. The only way to drive a
 // renderer this bench did not build: Settings_t has grown fields since, so SetSettings
-// on the stock filter writes a layout it does not know and it ignores the lot. Both
-// renderers read the same key, so the registry is the common ground.
+// on the stock filter writes a layout it does not know and it ignores the lot. Each
+// renderer then plays what its own key says: the stock one the original's, this one
+// ...\MPC Video Renderer Plus, copied from the original's the first time it has none.
 static bool g_bAsIs = false;
 static bool g_bToggleGpu = false;      // --toggle --gpu: the pictures arrive as D3D11 textures, as from a hardware decoder
 static bool g_bToggleTap = false;      // --toggle --tap: pause and play tapped, nothing else -- the reported freeze
@@ -925,6 +932,9 @@ struct Config {
 	int iDeblock = 0;            // --clean: the deblocking level, 0 off
 	int iDeband = 0;             // and the debanding's
 	int iDeblockMethod = DEBLOCK_PP7; // and the deblocking's method
+	int iSharpen = -1;              // --sharpencal: SHARPEN_*, -1 the saved setting
+	float fSharpenStrength = 0;     // and the strength it is given instead of its level's, 0: none
+	int iSharpenLevel = SHARPEN_LEVEL_DEF;  // the level, when no strength replaces it
 };
 
 struct Result {
@@ -1441,6 +1451,15 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	}
 	if (config.iChromaScaling >= 0) {
 		sets.iChromaScaling = config.iChromaScaling;
+	}
+	if (config.iSharpen >= 0) {
+		// The filter reads the strength from its environment as it sets the sharpening up,
+		// and this process is its environment.
+		wchar_t value[32] = {};
+		swprintf_s(value, L"%.4f", config.fSharpenStrength);
+		SetEnvironmentVariableW(L"MPCVR_SHARPEN_STRENGTH", config.fSharpenStrength > 0 ? value : nullptr);
+		sets.iSharpen = config.iSharpen;
+		sets.iSharpenLevel = config.iSharpenLevel;
 	}
 	if (g_bChroma) {
 		// Nothing but the chroma upsampling changes between the runs: the picture is
@@ -2567,6 +2586,30 @@ struct CleanMetrics {
 	double block = 0;
 };
 
+// The mean length of the luma's gradient over the picture, central differences, the frame's
+// two outer pixels left out: what a sharpener raises, the measure its levels are set on.
+static double MeanLumaGradient(const std::vector<BYTE>& bgra, int w, int h)
+{
+	if (w < 5 || h < 5 || bgra.size() < (size_t)w * h * 4) {
+		return 0;
+	}
+	std::vector<float> y((size_t)w * h);
+	for (size_t i = 0; i < y.size(); i++) {
+		const BYTE* p = &bgra[i * 4];
+		y[i] = (0.0722f * p[0] + 0.7152f * p[1] + 0.2126f * p[2]) / 255.0f;
+	}
+	double sum = 0;
+	for (int yy = 2; yy < h - 2; yy++) {
+		for (int x = 2; x < w - 2; x++) {
+			const size_t i = (size_t)yy * w + x;
+			const double gx = 0.5 * (y[i + 1] - y[i - 1]);
+			const double gy = 0.5 * (y[i + w] - y[i - w]);
+			sum += std::sqrt(gx * gx + gy * gy);
+		}
+	}
+	return sum / ((double)(w - 4) * (h - 4));
+}
+
 static CleanMetrics ScoreClean(const std::vector<BYTE>& test, const std::vector<BYTE>& ref, int w, int h)
 {
 	auto luma = [](const BYTE* p) { return (0.2126 * p[2] + 0.7152 * p[1] + 0.0722 * p[0]) / 255.0; };
@@ -2754,6 +2797,10 @@ int wmain(int argc, wchar_t* argv[])
 			g_filmDeblockMethod = DEBLOCK_SPP;
 		} else if (!wcscmp(argv[i], L"--logo")) {
 			g_bLogo = true;
+		} else if (!wcscmp(argv[i], L"--sharpencal")) {
+			g_bSharpenCal = true;
+		} else if (!wcscmp(argv[i], L"--calup") && i + 1 < argc) {
+			g_calUpscaling = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--deband")) {
 			g_filmDeband = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--mainpage")) {
@@ -2981,13 +3028,47 @@ int wmain(int argc, wchar_t* argv[])
 		{ "logo hidden, the processor enlarges, Super Resolution", false, false, true, -1, -1, false, false, false, false, -1, 1, SUPERRES_1440p,   0 },
 		{ "logo hidden, the shaders enlarge",                     false, false, true, -1, -1, false, false, false, false, -1, 0, SUPERRES_Disable, -1 },
 	};
-	if ((g_bAfterNR || g_bVPTurns || g_bLogo) && !g_filmFile) {
-		printf("%s plays a real film: --file <film> [--seek <seconds>]\n", g_bAfterNR ? "--afternr" : g_bLogo ? "--logo" : "--vpturns");
+	if ((g_bAfterNR || g_bVPTurns || g_bLogo || g_bSharpenCal) && !g_filmFile) {
+		printf("%s plays a real film: --file <film> [--seek <seconds>]\n", g_bAfterNR ? "--afternr" : g_bLogo ? "--logo"
+			: g_bSharpenCal ? "--sharpencal" : "--vpturns");
 		return 1;
 	}
-	const Config* configs = g_bLogo ? logoConfigs : g_bAfterNR ? afterNRConfigs : g_bVPTurns ? vpTurnConfigs : g_bClean ? cleanConfigs
+	// --sharpencal: the picture unsharpened first, then each method at its strengths: the
+	// levels it ships with among them, so that the table it is checked against is read too.
+	struct CalMethod { int method; const char* name; std::vector<float> strengths; };
+	const CalMethod calMethods[] = {
+		{ SHARPEN_Adaptive,     "Adaptive-Sharpen", { 0.10f, 0.22f, 0.33f, 0.46f, 0.68f, 0.99f, 1.30f } },
+		{ SHARPEN_UnsharpClamp, "Unsharp + Clamp",  { 0.20f, 0.45f, 0.62f, 0.83f, 1.17f, 1.49f, 1.90f } },
+		{ SHARPEN_CAS,          "AMD CAS",          { 0.25f, 0.50f, 0.75f, 1.00f, 1.50f, 2.00f, 2.50f, 3.00f, 4.00f } },
+	};
+	std::vector<std::string> calNames;
+	std::vector<Config> calConfigs;
+	if (g_bSharpenCal) {
+		calNames.reserve(64);
+		auto add = [&](int method, float strength, std::string name) {
+			calNames.push_back(std::move(name));
+			Config c = { calNames.back().c_str(), false, false, true, g_calUpscaling };
+			c.iSharpen = method;
+			c.fSharpenStrength = strength;
+			calConfigs.push_back(c);
+		};
+		add(SHARPEN_Disabled, 0, "no sharpening");
+		for (const CalMethod& m : calMethods) {
+			for (float st : m.strengths) {
+				add(m.method, st, std::format("{} at {:.2f}", m.name, st));
+			}
+		}
+		// Then each at its five levels as it ships, nothing replaced: the table read back.
+		for (const CalMethod& m : calMethods) {
+			for (int level = SHARPEN_LEVEL_MIN; level <= SHARPEN_LEVEL_MAX; level++) {
+				add(m.method, 0, std::format("{} level {}", m.name, level));
+				calConfigs.back().iSharpenLevel = level;
+			}
+		}
+	}
+	const Config* configs = g_bSharpenCal ? calConfigs.data() : g_bLogo ? logoConfigs : g_bAfterNR ? afterNRConfigs : g_bVPTurns ? vpTurnConfigs : g_bClean ? cleanConfigs
 		: g_bChroma ? chromaConfigs : g_bScalers ? scalerConfigs : dlssConfigs;
-	const int configCount = (int)(g_bLogo ? std::size(logoConfigs) : g_bAfterNR ? std::size(afterNRConfigs) : g_bVPTurns ? std::size(vpTurnConfigs)
+	const int configCount = (int)(g_bSharpenCal ? calConfigs.size() : g_bLogo ? std::size(logoConfigs) : g_bAfterNR ? std::size(afterNRConfigs) : g_bVPTurns ? std::size(vpTurnConfigs)
 		: g_bClean ? std::size(cleanConfigs) : g_bChroma ? std::size(chromaConfigs)
 		: g_bScalers ? std::size(scalerConfigs) : std::size(dlssConfigs));
 
@@ -3018,6 +3099,8 @@ int wmain(int argc, wchar_t* argv[])
 	int firstW = 0, firstH = 0;
 	int failures = 0;
 	std::map<int, CleanMetrics> cleanScores;    // --clean: each run's, by its index
+	std::map<int, double> calGradient;          // --sharpencal: each run's mean luma gradient
+	int calW = 0, calH = 0;
 	std::map<int, std::wstring> cleanLines;     // and what the statistics said of the cleaning
 	for (int c = 0; c < configCount; c++) {
 		if (only >= 0 && c != only) {
@@ -3035,6 +3118,27 @@ int wmain(int argc, wchar_t* argv[])
 		if (!r.error.empty()) {
 			printf("   FAILED: %s\n", r.error.c_str());
 			failures++;
+			continue;
+		}
+		if (g_bSharpenCal) {
+			if (r.picture.empty()) {
+				printf("   FAILED: no displayed picture\n");
+				failures++;
+				continue;
+			}
+			const double g = MeanLumaGradient(r.picture, r.pictureW, r.pictureH);
+			if (calGradient.empty()) {
+				calW = r.pictureW;
+				calH = r.pictureH;
+			}
+			if (r.pictureW != calW || r.pictureH != calH) {
+				printf("   FAILED: not the size of the unsharpened picture\n");
+				failures++;
+				continue;
+			}
+			calGradient[c] = g;
+			wprintf(L"   %s\n", StepLine(r.statsAll, L"Finish").c_str());
+			printf("   mean gradient %.5f%s\n\n", g, c == 0 ? "" : std::format(", {:+.1f} %", 100.0 * (g / calGradient[0] - 1)).c_str());
 			continue;
 		}
 		if (g_bLogo) {
@@ -3330,6 +3434,54 @@ int wmain(int argc, wchar_t* argv[])
 				failures++;
 				break;
 			}
+		}
+		printf("\n");
+	}
+
+	// --sharpencal: each method's gain against its strength, and the strength each level's
+	// gain asks of it, read off the curve between the two strengths around it.
+	if (g_bSharpenCal && calGradient.count(0)) {
+		const double targets[SHARPEN_LEVEL_MAX] = { 4, 8, 13, 20, 28 };
+		printf("the strength for each level's gain in mean gradient (+4, +8, +13, +20, +28 %%)\n");
+		int index = 1;
+		for (const CalMethod& m : calMethods) {
+			std::vector<std::pair<double, double>> curve;   // strength, gain in per cent
+			for (float st : m.strengths) {
+				if (calGradient.count(index)) {
+					curve.emplace_back(st, 100.0 * (calGradient[index] / calGradient[0] - 1));
+				}
+				index++;
+			}
+			printf("  %-18s", m.name);
+			for (double t : targets) {
+				double found = -1;
+				for (size_t k = 1; k < curve.size(); k++) {
+					const auto [s0, g0] = curve[k - 1];
+					const auto [s1, g1] = curve[k];
+					if (g0 <= t && t <= g1 && g1 > g0) {
+						found = s0 + (t - g0) / (g1 - g0) * (s1 - s0);
+						break;
+					}
+				}
+				if (found < 0) {
+					printf("   beyond");
+				} else {
+					printf("   %6.3f", found);
+				}
+			}
+			printf("\n");
+		}
+		printf("\nthe levels as they ship, read back (gain in mean gradient, levels 1 to 5)\n");
+		for (const CalMethod& m : calMethods) {
+			printf("  %-18s", m.name);
+			for (int level = SHARPEN_LEVEL_MIN; level <= SHARPEN_LEVEL_MAX; level++, index++) {
+				if (calGradient.count(index)) {
+					printf("  %+6.1f %%", 100.0 * (calGradient[index] / calGradient[0] - 1));
+				} else {
+					printf("      --");
+				}
+			}
+			printf("\n");
 		}
 		printf("\n");
 	}

@@ -298,9 +298,10 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		L"Sharpens the picture after resizing, also applies to native screen resolution videos.\n"
 		"Adaptive-Sharpen does not amplify grain, but is heavier.\n"
 		"Unsharp + Clamp is lighter and shows less ringing on clean video.\n"
+		"AMD CAS (FidelityFX contrast adaptive sharpening) sits between the two, nearly as light.\n"
 		"Direct3D 11." },
 	{ IDC_SHARPEN_LEVEL,
-		L"Strength from 1 to 5, the same for both methods. 3 is recommended; 4 and 5 sharpen "
+		L"Strength from 1 to 5, the same for every method. 3 is recommended; 4 and 5 sharpen "
 		"beyond the original detail." },
 	{ IDC_CHECK10,
 		L"Adds a very fine noise before output so that smooth gradients (skies, fades to black) "
@@ -722,6 +723,7 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Off");
 	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Adaptive-Sharpen");
 	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Unsharp + Clamp");
+	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"AMD CAS");
 
 	Combo_AddData(Item(IDC_COMBO10), L"Off (SDR)", -1);
 	Combo_AddData(Item(IDC_COMBO10), L"Passthrough", 0);
