@@ -929,16 +929,18 @@ UINT CDX11VideoProcessor::GetPostScaleSteps()
 // anything this renderer produces, and adaptive-sharpen -- which holds back where
 // the edges are already steep -- then does almost nothing. So the levels are
 // calibrated here instead, on a 1080p film enlarged to 3200x1334 through the
-// filter itself, as the gain in mean gradient each strength really buys:
-// +4, +8, +13, +20 and +28 per cent. Level 3 is the +13 the bench's own quality
-// measurements settle on (tools/dlssnr_probe --tsharpen). AMD CAS came later: each of its
-// levels gives, on the same chain, the gain Adaptive-Sharpen's gives, read off both curves
-// through the filter (playback_test --sharpencal) under Catmull-Rom, Jinc2 and FSRCNNX 16 AR,
-// which agree to 0.05 of a strength.
+// filter itself, as the gain in mean gradient each strength really buys: Adaptive-Sharpen's
+// +4, +8, +13, +20 and +28 per cent in 1.6. Level 3 is the +13 the bench's own quality
+// measurements settle on (tools/dlssnr_probe --tsharpen). The other two are set on it: each
+// of their levels gives, on the same chain, the gain Adaptive-Sharpen's gives, read off the
+// curves through the filter (playback_test --sharpencal) under Catmull-Rom, Jinc2 and
+// FSRCNNX 16 AR and averaged. CAS follows Adaptive-Sharpen closely, the three agreeing to 0.05
+// of a strength; Unsharp + Clamp answers the enlarger's own sharpness more, to 0.23. Until
+// 2.8 its row was 0.45 to 1.49, which gave about two thirds of Adaptive-Sharpen's gain.
 static const float s_SharpenStrength[SHARPEN_COUNT][SHARPEN_LEVEL_MAX] = {
 	{ 0.00f, 0.00f, 0.00f, 0.00f, 0.00f },   // SHARPEN_Disabled
 	{ 0.22f, 0.33f, 0.46f, 0.68f, 0.99f },   // SHARPEN_Adaptive
-	{ 0.45f, 0.62f, 0.83f, 1.17f, 1.49f },   // SHARPEN_UnsharpClamp
+	{ 0.64f, 0.90f, 1.18f, 1.60f, 2.13f },   // SHARPEN_UnsharpClamp
 	{ 0.30f, 0.43f, 0.57f, 0.78f, 1.05f },   // SHARPEN_CAS
 };
 

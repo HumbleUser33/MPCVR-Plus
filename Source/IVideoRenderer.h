@@ -190,8 +190,9 @@ enum : int {
 };
 
 // Five levels, and the same level means the same thing whichever method runs:
-// each one's strength was read off its own curve at the edge gradient the other
-// reaches there. Level 3 is where both peak against the reference.
+// Adaptive-Sharpen's are the anchor, and the others give, on the same chain, the
+// gain in mean gradient it gives (playback_test --sharpencal). Level 3 is where the
+// methods peak against the reference.
 constexpr inline auto SHARPEN_LEVEL_MIN = 1;
 constexpr inline auto SHARPEN_LEVEL_MAX = 5;
 constexpr inline auto SHARPEN_LEVEL_DEF = 3;

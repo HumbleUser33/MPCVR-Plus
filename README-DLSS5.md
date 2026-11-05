@@ -1658,31 +1658,33 @@ the same scale -- and neither is on the scale the comparison above was made on, 
 halved and enlarged again is far softer than anything this renderer produces, and
 Adaptive-Sharpen holds back where the edges are already steep. So the levels are calibrated
 through the filter itself, on a 1080p film enlarged to 3200x1334, as the gain in mean gradient
-each one really buys:
+each one really buys. Adaptive-Sharpen's are the anchor, set in 1.6 at +4, +8, +13, +20 and
++28 %; the other two give, on the same chain, the gain Adaptive-Sharpen's level gives:
 
-| Level | gain in detail | Adaptive-Sharpen | Unsharp + Clamp | AMD CAS |
+| Level | gain in detail (1.6) | Adaptive-Sharpen | Unsharp + Clamp | AMD CAS |
 |---|---|---|---|---|
-| 1 | +4 % | 0.22 | 0.45 | 0.30 |
-| 2 | +8 % | 0.33 | 0.62 | 0.43 |
-| **3** (default) | **+13 %** | **0.46** | **0.83** | **0.57** |
-| 4 | +20 % | 0.68 | 1.17 | 0.78 |
-| 5 | +28 % | 0.99 | 1.49 | 1.05 |
+| 1 | +4 % | 0.22 | 0.64 | 0.30 |
+| 2 | +8 % | 0.33 | 0.90 | 0.43 |
+| **3** (default) | **+13 %** | **0.46** | **1.18** | **0.57** |
+| 4 | +20 % | 0.68 | 1.60 | 0.78 |
+| 5 | +28 % | 0.99 | 2.13 | 1.05 |
 
-Measured back through the filter, level 1 gives +3.7 % and +2.8 %, level 3 +13.2 % and +13.0 %,
-level 5 +28.3 % and +27.9 %. Level 3 is the +13 the quality measurements settle on; 4 and 5 are
-past it, for a taste rather than for fidelity.
+Level 3 is the +13 the quality measurements settle on; 4 and 5 are past it, for a taste rather
+than for fidelity.
 
-**AMD CAS's levels** were read later, with a tool of their own: `playback_test --sharpencal`
-plays the film, pauses it on the same picture under every setting, and reads the displayed
-picture's mean luma gradient with each method at a run of strengths, set through
-`MPCVR_SHARPEN_STRENGTH`. Each CAS level is the strength that gives, on the same chain, the gain
-Adaptive-Sharpen's level gives, and the three chains it was read on -- the shaders enlarging
-with Catmull-Rom, Jinc2 and FSRCNNX 16 AR, 1920x800 to 3200x1334 -- agree to 0.05 of a
-strength. Read back as they ship, under Jinc2, levels 1 to 5 give +6.9, +10.1, +13.6, +19.0
-and +26.1 % for AMD CAS against +7.5, +10.7, +14.2, +19.7 and +26.9 % for Adaptive-Sharpen. On
-that picture Unsharp + Clamp gives less than both, +4.6, +6.4, +8.7, +12.7 and +16.6 %: the
-levels of the first two were made equal on a picture and a chain the 1.6 calibration did not
-record, and on this one they are not.
+`playback_test --sharpencal` reads them: it plays the film, pauses it on the same picture under
+every setting, and reads the displayed picture's mean luma gradient with each method at a run
+of strengths, set through `MPCVR_SHARPEN_STRENGTH`, then at its levels as they ship. Each level
+of Unsharp + Clamp and of AMD CAS is the strength that gives Adaptive-Sharpen's gain, read on
+three chains -- the shaders enlarging with Catmull-Rom, Jinc2 and FSRCNNX 16 AR, 1920x800 to
+3200x1334 -- and averaged. AMD CAS follows Adaptive-Sharpen closely: the three chains agree to
+0.05 of a strength. Unsharp + Clamp answers the enlarger's own sharpness more, to 0.23. Read
+back as they ship, under Jinc2, levels 1 to 5 give +7.5, +10.7, +14.2, +19.7 and +26.9 % for
+Adaptive-Sharpen, +6.6, +9.5, +12.8, +18.0 and +24.9 % for Unsharp + Clamp and +6.9, +10.1,
++13.6, +19.0 and +26.1 % for AMD CAS. Until 2.8 Unsharp + Clamp's levels were 0.45 to 1.49,
+which on the same picture gave +4.6, +6.4, +8.7, +12.7 and +16.6 %: about two thirds of
+Adaptive-Sharpen's gain, the two having been made equal on a picture and a chain the 1.6
+calibration did not record.
 
 It adds to RTX Video Super Resolution and to DLSS, which sharpen in their own way; nothing here
 prevents that, and the tooltip says so.
@@ -2141,7 +2143,7 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 | Debanding | off | Smooths the steps compression leaves in gradients, on the decoded planes. Same conditions as Deblocking |
 | Strength | 3 | Five levels; see *Deblocking and debanding*. Greyed while Debanding is off |
 | Sharpening: Method | Off | *Adaptive-Sharpen*, *Unsharp + Clamp* or *AMD CAS*, run after the resize, so it also reaches a film already at the screen's size. See *Sharpening* for what each is worth. Needs Direct3D 11 |
-| Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen -- +4, +8, +13, +20 and +28 per cent of mean gradient, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Off |
+| Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen: Adaptive-Sharpen's +4, +8, +13, +20 and +28 per cent of mean gradient, the other two set to give the same, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Off |
 | Use dithering | on | A very fine noise before output, so that skies and fades to black show no banding |
 | Hide the channel logo | off | Hides a TV channel's logo, worked out from under it where it is see-through and filled in from round it where it is opaque, before anything else touches the picture. Each logo found is kept, and recognised on the next films of the same size. See *Hiding a channel's logo*. Stays on with RTX Video Super Resolution; needs Direct3D 11 |
 | Margin | 1 px | The pixels round the logo worked with it, 0 to 3, for an edge the encoder smeared. Greyed while the box is unticked |

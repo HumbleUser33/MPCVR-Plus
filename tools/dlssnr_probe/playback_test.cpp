@@ -3038,7 +3038,7 @@ int wmain(int argc, wchar_t* argv[])
 	struct CalMethod { int method; const char* name; std::vector<float> strengths; };
 	const CalMethod calMethods[] = {
 		{ SHARPEN_Adaptive,     "Adaptive-Sharpen", { 0.10f, 0.22f, 0.33f, 0.46f, 0.68f, 0.99f, 1.30f } },
-		{ SHARPEN_UnsharpClamp, "Unsharp + Clamp",  { 0.20f, 0.45f, 0.62f, 0.83f, 1.17f, 1.49f, 1.90f } },
+		{ SHARPEN_UnsharpClamp, "Unsharp + Clamp",  { 0.20f, 0.45f, 0.62f, 0.83f, 1.17f, 1.49f, 1.90f, 2.30f, 2.80f, 3.40f } },
 		{ SHARPEN_CAS,          "AMD CAS",          { 0.25f, 0.50f, 0.75f, 1.00f, 1.50f, 2.00f, 2.50f, 3.00f, 4.00f } },
 	};
 	std::vector<std::string> calNames;
