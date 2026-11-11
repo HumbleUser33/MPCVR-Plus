@@ -313,6 +313,7 @@ bool CDlssNR::LoadCore()
 
 	m_pfnCoreAlloc   = (PFN_NGX_D3D11_AllocateParameters)GetProcAddress(m_hCore, "NVSDK_NGX_D3D12_AllocateParameters");
 	m_pfnCoreDestroy = (PFN_NGX_D3D11_DestroyParameters) GetProcAddress(m_hCore, "NVSDK_NGX_D3D12_DestroyParameters");
+	m_pfnCoreShutdown1 = (PFN_NGX_D3D12_Shutdown1_Core)  GetProcAddress(m_hCore, "NVSDK_NGX_D3D12_Shutdown1");
 	return true;
 }
 
@@ -696,6 +697,7 @@ bool CDlssNR::Init(ID3D11Device* pDevice, const wchar_t* pConfiguredDllPath, boo
 			const NVSDK_NGX_Result rc = pfnCoreInit(NGX_DLSSNR_APPID, m_DataPath.c_str(),
 			                                        m_pDev12, &fci, m_SdkVersion);
 			Log(L"core init: 0x%08X %s", rc, NgxResultName(rc));
+			m_bCoreSession = NGX_SUCCEED(rc);
 		}
 		if (m_pfnCoreAlloc) {
 			NVSDK_NGX_Parameter* p = nullptr;
@@ -748,6 +750,20 @@ void CDlssNR::Shutdown()
 	m_bParamsFromCore = false;
 	m_OwnParams.Reset();
 
+	// The runtime's own session on this device, opened in Init for the parameter block,
+	// ended while the device is still there. Left open, it outlived the device: once DLSS
+	// Super Resolution has pinned the runtime (CDlssSR::LoadCore) nothing unloads it, and
+	// from driver 621.14 the session holds the driver's built-in nvngx_dlssd.dll, whose
+	// clean-up at process exit reached Direct3D 12 objects long freed (0xC0000005 in
+	// D3D12Core.dll after NR + SR in playback_test, every time). This device's session
+	// alone: the Shutdown that takes none would end DLSS Super Resolution's as well.
+	if (m_bCoreSession && m_pfnCoreShutdown1 && m_pDev12) {
+		uint32_t out = 0;
+		const NVSDK_NGX_Result rc = m_pfnCoreShutdown1(m_pDev12, &out);
+		Log(L"core shutdown: 0x%08X %s", rc, NgxResultName(rc));
+	}
+	m_bCoreSession = false;
+
 	m_pTex12In.Release();
 	m_pTex12Out.Release();
 	// Guides were opened on the device about to go away; a later Init must not
@@ -783,7 +799,7 @@ void CDlssNR::Shutdown()
 
 	m_pfnInit = nullptr; m_pfnPopulate = nullptr; m_pfnCreate = nullptr;
 	m_pfnEvaluate = nullptr; m_pfnRelease = nullptr; m_pfnShutdown1 = nullptr;
-	m_pfnGetReq = nullptr; m_pfnCoreAlloc = nullptr; m_pfnCoreDestroy = nullptr;
+	m_pfnGetReq = nullptr; m_pfnCoreAlloc = nullptr; m_pfnCoreDestroy = nullptr; m_pfnCoreShutdown1 = nullptr;
 	m_pfnShimInit = nullptr; m_pfnShimPopulate = nullptr; m_pfnShimCreate = nullptr;
 	m_pfnShimEval = nullptr; m_pfnShimRelease = nullptr; m_pfnShimShutdown = nullptr;
 

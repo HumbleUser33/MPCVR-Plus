@@ -244,6 +244,11 @@ typedef NVSDK_NGX_Result (__cdecl* PFN_NGX_D3D12_EvaluateFeature)(
 	ID3D12GraphicsCommandList* list, const NVSDK_NGX_Handle* h,
 	const NVSDK_NGX_Parameter* p, void* progressCallback);
 typedef NVSDK_NGX_Result (__cdecl* PFN_NGX_D3D12_ReleaseFeature)(NVSDK_NGX_Handle* h);
+// The driver core's own Shutdown1 takes a second argument, where it writes a word the
+// DLSS SDK's library reads after it (zero: nothing of NGX left to keep). Called with the
+// device alone, it wrote through whatever the register held: 0xC0000005 in _nvngx.dll as
+// the renderer closed, every time.
+typedef NVSDK_NGX_Result (__cdecl* PFN_NGX_D3D12_Shutdown1_Core)(ID3D12Device* dev, uint32_t* out);
 
 // ------------------------------------------------------------------- NVAPI
 // The snippet asks NVAPI for the GPU architecture and refuses anything below

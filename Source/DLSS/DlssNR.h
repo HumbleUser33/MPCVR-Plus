@@ -254,6 +254,8 @@ private:
 
 	PFN_NGX_D3D11_AllocateParameters m_pfnCoreAlloc   = nullptr;
 	PFN_NGX_D3D11_DestroyParameters  m_pfnCoreDestroy = nullptr;
+	PFN_NGX_D3D12_Shutdown1_Core     m_pfnCoreShutdown1 = nullptr;
+	bool m_bCoreSession = false;   // the runtime's own session on m_pDev12, for the parameter block
 
 	PFN_ShimInit      m_pfnShimInit     = nullptr;
 	PFN_ShimPopulate  m_pfnShimPopulate = nullptr;
