@@ -258,7 +258,7 @@ void CPresentSchedule::Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& s
 		if (shownOn > shown.refresh && shown.bCounted) {
 			m_late++;
 			if (shown.bReady) {
-				m_readyLate[m_nReadyLate++ % kStuckLate] = RefreshTime(shownOn);
+				LateReady(shownOn);
 			}
 		}
 		if (shown.bSafe) {
@@ -384,17 +384,41 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 	return plan;
 }
 
-bool CPresentSchedule::FlipsStuck(long long tickNow)
+double CPresentSchedule::StuckSpacing() const
 {
-	if (m_nReadyLate < kStuckLate) {
+	if (m_nominalMs <= 0) {
+		return 0.0;
+	}
+	// The display mode's own rate, 24000/1001 and not what the refreshes measure, so that a
+	// mode of 24 Hz measured a little under it is still a whole number.
+	const double hz = 1000.0 / m_nominalMs;
+	const double above = hz - std::floor(hz);
+	return above < 0.02 ? 0.0 : hz / above;
+}
+
+void CPresentSchedule::LateReady(const long long refresh)
+{
+	if (m_bLateGroup && refresh - m_lateLast <= kStuckGroup) {
+		m_lateLast = refresh;
+		return;
+	}
+	const double spacing = StuckSpacing();
+	const double since = (double)(refresh - m_lateStart);
+	if (m_bLateGroup && spacing > 0 && std::abs(since - spacing) <= kStuckTolerance * spacing) {
+		m_stuckRun++;
+	} else {
+		m_stuckRun = 1;
+	}
+	m_bLateGroup = true;
+	m_lateStart = m_lateLast = refresh;
+}
+
+bool CPresentSchedule::FlipsStuck()
+{
+	if (m_stuckRun < kStuckRun) {
 		return false;
 	}
-	// The oldest of the last kStuckLate is the one the next would replace.
-	const long long oldest = m_readyLate[m_nReadyLate % kStuckLate];
-	if ((double)(tickNow - oldest) > kStuckWindowMs * TicksPerMs()) {
-		return false;
-	}
-	m_nReadyLate = 0;
+	m_stuckRun = 0;
 	return true;
 }
 

@@ -1953,14 +1953,16 @@ again.
 **A swap chain that starts skipping flips.** A 4K HDR10 film at 23.976 fps (film H), MPC-HC
 fullscreen on the television at 23.976 Hz, the video processor's chain with HDR output, the
 picture on a plane of its own, an RTX 4060 left at its low clocks by the driver (29 ms of GPU a
-picture). After **30 to 38 minutes** of playing -- 37, 30, 38, 35 and 39 in five sessions of
-five -- one picture every **1.024 s** reached the screen a refresh after the one it was
-presented for, and the schedule left the next out to catch up: two hitches a second, a spike a
-second on the graph, for as long as the film went on, 1110 of each in the 19 minutes measured.
-The renderer had done its part: the GPU done with that picture 33 ms and `Present` called 27 ms
-before its refresh, the refreshes themselves on time to within a millisecond. The
-television, the film's position and the two clocks had nothing to do with it either: the same
-passage played from a fresh start was clean.
+picture). After **30 to 45 minutes** of playing -- 37, 30, 38, 35, 39 and 45, in each of the
+six sessions that went on that long -- one picture every **1.024 s** reached the screen a
+refresh after the one it was presented for, and the schedule left the next out to catch up: two
+hitches a second, a spike a second on the graph, for as long as the film went on, 1110 of each
+in the 19 minutes measured. A 1920x800 SDR film in AV1 at 23.976 fps, its sound decoded rather
+than passed through, did the same after 55 minutes; a 25 fps film watched for close to two
+hours never did. The renderer had done its part: the GPU done with that picture 33 ms and
+`Present` called 27 ms before its refresh, the refreshes themselves on time to within a
+millisecond. The television, the film's position and the two clocks had nothing to do with it
+either: the same passage played from a fresh start was clean.
 
 What it did and did not answer to, every time while it went on:
 
@@ -1973,19 +1975,39 @@ What it did and did not answer to, every time while it went on:
 | the swap chain resized to its own size (`ResizeBuffers`) | **0 in 88 s**, 6 pictures lost doing it |
 | a fresh start of the player | none |
 
-So the renderer now watches for it: five pictures in eight seconds that reached the screen late
-although the GPU had finished them before their `Present` -- an odd refresh the compositor
-misses, or a chain too heavy to keep up, comes nowhere near -- and it resizes the swap chain to
-its own size once, which ended it every time it was tried. Should it come back within a
-minute, that is not what it needed, and it is not tried again on that swap chain. The
-statistics' *Swap chain* line says `renewed N time(s) for skipped flips`, and the pacing trace
-has a note at each. Same player, same film: the skipped flips began after 45 minutes this time,
-the swap chain was renewed at the fifth, 4.2 s in, 5 pictures were left out as it was done, and
-the 9 minutes that followed until the player was closed had none shown late and none left out.
+The period says what it is. It is the beat of the screen's 23.976 Hz with **23 Hz** exactly,
+1 / (f - 23) = 1.02450 s for the rate the refreshes measure, and the period fitted through each
+stretch came out between 1.02437 and 1.02454 s in four sessions: the flips were let through 23
+times a second, as if something on the way went by the mode's whole number of hertz instead of
+the rate itself. A 25 fps film puts the screen on a whole number, which has nothing to lose that
+way. `Present` itself returned in 0.07 ms throughout, and no thread on the machine woke 23 times
+a second: rather than something running, it looks like a time counted wrong further down,
+between Windows and the display driver. With the GPU's hardware-accelerated scheduling (HAGS)
+turned off, the same film played 90 minutes in one session without it, against every session
+that lasted long enough with HAGS on; it cost more of the other kind of hitch, a stall that puts
+three pictures in a row a refresh late, 6.0 an hour against 3.3 to 4.1.
 
-What starts it is not known. Nothing the renderer measures moves when it does, the player's
-memory on the GPU stayed where it was, and neither another program working the GPU every second,
-nor windows redrawn over or under the picture at 1.4 Hz or 23 Hz, brought it on in a fresh session.
+So the renderer now watches for that beat. It takes the pictures that reached the screen late
+although the GPU had finished them before their `Present`, counts the late ones on refreshes up
+to three apart as one group -- a stall puts several in a row late, the held-back flips one and
+the picture after it -- and four groups in a row, each starting the beat's spacing after the one
+before (24.56 refreshes at 23.976 Hz, within 10 %), have it resize the swap chain to its own size
+once, about three seconds in. Should it come back within a minute, that is not what it needed,
+and it is not tried again on that swap chain. The statistics' *Swap chain* line says
+`renewed N time(s) for skipped flips`, and the pacing trace has a note at each. The first
+version of the rule, five ready pictures late in eight seconds, renewed the swap chain once for
+nothing in the 90 minutes without HAGS, on two stalls 0.3 s apart. This one, replayed on the 7.9
+hours of traces taken, acts at the start of each of the seven times it happened and nowhere
+else, and would at three groups in a row as at five. Played with the first version: the film above
+renewed at 45 minutes, 5 pictures left out doing it and none in the 9 minutes after; the AV1
+film at 55 minutes, then none in the 10 minutes after. A mode of a whole number of hertz has no
+beat, and the rule is off there; 29.97 or 59.94 Hz would beat with their own, which is not
+measured.
+
+What starts it after half an hour is not known. Nothing the renderer measures moves when it
+does, the player's memory on the GPU stayed where it was, the picture stays on its plane before
+and after, and neither another program working the GPU every second, nor windows redrawn over or
+under the picture at 1.4 Hz or 23 Hz, brought it on in a fresh session.
 
 With *Render ahead* off nothing of this is used and the renderer times its `Present` as
 upstream does, by *Wait for VBlank before Present* and *Adjust the frame presentation time*,

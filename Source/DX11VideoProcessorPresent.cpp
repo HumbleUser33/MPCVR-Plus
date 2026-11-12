@@ -80,22 +80,22 @@ void CDX11VideoProcessor::ReadPresentSchedule()
 	}
 }
 
-// A swap chain whose flips the system has begun to skip, one picture in about a second
-// shown a refresh late although it was ready in time, is resized to its own size, which
-// ended it every time it was tried (CPresentSchedule::kStuckLate): a few pictures lost
-// once, where it would otherwise have cost two hitches a second for as long as the film
-// went on. Done before the back buffer is taken, so that nothing holds it. Should it come
-// back within a minute, renewing is not what it needs, and it is not tried again on this
-// swap chain.
+// A swap chain whose flips the system has begun to hold back, one picture in about a
+// second shown a refresh late although it was ready in time, is resized to its own size,
+// which ended it every time it was tried (CPresentSchedule::kStuckRun): a few pictures
+// lost once, where it would otherwise have cost two hitches a second for as long as the
+// film went on. Done before the back buffer is taken, so that nothing holds it. Should it
+// come back within a minute, renewing is not what it needs, and it is not tried again on
+// this swap chain.
 void CDX11VideoProcessor::RenewSwapChainIfStuck()
 {
 	if (!m_bScheduled || m_bExclusiveScreen || m_bSwapChainRenewGivenUp || !m_pDXGISwapChain1) {
 		return;
 	}
-	const uint64_t tickNow = GetPreciseTick();
-	if (!m_PresentSchedule.FlipsStuck((long long)tickNow)) {
+	if (!m_PresentSchedule.FlipsStuck()) {
 		return;
 	}
+	const uint64_t tickNow = GetPreciseTick();
 	if (m_tickSwapChainRenewed && (double)(tickNow - m_tickSwapChainRenewed) < 60.0 * GetPreciseTicksPerSecond()) {
 		m_bSwapChainRenewGivenUp = true;
 		DLog(L"CDX11VideoProcessor::RenewSwapChainIfStuck() : skipped flips again within a minute, renewing given up");
@@ -108,10 +108,11 @@ void CDX11VideoProcessor::RenewSwapChainIfStuck()
 	const HRESULT hr = m_pDXGISwapChain1->ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, 0);
 	m_tickSwapChainRenewed = tickNow;
 	m_nSwapChainRenewed++;
-	DLog(L"CDX11VideoProcessor::RenewSwapChainIfStuck() : {} pictures ready in time shown late within {} s, resized to {}x{}: {}",
-		CPresentSchedule::kStuckLate, CPresentSchedule::kStuckWindowMs / 1000.0, w, h, HR2Str(hr));
-	m_PacingTrace.Note(std::format(L"swap chain renewed ({}x{}, {:#x}): {} pictures ready in time shown late within {} s",
-		w, h, (unsigned)hr, CPresentSchedule::kStuckLate, CPresentSchedule::kStuckWindowMs / 1000.0));
+	const double spacing = m_PresentSchedule.StuckSpacing();
+	DLog(L"CDX11VideoProcessor::RenewSwapChainIfStuck() : {} pictures ready in time shown late, {:.1f} refreshes apart, resized to {}x{}: {}",
+		CPresentSchedule::kStuckRun, spacing, w, h, HR2Str(hr));
+	m_PacingTrace.Note(std::format(L"swap chain renewed ({}x{}, {:#x}): {} pictures ready in time shown late, {:.1f} refreshes apart",
+		w, h, (unsigned)hr, CPresentSchedule::kStuckRun, spacing));
 	UpdateStatsPresent();
 }
 

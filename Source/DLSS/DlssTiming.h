@@ -177,21 +177,34 @@ public:
 	static constexpr double kGuardMaxMs = 12.0;
 	// How far a picture may sit from its own time, in refreshes, before the step is broken.
 	static constexpr double kRelock = 0.75;
-	// A swap chain whose flips the system has begun to skip. Measured in MPC-HC on a 4K
-	// HDR film at 23.976 Hz, the picture on a plane of its own: after 30 to 39 minutes of
-	// playing, in five sessions of five, one picture every 1.02 s reached the screen a
-	// refresh after the one it was presented for -- the GPU done with it 33 ms and Present
-	// called 27 ms before that refresh, the refreshes themselves on time to within a
-	// millisecond -- and the next was left out to catch up: two hitches a second for as
-	// long as the film went on, 1110 of each in 19 minutes. Neither a deeper queue (a
-	// picture presented a refresh earlier was skipped all the same), a pause nor a seek
-	// changed anything; resizing the swap chain to its own size ended it at once, every
-	// time it was tried. So this many pictures in this many milliseconds shown late
-	// although the GPU had finished them in time is taken for that, and the renderer
-	// renews the swap chain (CDX11VideoProcessor::RenewSwapChainIfStuck). An odd refresh
-	// the compositor misses, or a chain that cannot keep up, is nowhere near it.
-	static constexpr int kStuckLate = 5;
-	static constexpr double kStuckWindowMs = 8000.0;
+	// A swap chain whose flips the system has begun to hold back. Measured in MPC-HC at
+	// 23.976 Hz, the picture on a plane of its own: after 30 to 55 minutes of playing in
+	// one session -- 30, 35, 37, 38, 39 and 45 on a 4K HDR10 film, 55 on a 1080p SDR one --
+	// one picture every 1.0245 s reached the screen a refresh after the one it was
+	// presented for, the GPU done with it 33 ms and Present called 27 ms before that
+	// refresh, and the next was left out to catch up: two hitches a second for as long as
+	// the film went on, 1110 of each in 19 minutes. That period is the beat of the screen's
+	// rate with 23 Hz, 1 / (f - 23), to a few hundredths of a percent in each of four
+	// sessions: the flips were let through 23 times a second, as if something went by the
+	// mode's whole number of hertz. Neither a deeper queue, a pause nor a seek changed
+	// anything; resizing the swap chain to its own size ended it at once, every time. With
+	// the GPU's hardware scheduling off there was none in a session of 90 minutes.
+	//
+	// So the late pictures that were ready in time are watched for that beat. Late ones on
+	// refreshes at most kStuckGroup apart are one group -- a stall of the system puts
+	// several in a row late, the held-back flips one and the picture after it -- and a group
+	// that begins the beat's spacing after the one before, within kStuckTolerance, carries
+	// a run on; any other begins it again. kStuckRun groups in a run, three seconds at
+	// 23.976 Hz, and the renderer renews the swap chain
+	// (CDX11VideoProcessor::RenewSwapChainIfStuck). The rule before this one, five ready
+	// pictures late in eight seconds, was set off once in 90 minutes by two stalls 0.3 s
+	// apart; this one, replayed on eight hours of traces, acts at the start of each of the
+	// seven times it happened and nowhere else, at three groups in a run as at five.
+	// Another fractional rate, 29.97 or 59.94 Hz, would beat with its own whole number: not
+	// measured. A mode of a whole number of hertz has no beat, and the rule is off.
+	static constexpr int kStuckGroup = 3;        // refreshes
+	static constexpr int kStuckRun = 4;
+	static constexpr double kStuckTolerance = 0.10;
 	// The first pictures after a start or a seek come as they can, the very first late
 	// by force. Until this many have been shown the nearest refresh is simply taken,
 	// so that the step is the right one when it starts being kept.
@@ -217,8 +230,8 @@ public:
 	// nothing. Where it does not -- 2.5025 refreshes at 60 Hz -- the pictures' times cross
 	// half way between two refreshes once every 8.3 s, the nearest refresh flips between
 	// the two for as long as the rounding straddles it, and the 3:2 cadence breaks five or
-	// six times in half a second where once was all it needed: 78 breaks in 116 s of Fight
-	// Club, measured on the screen itself. So the time the schedule goes by is the stamp
+	// six times in half a second where once was all it needed: 78 breaks in 116 s of the
+	// bench's film, measured on the screen itself. So the time the schedule goes by is the stamp
 	// carried forward a frame at a time and drawn a thirty-second of the way towards each
 	// new stamp (kDueGain), which leaves a few hundredths of a millisecond of the rounding:
 	// 18 breaks in the same 116 s, one each time the cadence has to change step. A stamp
@@ -258,8 +271,11 @@ public:
 	// msInside: how long Present took to return. bReady: the GPU had finished the picture
 	// by then.
 	void Presented(unsigned presentId, const Plan& plan, long long tickCalled, double msInside, bool bReady);
-	// The flips have begun to be skipped (kStuckLate): once, and the count starts again.
-	bool FlipsStuck(long long tickNow);
+	// The flips have begun to be held back (kStuckRun): once, and the count starts again.
+	bool FlipsStuck();
+	// The refreshes between two of the held-back flips: the display mode's rate over its
+	// part above a whole number of hertz. 0 for a mode of a whole number, or none known.
+	double StuckSpacing() const;
 
 	// For the statistics. What happened while the film played: the pictures it loses
 	// in the first moments after a start or a seek are not counted.
@@ -306,9 +322,14 @@ private:
 	int m_observed[3] = { 1, 1, 1 };
 	int m_nObserved = 0;
 
-	// When the last pictures that were ready and still shown late were shown (kStuckLate).
-	long long m_readyLate[kStuckLate] = {};
-	int m_nReadyLate = 0;
+	// The pictures that were ready and still shown late, in groups (kStuckGroup): the
+	// refresh the last group began on and the last one late in it, and how many groups in a
+	// row have begun the beat's spacing apart (kStuckRun).
+	void LateReady(long long refresh);
+	bool m_bLateGroup = false;
+	long long m_lateStart = 0;
+	long long m_lateLast = 0;
+	int m_stuckRun = 0;
 
 	bool m_bLast = false;          // a picture has been given a refresh since the last flush
 	long long m_lastRefresh = 0;
