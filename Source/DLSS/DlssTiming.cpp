@@ -457,7 +457,7 @@ CPacingTrace::CPacingTrace()
 	if (length > 0 && length < MAX_PATH) {
 		m_path = path;
 		m_bEnabled = true;
-		m_pictures.reserve(16384); // eleven minutes of film before the list has to grow
+		m_pictures.reserve(1024 + 64); // written out every 1024 (Add)
 	}
 }
 
@@ -474,6 +474,12 @@ void CPacingTrace::Add(const Picture& picture)
 {
 	if (m_bEnabled) {
 		m_pictures.push_back(picture);
+		// Out to the file every forty seconds or so at 24 fps, so that a trace can be read
+		// while the film plays: what goes wrong after half an hour is watched for, not waited
+		// for until the player closes.
+		if (m_pictures.size() >= 1024 + 32) {
+			Write(32);
+		}
 	}
 }
 
@@ -509,11 +515,12 @@ void CPacingTrace::SetGpu(long long rtStart, float vpMs, float allMs)
 	}
 }
 
-void CPacingTrace::Write()
+void CPacingTrace::Write(const size_t keep)
 {
 	if (!m_bEnabled || (m_pictures.empty() && m_notes.empty())) {
 		return;
 	}
+	const size_t count = m_pictures.size() > keep ? m_pictures.size() - keep : 0;
 	FILE* file = nullptr;
 	if (_wfopen_s(&file, m_path.c_str(), L"a") != 0 || !file) {
 		m_pictures.clear();
@@ -534,7 +541,8 @@ void CPacingTrace::Write()
 	for (const std::wstring& note : m_notes) {
 		fprintf(file, "# %ls\n", note.c_str());
 	}
-	for (const Picture& p : m_pictures) {
+	for (size_t i = 0; i < count; i++) {
+		const Picture& p = m_pictures[i];
 		fprintf(file, "%llu,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%u,%u,%u,%u,%u,%lld,%u,%u,%u,%u,%lld,%d,%d,%d,%d,%d,%d,%d,%lld,%lld,%lld,%d,%d\n",
 			m_written++, p.rtStart, p.rtClockAtCall, p.rtClockAtReturn, p.tickSample, p.tickDrawn, p.tickAfterVBlank,
 			p.tickPresentCall, p.tickPresentReturn, p.tickTarget, p.renderAhead, p.flags,
@@ -544,7 +552,7 @@ void CPacingTrace::Write()
 			p.tickGpuDone, p.tickStamp, p.tickDue, p.gpuVpUs, p.gpuAllUs);
 	}
 	fclose(file);
-	m_pictures.clear();
+	m_pictures.erase(m_pictures.begin(), m_pictures.begin() + count);
 	m_notes.clear();
 }
 

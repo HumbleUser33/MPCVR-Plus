@@ -2575,10 +2575,12 @@ the chroma section above come from it.
 
 **The pacing trace, and `pacing_report.py`** — what became of every picture on its way to the
 screen, in any player. Set the environment variable `MPCVR_PACING_TRACE` to a file name before
-the player starts and the renderer writes a line a picture there, when the stream is flushed
-and when the player closes: when the sample arrived, was drawn and presented, what the
-reference clock said, the refresh it was meant for, and DXGI's account of the swap chain before
-and after the call. Nothing is written, and nothing is kept, without the variable.
+the player starts and the renderer writes a line a picture there, a thousand pictures at a
+time as the film plays -- forty seconds of a 24 fps film, so that a long session can be read
+while it goes on -- and the rest when the player closes: when the sample arrived, was drawn
+and presented, what the reference clock said, the refresh it was meant for, and DXGI's account
+of the swap chain before and after the call. Nothing is written, and nothing is kept, without
+the variable.
 
 ```
 set MPCVR_PACING_TRACE=C:\temp\pacing.csv

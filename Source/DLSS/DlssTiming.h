@@ -400,7 +400,8 @@ public:
 	void SetCut(long long rtStart, const float* state);
 	// Its GPU times (CGpuStageTimes::Take), likewise.
 	void SetGpu(long long rtStart, float vpMs, float allMs);
-	void Write();
+	// Out to the file, all but the last `keep` pictures, which SetCut and SetGpu may still fill.
+	void Write(size_t keep = 0);
 
 private:
 	bool m_bEnabled = false;
