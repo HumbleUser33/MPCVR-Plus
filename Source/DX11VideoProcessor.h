@@ -240,6 +240,12 @@ private:
 	// statistics carry it because a picture that stops reaching the screen looks
 	// like nothing at all from inside the renderer.
 	int m_nSwapChainResizeFailed = 0;
+	// Renewed because its flips had begun to be skipped (CPresentSchedule::kStuckLate), and
+	// when; given up when that came back within a minute, until the next swap chain.
+	int m_nSwapChainRenewed = 0;
+	uint64_t m_tickSwapChainRenewed = 0;
+	bool m_bSwapChainRenewGivenUp = false;
+	void RenewSwapChainIfStuck();
 
 	// Sharpening, a step of the post-scale chain: the method, which of the five
 	// levels, and the shader that does it.

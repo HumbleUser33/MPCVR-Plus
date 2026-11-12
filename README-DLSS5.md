@@ -1950,6 +1950,43 @@ starts. So an SDR picture gets three, and an HDR one keeps upstream's six.
 `MPCVR_SWAPCHAIN_BUFFERS=2` in the player's environment gives the two back, to measure it
 again.
 
+**A swap chain that starts skipping flips.** A 4K HDR10 film at 23.976 fps (film H), MPC-HC
+fullscreen on the television at 23.976 Hz, the video processor's chain with HDR output, the
+picture on a plane of its own, an RTX 4060 left at its low clocks by the driver (29 ms of GPU a
+picture). After **30 to 38 minutes** of playing -- 37, 30, 38, 35 and 39 in five sessions of
+five -- one picture every **1.024 s** reached the screen a refresh after the one it was
+presented for, and the schedule left the next out to catch up: two hitches a second, a spike a
+second on the graph, for as long as the film went on, 1110 of each in the 19 minutes measured.
+The renderer had done its part: the GPU done with that picture 33 ms and `Present` called 27 ms
+before its refresh, the refreshes themselves on time to within a millisecond. The
+television, the film's position and the two clocks had nothing to do with it either: the same
+passage played from a fresh start was clean.
+
+What it did and did not answer to, every time while it went on:
+
+| | pictures shown a refresh late |
+|---|---|
+| as it was, 177 s | 172 |
+| a refresh more of queue: `Present` 69 ms before the refresh instead of 27 | 290 in 297 s |
+| a pause and play, then a seek | 86 in 88 s, then 86 in 88 s |
+| out of fullscreen and back | 0 in 96 s |
+| the swap chain resized to its own size (`ResizeBuffers`) | **0 in 88 s**, 6 pictures lost doing it |
+| a fresh start of the player | none |
+
+So the renderer now watches for it: five pictures in eight seconds that reached the screen late
+although the GPU had finished them before their `Present` -- an odd refresh the compositor
+misses, or a chain too heavy to keep up, comes nowhere near -- and it resizes the swap chain to
+its own size once, which ended it every time it was tried. Should it come back within a
+minute, that is not what it needed, and it is not tried again on that swap chain. The
+statistics' *Swap chain* line says `renewed N time(s) for skipped flips`, and the pacing trace
+has a note at each. Same player, same film: the skipped flips began after 45 minutes this time,
+the swap chain was renewed at the fifth, 4.2 s in, 5 pictures were left out as it was done, and
+the 9 minutes that followed until the player was closed had none shown late and none left out.
+
+What starts it is not known. Nothing the renderer measures moves when it does, the player's
+memory on the GPU stayed where it was, and neither another program working the GPU every second,
+nor windows redrawn over or under the picture at 1.4 Hz or 23 Hz, brought it on in a fresh session.
+
 With *Render ahead* off nothing of this is used and the renderer times its `Present` as
 upstream does, by *Wait for VBlank before Present* and *Adjust the frame presentation time*,
 which the page greys while render ahead is on. Render ahead never waits for a vertical blank --

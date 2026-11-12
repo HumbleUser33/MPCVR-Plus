@@ -80,6 +80,41 @@ void CDX11VideoProcessor::ReadPresentSchedule()
 	}
 }
 
+// A swap chain whose flips the system has begun to skip, one picture in about a second
+// shown a refresh late although it was ready in time, is resized to its own size, which
+// ended it every time it was tried (CPresentSchedule::kStuckLate): a few pictures lost
+// once, where it would otherwise have cost two hitches a second for as long as the film
+// went on. Done before the back buffer is taken, so that nothing holds it. Should it come
+// back within a minute, renewing is not what it needs, and it is not tried again on this
+// swap chain.
+void CDX11VideoProcessor::RenewSwapChainIfStuck()
+{
+	if (!m_bScheduled || m_bExclusiveScreen || m_bSwapChainRenewGivenUp || !m_pDXGISwapChain1) {
+		return;
+	}
+	const uint64_t tickNow = GetPreciseTick();
+	if (!m_PresentSchedule.FlipsStuck((long long)tickNow)) {
+		return;
+	}
+	if (m_tickSwapChainRenewed && (double)(tickNow - m_tickSwapChainRenewed) < 60.0 * GetPreciseTicksPerSecond()) {
+		m_bSwapChainRenewGivenUp = true;
+		DLog(L"CDX11VideoProcessor::RenewSwapChainIfStuck() : skipped flips again within a minute, renewing given up");
+		m_PacingTrace.Note(L"swap chain: flips skipped again within a minute of renewing it, not renewed again");
+		UpdateStatsPresent();
+		return;
+	}
+	const UINT w = m_windowRect.Width();
+	const UINT h = m_windowRect.Height();
+	const HRESULT hr = m_pDXGISwapChain1->ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, 0);
+	m_tickSwapChainRenewed = tickNow;
+	m_nSwapChainRenewed++;
+	DLog(L"CDX11VideoProcessor::RenewSwapChainIfStuck() : {} pictures ready in time shown late within {} s, resized to {}x{}: {}",
+		CPresentSchedule::kStuckLate, CPresentSchedule::kStuckWindowMs / 1000.0, w, h, HR2Str(hr));
+	m_PacingTrace.Note(std::format(L"swap chain renewed ({}x{}, {:#x}): {} pictures ready in time shown late within {} s",
+		w, h, (unsigned)hr, CPresentSchedule::kStuckLate, CPresentSchedule::kStuckWindowMs / 1000.0));
+	UpdateStatsPresent();
+}
+
 // The wait between a picture being drawn and the moment chosen to present it. The GPU
 // finishes the picture meanwhile, and how long it took from the sample arriving tells
 // how early the next ones have to be asked for.

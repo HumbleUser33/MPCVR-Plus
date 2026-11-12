@@ -177,6 +177,21 @@ public:
 	static constexpr double kGuardMaxMs = 12.0;
 	// How far a picture may sit from its own time, in refreshes, before the step is broken.
 	static constexpr double kRelock = 0.75;
+	// A swap chain whose flips the system has begun to skip. Measured in MPC-HC on a 4K
+	// HDR film at 23.976 Hz, the picture on a plane of its own: after 30 to 39 minutes of
+	// playing, in five sessions of five, one picture every 1.02 s reached the screen a
+	// refresh after the one it was presented for -- the GPU done with it 33 ms and Present
+	// called 27 ms before that refresh, the refreshes themselves on time to within a
+	// millisecond -- and the next was left out to catch up: two hitches a second for as
+	// long as the film went on, 1110 of each in 19 minutes. Neither a deeper queue (a
+	// picture presented a refresh earlier was skipped all the same), a pause nor a seek
+	// changed anything; resizing the swap chain to its own size ended it at once, every
+	// time it was tried. So this many pictures in this many milliseconds shown late
+	// although the GPU had finished them in time is taken for that, and the renderer
+	// renews the swap chain (CDX11VideoProcessor::RenewSwapChainIfStuck). An odd refresh
+	// the compositor misses, or a chain that cannot keep up, is nowhere near it.
+	static constexpr int kStuckLate = 5;
+	static constexpr double kStuckWindowMs = 8000.0;
 	// The first pictures after a start or a seek come as they can, the very first late
 	// by force. Until this many have been shown the nearest refresh is simply taken,
 	// so that the step is the right one when it starts being kept.
@@ -240,8 +255,11 @@ public:
 	Plan Choose(long long tickNow, long long tickStamp, double frameMs, double drawMs);
 	// A sample was left out before it was drawn, as a Plan asked.
 	void LeftOut();
-	// msInside: how long Present took to return.
-	void Presented(unsigned presentId, const Plan& plan, long long tickCalled, double msInside);
+	// msInside: how long Present took to return. bReady: the GPU had finished the picture
+	// by then.
+	void Presented(unsigned presentId, const Plan& plan, long long tickCalled, double msInside, bool bReady);
+	// The flips have begun to be skipped (kStuckLate): once, and the count starts again.
+	bool FlipsStuck(long long tickNow);
 
 	// For the statistics. What happened while the film played: the pictures it loses
 	// in the first moments after a start or a seek are not counted.
@@ -278,6 +296,7 @@ private:
 		long long tickDue = 0;
 		bool bSafe = false;        // called far enough from both refreshes to tell the depth by
 		bool bCounted = false;     // presented once the film had settled: late counts if it is
+		bool bReady = false;       // the GPU had finished it when Present was called
 	};
 	static constexpr int kPending = 16;
 	Pending m_pending[kPending] = {};
@@ -286,6 +305,10 @@ private:
 	int m_depth = 1;
 	int m_observed[3] = { 1, 1, 1 };
 	int m_nObserved = 0;
+
+	// When the last pictures that were ready and still shown late were shown (kStuckLate).
+	long long m_readyLate[kStuckLate] = {};
+	int m_nReadyLate = 0;
 
 	bool m_bLast = false;          // a picture has been given a refresh since the last flush
 	long long m_lastRefresh = 0;

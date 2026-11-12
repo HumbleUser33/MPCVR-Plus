@@ -895,6 +895,8 @@ void CDX11VideoProcessor::ReleaseSwapChain()
 	// The next one counts its refreshes and its Presents from nothing.
 	m_PresentSchedule.Reset();
 	m_bScheduled = false;
+	m_tickSwapChainRenewed = 0;
+	m_bSwapChainRenewGivenUp = false;
 
 	m_MaxDisplayLuminance = 0;
 }
@@ -3484,6 +3486,8 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		m_bDlssSRNewPicture = true;
 	}
 
+	RenewSwapChainIfStuck();
+
 	CComPtr<ID3D11Texture2D> pBackBuffer;
 	HRESULT hr = m_pDXGISwapChain1->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
 	if (FAILED(hr)) {
@@ -3832,7 +3836,8 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		UINT presentId = 0;
 		if (SUCCEEDED(m_pDXGISwapChain1->GetLastPresentCount(&presentId))) {
 			m_PresentSchedule.Presented(presentId, plan, (long long)m_tickPresentCall,
-				(double)(tick3 + m_RenderStats.presentticks - m_tickPresentCall) * 1000.0 / GetPreciseTicksPerSecond());
+				(double)(tick3 + m_RenderStats.presentticks - m_tickPresentCall) * 1000.0 / GetPreciseTicksPerSecond(),
+				m_tickPictureDone != 0);
 		}
 		ReadPresentSchedule();
 		// Where it will be on the screen against where its time is: the offset that
@@ -5834,6 +5839,10 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 		m_strStatsPresent.assign(L"\nSwap chain    : ");
 		if (m_nSwapChainResizeFailed) {
 			m_strStatsPresent.append(std::format(L"rebuilt after {} refused resize(s), ", m_nSwapChainResizeFailed));
+		}
+		if (m_nSwapChainRenewed) {
+			m_strStatsPresent.append(std::format(L"renewed {} time(s) for skipped flips{}, ", m_nSwapChainRenewed,
+				m_bSwapChainRenewGivenUp ? L" (no longer)" : L""));
 		}
 		switch (swapchain_desc.SwapEffect) {
 		case DXGI_SWAP_EFFECT_DISCARD:

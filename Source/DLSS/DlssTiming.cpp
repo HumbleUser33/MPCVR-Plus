@@ -257,6 +257,9 @@ void CPresentSchedule::Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& s
 		m_shownOffsetMs = (double)(RefreshTime(shownOn) - shown.tickDue) / TicksPerMs();
 		if (shownOn > shown.refresh && shown.bCounted) {
 			m_late++;
+			if (shown.bReady) {
+				m_readyLate[m_nReadyLate++ % kStuckLate] = RefreshTime(shownOn);
+			}
 		}
 		if (shown.bSafe) {
 			m_observed[m_nObserved++ % 3] = (int)(shownOn - shown.firstAfter);
@@ -381,6 +384,20 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 	return plan;
 }
 
+bool CPresentSchedule::FlipsStuck(long long tickNow)
+{
+	if (m_nReadyLate < kStuckLate) {
+		return false;
+	}
+	// The oldest of the last kStuckLate is the one the next would replace.
+	const long long oldest = m_readyLate[m_nReadyLate % kStuckLate];
+	if ((double)(tickNow - oldest) > kStuckWindowMs * TicksPerMs()) {
+		return false;
+	}
+	m_nReadyLate = 0;
+	return true;
+}
+
 void CPresentSchedule::LeftOut()
 {
 	if (m_sinceFlush >= kSettling) {
@@ -388,7 +405,7 @@ void CPresentSchedule::LeftOut()
 	}
 }
 
-void CPresentSchedule::Presented(unsigned presentId, const Plan& plan, long long tickCalled, double msInside)
+void CPresentSchedule::Presented(unsigned presentId, const Plan& plan, long long tickCalled, double msInside, bool bReady)
 {
 	const bool bSettled = m_sinceFlush >= kSettling;
 	if (plan.bRepeat && bSettled) {
@@ -446,6 +463,7 @@ void CPresentSchedule::Presented(unsigned presentId, const Plan& plan, long long
 	pending.bSafe = !bWaited && sinceRefresh > 0.02 * m_period && m_period - sinceRefresh > guard;
 	pending.refresh = shownOn; // where it will really be: not late a second time when DXGI says so
 	pending.bCounted = bSettled;
+	pending.bReady = bReady;
 }
 
 // CPacingTrace
