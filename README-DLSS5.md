@@ -2011,10 +2011,11 @@ left as it was (`MPCVR_SWAPCHAIN_RENEW=0`), shows where the 23 Hz comes from. Th
 the time between VSyncs over every one since the film went fullscreen (`VSyncSmoothenedPeriod`:
 417,092 ticks of the 10 MHz counter, 41.709 ms, 41,573 samples after 29 minutes), and keeps
 beside it the display mode's own period, which it holds as 434,782 ticks: 1/23 s, the mode's
-whole number of hertz, where the mode is 24000/1001. With hardware-accelerated scheduling each
-flip of the video's plane is given an earliest ideal time, the one before's plus the smoothed
-period (`MMIOFlipMultiPlaneOverlay3`, `ThisFlipEarliestIdealTimeQpc`, its target half a period
-earlier), and every one of the 2,488 flips traced reached the screen on the first VSync after that
+whole number of hertz, where the mode is 23.976 Hz (41.7084 ms by Windows' display
+configuration). With hardware-accelerated scheduling each flip of the video's plane is given an
+earliest ideal time, the one before's plus the smoothed period (`MMIOFlipMultiPlaneOverlay3`,
+`ThisFlipEarliestIdealTimeQpc`, its target half a period earlier), and every one of the 2,488
+flips of the 110 s examined around the start reached the screen on the first VSync after that
 time, before the stuck flips as during them: the display driver does exactly as it is told.
 
 What changes is the smoothing. The compositor asks, every frame, for the smoothed time of one

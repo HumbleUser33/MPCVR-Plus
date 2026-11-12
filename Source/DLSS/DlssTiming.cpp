@@ -389,8 +389,9 @@ double CPresentSchedule::StuckSpacing() const
 	if (m_nominalMs <= 0) {
 		return 0.0;
 	}
-	// The display mode's own rate, 24000/1001 and not what the refreshes measure, so that a
-	// mode of 24 Hz measured a little under it is still a whole number.
+	// The display mode's own rate, as Windows' display configuration gives it (23.976 Hz)
+	// and not what the refreshes measure, so that a mode of 24 Hz measured a little under it
+	// is still a whole number.
 	const double hz = 1000.0 / m_nominalMs;
 	const double above = hz - std::floor(hz);
 	return above < 0.02 ? 0.0 : hz / above;
