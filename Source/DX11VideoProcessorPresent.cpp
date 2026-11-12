@@ -87,12 +87,26 @@ void CDX11VideoProcessor::ReadPresentSchedule()
 // film went on. Done before the back buffer is taken, so that nothing holds it. Should it
 // come back within a minute, renewing is not what it needs, and it is not tried again on
 // this swap chain.
+//
+// MPCVR_SWAPCHAIN_RENEW=0 in the environment leaves them held back, with a note in the
+// trace each time the swap chain would have been renewed: the system's own tools see
+// what holds them back only while it lasts.
 void CDX11VideoProcessor::RenewSwapChainIfStuck()
 {
+	static const bool s_bRenew = [] {
+		wchar_t value[16] = {};
+		const DWORD length = GetEnvironmentVariableW(L"MPCVR_SWAPCHAIN_RENEW", value, (DWORD)std::size(value));
+		return !(length == 1 && value[0] == L'0');
+	}();
 	if (!m_bScheduled || m_bExclusiveScreen || m_bSwapChainRenewGivenUp || !m_pDXGISwapChain1) {
 		return;
 	}
 	if (!m_PresentSchedule.FlipsStuck()) {
+		return;
+	}
+	if (!s_bRenew) {
+		m_PacingTrace.Note(std::format(L"swap chain not renewed (MPCVR_SWAPCHAIN_RENEW=0): {} pictures ready in time shown late, {:.1f} refreshes apart",
+			CPresentSchedule::kStuckRun, m_PresentSchedule.StuckSpacing()));
 		return;
 	}
 	const uint64_t tickNow = GetPreciseTick();

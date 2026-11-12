@@ -2681,7 +2681,9 @@ evaluation of DLSS 5 NR give up (see *An evaluation that fails*).
 
 The first note of a trace is the swap chain: its size, how many buffers it has and whether it
 is exclusive. `MPCVR_SWAPCHAIN_BUFFERS=n` forces that count (see *A refresh chosen for every
-picture*).
+picture*). `MPCVR_SWAPCHAIN_RENEW=0` leaves flips the system holds back as they are, with a note
+each time the swap chain would have been renewed (see *A swap chain that starts skipping
+flips*), for as long as the system's own tools need them to last.
 
 Each line also has, since 2.5: when the GPU was seen done with the picture while it waited for
 its `Present` (0 when it was not done by then), the picture's stamp and the time the schedule
