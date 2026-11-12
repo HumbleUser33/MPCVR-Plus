@@ -1981,11 +1981,11 @@ stretch came out between 1.02437 and 1.02454 s in four sessions: the flips were 
 times a second, as if something on the way went by the mode's whole number of hertz instead of
 the rate itself. A 25 fps film puts the screen on a whole number, which has nothing to lose that
 way. `Present` itself returned in 0.07 ms throughout, and no thread on the machine woke 23 times
-a second: rather than something running, it looks like a time counted wrong further down,
-between Windows and the display driver. With the GPU's hardware-accelerated scheduling (HAGS)
-turned off, the same film played 90 minutes in one session without it, against every session
-that lasted long enough with HAGS on; it cost more of the other kind of hitch, a stall that puts
-three pictures in a row a refresh late, 6.0 an hour against 3.3 to 4.1.
+a second: rather than something running, it is a time counted wrong further down, in Windows'
+graphics kernel, as its own events show (below). With the GPU's hardware-accelerated
+scheduling (HAGS) turned off, the same film played 90 minutes in one session without it, against
+every session that lasted long enough with HAGS on; it cost more of the other kind of hitch, a
+stall that puts three pictures in a row a refresh late, 6.0 an hour against 3.3 to 4.1.
 
 So the renderer now watches for that beat. It takes the pictures that reached the screen late
 although the GPU had finished them before their `Present`, counts the late ones on refreshes up
@@ -2000,14 +2000,41 @@ nothing in the 90 minutes without HAGS, on two stalls 0.3 s apart. This one, rep
 hours of traces taken, acts at the start of each of the seven times it happened and nowhere
 else, and would at three groups in a row as at five. Played with the first version: the film above
 renewed at 45 minutes, 5 pictures left out doing it and none in the 9 minutes after; the AV1
-film at 55 minutes, then none in the 10 minutes after. A mode of a whole number of hertz has no
-beat, and the rule is off there; 29.97 or 59.94 Hz would beat with their own, which is not
-measured.
+film at 55 minutes, then none in the 10 minutes after. With this one, in MPC-HC itself: held back
+after 36 minutes, renewed 3 s later at the fourth group, 7 pictures left out in that minute and
+none in the 38 minutes that followed. A mode of a whole number of hertz has no beat, and the
+rule is off there; 29.97 or 59.94 Hz would beat with their own, which is not measured.
 
-What starts it after half an hour is not known. Nothing the renderer measures moves when it
-does, the player's memory on the GPU stayed where it was, the picture stays on its plane before
-and after, and neither another program working the GPU every second, nor windows redrawn over or
-under the picture at 1.4 Hz or 23 Hz, brought it on in a fresh session.
+**What holds them back, from the graphics kernel's own events.** An event trace of
+Microsoft-Windows-DxgKrnl, recorded with WPR while the film played in MPC-HC and the swap chain
+left as it was (`MPCVR_SWAPCHAIN_RENEW=0`), shows where the 23 Hz comes from. The kernel smooths
+the time between VSyncs over every one since the film went fullscreen (`VSyncSmoothenedPeriod`:
+417,092 ticks of the 10 MHz counter, 41.709 ms, 41,573 samples after 29 minutes), and keeps
+beside it the display mode's own period, which it holds as 434,782 ticks: 1/23 s, the mode's
+whole number of hertz, where the mode is 24000/1001. With hardware-accelerated scheduling each
+flip of the video's plane is given an earliest ideal time, the one before's plus the smoothed
+period (`MMIOFlipMultiPlaneOverlay3`, `ThisFlipEarliestIdealTimeQpc`, its target half a period
+earlier), and every one of the 2,488 flips traced reached the screen on the first VSync after that
+time, before the stuck flips as during them: the display driver does exactly as it is told.
+
+What changes is the smoothing. The compositor asks, every frame, for the smoothed time of one
+frame of the film's first seconds (the same `DpcFrameNumber`, 7 s after the renderer's first
+`Present`), which the kernel works out back over tens of thousands of frames, so that a wobble of
+a few tenths of a microsecond in the period moves it by milliseconds: 1.3 ms off after 26 minutes,
+then 10, 16 and 21.6 ms in the last two seconds before the flips were held back. Past half a
+period the kernel resets its smoothing (`VSyncSmoothenedReset`), which leaves it with the mode's
+period of 1/23 s; against that one the old frame is off by far more, so it resets again, twice a
+frame, 47 times a second for as long as the film went on, never gathering more than one sample.
+From the first reset on, the flips' earliest ideal times stepped 43.478 ms apart instead of
+41.709: one refresh lost every 24.56, the beat measured from the outside.
+
+That accounts for all of it: half an hour or more before it begins, depending on how the period
+wobbles and how old that first frame is; a mode of a whole number of hertz safe from it, 25 Hz
+falling back on 1/25 s, which is right; nothing without HAGS, whose hardware flip queue is what
+goes by those times; and a renewed swap chain, or a fullscreen left and taken again, putting an
+end to it -- presumably as the compositor stops asking for that frame, which the trace cannot
+show, the swap chain having been left alone. The fault is Windows', not the renderer's nor the
+display driver's; the renderer renews the swap chain because nothing else it can do ends it.
 
 With *Render ahead* off nothing of this is used and the renderer times its `Present` as
 upstream does, by *Wait for VBlank before Present* and *Adjust the frame presentation time*,

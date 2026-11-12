@@ -185,9 +185,12 @@ public:
 	// refresh, and the next was left out to catch up: two hitches a second for as long as
 	// the film went on, 1110 of each in 19 minutes. That period is the beat of the screen's
 	// rate with 23 Hz, 1 / (f - 23), to a few hundredths of a percent in each of four
-	// sessions: the flips were let through 23 times a second, as if something went by the
-	// mode's whole number of hertz. Neither a deeper queue, a pause nor a seek changed
-	// anything; resizing the swap chain to its own size ended it at once, every time. With
+	// sessions: the flips were let through 23 times a second. The graphics kernel's own
+	// events say why: once its VSync smoothing has been reset it goes by the mode's period,
+	// which it holds as 1/23 s, and the hardware flip queue spaces the flips by it
+	// (README-DLSS5.md, "A swap chain that starts skipping flips"). Neither a deeper queue,
+	// a pause nor a seek changed anything; resizing the swap chain to its own size ended it
+	// at once, every time. With
 	// the GPU's hardware scheduling off there was none in a session of 90 minutes.
 	//
 	// So the late pictures that were ready in time are watched for that beat. Late ones on
