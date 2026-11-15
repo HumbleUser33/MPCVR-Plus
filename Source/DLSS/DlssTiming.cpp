@@ -138,7 +138,9 @@ static double TicksPerMs()
 
 void CPresentSchedule::Reset()
 {
+	const int cadenceSlips = m_cadenceSlips;
 	*this = CPresentSchedule();
+	m_cadenceSlips = cadenceSlips;
 }
 
 void CPresentSchedule::Flush()
@@ -147,6 +149,19 @@ void CPresentSchedule::Flush()
 	m_sinceFlush = 0;
 	m_dropRun = 0;
 	m_bDue = false;
+	m_lastGap = 0;
+	m_bSlipWaiting = false;
+	m_bSlipNext = false;
+}
+
+void CPresentSchedule::SetCadenceSlips(const int mode)
+{
+	const int clamped = std::clamp(mode, (int)CadenceSlipsWhereTheyFall, (int)CadenceSlipsOnCutOrMade);
+	if (clamped != m_cadenceSlips) {
+		m_cadenceSlips = clamped;
+		m_bSlipWaiting = false;
+		m_bSlipNext = false;
+	}
 }
 
 long long CPresentSchedule::SmoothDue(long long tickStamp, double frameMs)
@@ -301,11 +316,23 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 	long long refresh = nearest;
 	bool bDrop = false;
 	long long slotAfter = 0;   // were this one left out: the refresh the next would be given
+	// Cadence slips placed (SetCadenceSlips), once the film has settled. The limit is the
+	// picture shown kSlipLimitMs before its time, or kRelock of a refresh if that is more.
+	const bool bPlace = m_cadenceSlips != CadenceSlipsWhereTheyFall && m_sinceFlush >= kSettling;
+	const double slipLimit = std::max(kRelock, kSlipLimitMs * TicksPerMs() / m_period);
+	const bool bMayMake = m_cadenceSlips == CadenceSlipsOnCutOrMade;
+	bool bSlipIfCut = false, bSlipNextIfCut = false, bDropIfCut = false, bSlipForced = false, bSlipMade = false, bSlipOnCut = false;
+	const bool bSlipNow = m_bSlipNext;   // the picture before opened a shot on a 3
+	m_bSlipNext = false;
+	const bool bNear32 = std::abs(perFrame / 2.5 - (1.0 + kNearCadence)) <= kNearCadenceTol;
+	m_bSlipWaiting = false;
+	m_bSlipCadence = m_cadenceSlips != CadenceSlipsWhereTheyFall && (bWholeStep || bNear32);
 	if (m_bLast && bWholeStep) {
 		// The step is kept while the picture stays within reach of its own time.
 		refresh = m_lastRefresh + whole;
 		const double off = (double)refresh - x;
 		const double reach = m_sinceFlush < kSettling ? 0.5 : kRelock;
+		const double reachEarly = bPlace ? slipLimit : reach;
 		if (off > reach) {
 			// Shown too long after its time. An earlier refresh if one is free, which
 			// there is only when a frame lasts several; otherwise this picture goes,
@@ -317,8 +344,57 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 				bDrop = true;
 				slotAfter = refresh;
 			}
-		} else if (off < -reach) {
+		} else if (off < -reachEarly) {
 			refresh = nearest; // too soon: the picture before it keeps the screen longer
+			if (bPlace) {
+				bSlipForced = true;
+				bSlipMade = bMayMake && refresh == m_lastRefresh + whole + 1;
+			}
+		} else if (bPlace && off <= -0.5) {
+			// Owed a refresh more: on a cut, or at the limit.
+			bSlipIfCut = true;
+			m_bSlipWaiting = true;
+		} else if (bPlace && whole == 1 && off >= 0.5) {
+			// Owed a picture less, at a film's own rate: on a cut, or at kRelock as ever.
+			// Only where the next one can be drawn in time for this one's refresh, from the
+			// moment the cut is known: this picture's own turn to be presented.
+			const long long tickDecided = std::max(tickNow, RefreshTime(refresh - m_depth - 1) + (long long)callPhase);
+			const long long tickNextReady = tickDecided + (long long)(drawMs * TicksPerMs());
+			bDropIfCut = m_dropRun < kMaxDropRun
+				&& tickNextReady <= RefreshTime(refresh - m_depth) - (long long)guard;
+			m_bSlipWaiting = bDropIfCut;
+		}
+	} else if (m_bLast && bPlace && (m_lastGap == 2 || m_lastGap == 3) && bNear32) {
+		// A 3:2 cadence on a screen a little faster than it: the 3 and 2 kept by turns past
+		// the point where the nearest refresh would give a 3,3, the slip -- always a 2 made a
+		// 3, never a 3 made a 4 -- taken on a cut from kSlipEarly of a refresh before that
+		// point, or at the limit.
+		const long long gap = m_lastGap == 3 ? 2 : 3;
+		const long long held = m_lastRefresh + gap;
+		const double e = (double)held - x;
+		if (e < -2.0 || e > 1.5) {
+			// Nowhere near the cadence (a clock that jumped): the nearest refresh again.
+			refresh = std::max(nearest, m_lastRefresh + 1);
+		} else {
+			refresh = held;
+			if (gap == 2) {
+				if (bSlipNow && e < -0.5 + kSlipEarly) {
+					// The picture before opened a shot: this one, its second, is the slip.
+					refresh = held + 1;
+					bSlipOnCut = true;
+				} else if (e < -0.5 - kSlipEarly) {
+					refresh = held + 1;
+					bSlipForced = true;
+					bSlipMade = bMayMake;
+				} else if (e < -0.5 + kSlipEarly) {
+					bSlipIfCut = true;
+					m_bSlipWaiting = true;
+				}
+			} else if ((double)held + 2.0 - (x + perFrame) < -0.5 + kSlipEarly) {
+				// A 3, with the 2 after it in the window: a cut here slips that one.
+				bSlipNextIfCut = true;
+				m_bSlipWaiting = true;
+			}
 		}
 	} else if (m_bLast && refresh <= m_lastRefresh) {
 		// Never two pictures for one refresh: the next one, then. But a film with more
@@ -333,6 +409,7 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 		}
 	}
 
+	const long long planned = refresh;
 	plan.tickWanted = RefreshTime(refresh - m_depth - 1) + (long long)callPhase;
 	// The first refresh it can still have, drawn as it is now. A film has to start
 	// with something, however late. After that, a picture more than half a frame
@@ -381,7 +458,84 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 	plan.refresh = refresh;
 	plan.tickRefresh = RefreshTime(refresh);
 	plan.tickCall = std::max(tickNow, RefreshTime(refresh - m_depth - 1) + (long long)callPhase);
+	// A slip planned for a refresh this picture no longer has (it came late) is not one.
+	if (refresh == planned) {
+		plan.bSlipIfCut = bSlipIfCut;
+		plan.bSlipNextIfCut = bSlipNextIfCut;
+		plan.bDropIfCut = bDropIfCut;
+		plan.bSlipForced = bSlipForced;
+		plan.bSlipMade = bSlipMade;
+		plan.bSlipOnCut = bSlipOnCut;
+	}
 	return plan;
+}
+
+void CPresentSchedule::ApplyCut(Plan& plan, const bool bCut)
+{
+	if (!bCut || !plan.bValid || plan.bDrop || plan.bBetween) {
+		return;
+	}
+	if (plan.bSlipIfCut) {
+		const long long period = (long long)m_period;
+		plan.refresh += 1;
+		plan.tickRefresh = RefreshTime(plan.refresh);
+		plan.tickCall += period;
+		plan.tickWanted += period;
+		plan.bSlipIfCut = false;
+		plan.bSlipOnCut = true;
+		m_bSlipWaiting = false;
+	} else if (plan.bSlipNextIfCut) {
+		// The cut opened on a 3: the next picture takes the slip (Choose).
+		plan.bSlipNextIfCut = false;
+		m_bSlipNext = true;
+		m_bSlipWaiting = false;
+	} else if (plan.bDropIfCut) {
+		plan.bDrop = true;
+		plan.bDropIfCut = false;
+		plan.bSlipOnCut = true;
+		m_bSlipWaiting = false;
+		m_dropRun++;
+		if (m_sinceFlush >= kSettling) {
+			m_dropped++;
+			m_slipsOnCut++;
+		}
+	}
+}
+
+CPresentSchedule::Plan CPresentSchedule::MadePlan(const long long tickNow, const Plan& next, double& t) const
+{
+	Plan made;
+	t = 0.5;
+	if (!next.bValid || next.bDrop || !next.bSlipForced || !next.bSlipMade || !m_bLast) {
+		return made;
+	}
+	// The refresh the slip adds is the one before the drawn picture's own.
+	const long long refresh = next.refresh - 1;
+	if (refresh <= m_lastRefresh) {
+		return made;
+	}
+	const double callPhase = std::min(kCallPhase * m_period, kCallPhaseMaxMs * TicksPerMs());
+	const double guard = std::min(kGuardPhase * m_period, kGuardMaxMs * TicksPerMs());
+	if (tickNow > RefreshTime(refresh - m_depth) - (long long)guard) {
+		return made; // too late for it: the slip stays a plain one
+	}
+	// Each picture goes on the refresh nearest its own time, so a refresh shows the film as
+	// it is at that refresh's moment: the made picture is the film at the moment of the
+	// refresh it is for, between the two pictures' own times.
+	const double span = (double)(next.tickDue - m_lastDue);
+	if (span <= 0) {
+		return made;
+	}
+	t = std::clamp((double)(RefreshTime(refresh) - m_lastDue) / span, 0.05, 0.95);
+	made.bValid = true;
+	made.bBetween = true;
+	made.refresh = refresh;
+	made.tickRefresh = RefreshTime(refresh);
+	made.tickWanted = RefreshTime(refresh - m_depth - 1) + (long long)callPhase;
+	made.tickCall = std::max(tickNow, made.tickWanted);
+	made.tickDue = m_lastDue + (long long)(t * span);
+	made.tickStamp = made.tickDue;
+	return made;
 }
 
 double CPresentSchedule::StuckSpacing() const
@@ -433,14 +587,28 @@ void CPresentSchedule::LeftOut()
 void CPresentSchedule::Presented(unsigned presentId, const Plan& plan, long long tickCalled, double msInside, bool bReady)
 {
 	const bool bSettled = m_sinceFlush >= kSettling;
-	if (plan.bRepeat && bSettled) {
-		m_repeated++;
-	}
-	m_bLast = true;
-	m_lastRefresh = plan.refresh;
-	m_dropRun = 0;
-	if (m_sinceFlush < kSettling) {
-		m_sinceFlush++;
+	if (plan.bBetween) {
+		// A made picture between two drawn ones: on the screen like any, but the step, the
+		// cadence and the counts go by the drawn pictures alone.
+		if (bSettled) {
+			m_madeShown++;
+		}
+	} else {
+		if (plan.bRepeat && bSettled && !plan.bSlipOnCut && !plan.bSlipForced) {
+			m_repeated++;
+		}
+		if (bSettled) {
+			m_slipsOnCut += plan.bSlipOnCut ? 1 : 0;
+			m_slipsForced += plan.bSlipForced ? 1 : 0;
+		}
+		m_lastGap = m_bLast ? plan.refresh - m_lastRefresh : 0;
+		m_lastDue = plan.tickDue;
+		m_bLast = true;
+		m_lastRefresh = plan.refresh;
+		m_dropRun = 0;
+		if (m_sinceFlush < kSettling) {
+			m_sinceFlush++;
+		}
 	}
 	// Present returns in a fraction of a millisecond when nothing is in its way. One
 	// that was waiting for the picture before it to be taken returns when that
@@ -464,9 +632,12 @@ void CPresentSchedule::Presented(unsigned presentId, const Plan& plan, long long
 		// they were. Which of the two is the ordinary choice in Choose.
 		shownOn = std::max(plan.refresh + 1,
 			(long long)std::ceil(RefreshIndex(tickReturned + (long long)lateGuard)) + m_depth);
-		m_lastRefresh = shownOn;
-		if (bSettled) {
-			m_late++;
+		if (!plan.bBetween) {
+			m_lastRefresh = shownOn;
+			m_lastGap = 0; // the cadence is found again from the nearest refresh
+			if (bSettled) {
+				m_late++;
+			}
 		}
 	}
 
@@ -487,7 +658,7 @@ void CPresentSchedule::Presented(unsigned presentId, const Plan& plan, long long
 	const double guard = std::min(kGuardPhase * m_period, kGuardMaxMs * TicksPerMs());
 	pending.bSafe = !bWaited && sinceRefresh > 0.02 * m_period && m_period - sinceRefresh > guard;
 	pending.refresh = shownOn; // where it will really be: not late a second time when DXGI says so
-	pending.bCounted = bSettled;
+	pending.bCounted = bSettled && !plan.bBetween;
 	pending.bReady = bReady;
 }
 
@@ -533,16 +704,21 @@ void CPacingTrace::SetCut(long long rtStart, const float* state)
 	for (size_t i = 0; i < n && i < 32; i++) {
 		Picture& p = m_pictures[n - 1 - i];
 		if (p.rtStart == rtStart && p.cutHist < 0) {
-			p.cutHist  = (int)std::lround(std::clamp(state[1], 0.0f, 2.0f) * 1000.0f);
-			p.cutResid = (int)std::lround(std::clamp(state[2], 0.0f, 1.0f) * 1e6f);
-			p.cutRatio = (int)std::lround(std::clamp(state[3], 0.0f, 1e7f) * 10.0f);
-			p.cutCorr  = (int)std::lround(std::clamp(state[14], -1.0f, 1.0f) * 1000.0f);
+			TakeCut(p, state);
 			if (state[0] > 0.5f) {
 				p.flags |= SceneCut;
 			}
 			return;
 		}
 	}
+}
+
+void CPacingTrace::TakeCut(Picture& p, const float* state)
+{
+	p.cutHist  = (int)std::lround(std::clamp(state[1], 0.0f, 2.0f) * 1000.0f);
+	p.cutResid = (int)std::lround(std::clamp(state[2], 0.0f, 1.0f) * 1e6f);
+	p.cutRatio = (int)std::lround(std::clamp(state[3], 0.0f, 1e7f) * 10.0f);
+	p.cutCorr  = (int)std::lround(std::clamp(state[14], -1.0f, 1.0f) * 1000.0f);
 }
 
 void CPacingTrace::SetGpu(long long rtStart, float vpMs, float allMs)

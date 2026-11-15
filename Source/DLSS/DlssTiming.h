@@ -242,12 +242,58 @@ public:
 	// moved, and is taken as it is.
 	static constexpr double kDueGain = 1.0 / 32.0;
 	static constexpr double kDueResetMs = 4.0;
+	// Where the cadence slips, and what is shown on the refresh it adds (SetCadenceSlips).
+	//
+	// A screen a little faster than the film's whole step -- 23.976 fps at 60.000 Hz, 2.5025
+	// refreshes a frame where the 3:2 cadence gives 2.5; 29.97 or 59.94 fps at 60.000 Hz,
+	// 2.002 and 1.001 where the step is 2 and 1; a film at its own rate whose clock and the
+	// screen's drift some parts in a million apart -- has to give one picture a refresh more
+	// now and then: a 3,3 every 200 pictures (8.34 s) at 23.976 fps on 60 Hz, a picture held
+	// 3 refreshes or repeated every 16.7 s at 29.97 and 59.94, one in an hour or so at the
+	// film's own rate. Where it falls is free within a little of the picture's time, and on
+	// a scene cut it does not show. So the step is kept past the point where the nearest
+	// refresh would break it, and broken on the first cut found from kSlipEarly of a refresh
+	// before that point (a 3:2 cadence) or half a refresh (a whole step) -- the picture that
+	// opens the new shot is shown a refresh later, the last of the old one holding the screen
+	// a refresh longer -- and at the latest kSlipEarly after it (3:2), or when a picture would
+	// be shown kSlipLimitMs before its time, or kRelock of a refresh, whichever is more (a
+	// whole step). That last one may show a picture made between the two (Plan::bSlipMade) on
+	// the refresh it adds. A picture shown too late rather than too early, at a film's own
+	// rate, is left out on a cut instead.
+	//
+	// In a 3:2 cadence only a 2 is made a 3, never a 3 a 4. A cut that opens on a picture of
+	// 3 gives the slip to the picture after it: the first picture of the new shot holds the
+	// screen a refresh longer. And a slip there takes half a refresh, the 3 and the 2 trading
+	// places, so its window is half a refresh wide, kSlipEarly each side of the point. A
+	// forced slip leaves the cadence at the window's start, and a cut soon after may take the
+	// next one there and then (seen in MPC-HC, 0.7 s apart): the forced one was shown anyway,
+	// the second is on a cut, and the slips come no more often for it over the film.
+	enum CadenceSlips { CadenceSlipsWhereTheyFall = 0, CadenceSlipsOnCut = 1, CadenceSlipsOnCutOrMade = 2 };
+	static constexpr double kSlipEarly = 0.25;        // refresh
+	static constexpr double kSlipLimitMs = 17.0;
+	// The screen this much faster than 2.5 refreshes a frame, give or take kNearCadenceTol:
+	// a 3:2 cadence whose slip can be placed. 0.001 is 60.000 Hz against 23.976 fps.
+	static constexpr double kNearCadence = 0.001;
+	static constexpr double kNearCadenceTol = 0.0006;
 
 	struct Plan {
 		bool bValid = false;       // a refresh was chosen; otherwise present as before
 		bool bDrop = false;        // no refresh left worth having: do not present it
 		bool bSkipNext = false;    // the sample after this one is to be left out undrawn
 		bool bRepeat = false;      // the picture before it is given a refresh more
+		// The slip of a cadence placed on a scene cut (kSlipEarly). A cut found on this
+		// picture shows it a refresh later (bSlipIfCut) or leaves it out (bDropIfCut):
+		// ApplyCut does it. bSlipForced: no cut came in time, and the refresh before this
+		// one is the one added; bSlipMade: a picture made between the two may go on it
+		// (MadePlan). bSlipOnCut: ApplyCut took the slip on a cut. bBetween: the plan of
+		// such a made picture, not of a drawn one.
+		bool bSlipIfCut = false;
+		bool bSlipNextIfCut = false;   // a 3 in a 3:2 cadence: a cut on it slips the next picture
+		bool bDropIfCut = false;
+		bool bSlipForced = false;
+		bool bSlipMade = false;
+		bool bSlipOnCut = false;
+		bool bBetween = false;
 		long long refresh = 0;     // the refresh it is for
 		long long tickCall = 0;    // when to call Present
 		long long tickWanted = 0;  // when it would have been called, had the picture come in time
@@ -258,6 +304,9 @@ public:
 
 	void Reset();   // another swap chain or another display mode
 	void Flush();   // the film goes on from somewhere else
+	// One of CadenceSlips. Kept across Reset and Flush.
+	void SetCadenceSlips(int mode);
+	int CadenceSlipsMode() const { return m_cadenceSlips; }
 
 	// DXGI's account of the swap chain, as often as it is read. nominalPeriodMs is the
 	// display mode's, until the refreshes themselves have said better.
@@ -269,6 +318,13 @@ public:
 	// takes from its sample to being ready to present. The plan's tickDue is the
 	// picture's time as the schedule went by it (kDueGain).
 	Plan Choose(long long tickNow, long long tickStamp, double frameMs, double drawMs);
+	// Whether a scene cut was found on the picture, once known and before its Present:
+	// takes the slip the plan left to a cut (bSlipIfCut, bDropIfCut).
+	void ApplyCut(Plan& plan, bool bCut);
+	// The plan of a picture made between the last one shown and `next`, for the refresh
+	// a forced slip adds (bSlipMade); not valid when there is none, or no time left for it.
+	// t: where that refresh falls between the two pictures' own times, 0 to 1.
+	Plan MadePlan(long long tickNow, const Plan& next, double& t) const;
 	// A sample was left out before it was drawn, as a Plan asked.
 	void LeftOut();
 	// msInside: how long Present took to return. bReady: the GPU had finished the picture
@@ -286,6 +342,16 @@ public:
 	unsigned RepeatedCount() const { return m_repeated; }
 	unsigned DroppedCount() const { return m_dropped; }
 	unsigned LateCount() const { return m_late; }      // shown later than the refresh chosen
+	// Cadence slips (SetCadenceSlips): taken on a cut, forced for want of one, and of those
+	// forced, how many showed a made picture on the refresh they added.
+	unsigned SlipsOnCut() const { return m_slipsOnCut; }
+	unsigned SlipsForced() const { return m_slipsForced; }
+	unsigned MadeShown() const { return m_madeShown; }
+	// The step is being kept past the nearest refresh, waiting for a cut.
+	bool SlipWaiting() const { return m_bSlipWaiting; }
+	// The last picture was in a cadence whose slips are placed: what the renderer copies
+	// pictures out for.
+	bool SlipsPlaced() const { return m_bSlipCadence; }
 	bool ShownKnown() const { return m_bShownKnown; }
 	double ShownOffsetMs() const { return m_shownOffsetMs; } // the last one DXGI reported: its refresh, less its time
 	double PeriodMs() const;
@@ -336,6 +402,16 @@ private:
 
 	bool m_bLast = false;          // a picture has been given a refresh since the last flush
 	long long m_lastRefresh = 0;
+	long long m_lastGap = 0;       // refreshes between the last two pictures shown (0: not known)
+	long long m_lastDue = 0;       // the last picture's own time, as the schedule went by it
+
+	int m_cadenceSlips = CadenceSlipsWhereTheyFall;
+	bool m_bSlipWaiting = false;
+	bool m_bSlipCadence = false;
+	bool m_bSlipNext = false;      // the last picture opened a shot on a 3: this one takes the slip
+	unsigned m_slipsOnCut = 0;
+	unsigned m_slipsForced = 0;
+	unsigned m_madeShown = 0;
 
 	// The pictures' times as the schedule goes by them (kDueGain).
 	bool m_bDue = false;
@@ -394,6 +470,14 @@ public:
 		Composed    = 524288,
 		Overlay     = 1048576,
 		DirectFlip  = 2097152,
+		// A picture made between two drawn ones (the frame generation branch gives the same
+		// value to its own), here for the refresh a forced cadence slip adds.
+		Generated   = 4194304,
+		// Cadence slips (CPresentSchedule::SetCadenceSlips): this picture opened a scene cut
+		// the slip was taken on, or no cut came in time and the slip was taken here.
+		SlipOnCut   = 16777216,
+		SlipForced  = 33554432,
+		CadenceCut  = 67108864, // the cadence slips' own detector (CSceneCut) called it a cut
 	};
 
 	// DXGI's account of the swap chain at one moment.
@@ -445,6 +529,8 @@ public:
 	void Add(const Picture& picture);
 	// The cut measures of a picture already added, found by its time.
 	void SetCut(long long rtStart, const float* state);
+	// Those measures (cs_dlss_scene_cut.hlsl's state) into a picture, without the flag.
+	static void TakeCut(Picture& p, const float* state);
 	// Its GPU times (CGpuStageTimes::Take), likewise.
 	void SetGpu(long long rtStart, float vpMs, float allMs);
 	// Out to the file, all but the last `keep` pictures, which SetCut and SetGpu may still fill.
