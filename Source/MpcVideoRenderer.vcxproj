@@ -87,6 +87,10 @@
     <ClCompile Include="DX11VideoProcessorDlss.cpp" />
     <ClCompile Include="DX11VideoProcessorMpv.cpp" />
     <ClCompile Include="DX11VideoProcessorPresent.cpp" />
+    <ClCompile Include="Cadence\SceneCut.cpp" />
+    <ClCompile Include="FrameGen\echo\EchoFlow.cpp" />
+    <ClCompile Include="FrameGen\echo\EchoSynth11.cpp" />
+    <ClCompile Include="DX11VideoProcessorCadence.cpp" />
     <ClCompile Include="DX11VideoProcessorStats.cpp" />
     <ClCompile Include="DX9Helper.cpp" />
     <ClCompile Include="DX9VideoProcessor.cpp" />
@@ -134,6 +138,9 @@
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowD3D11.h" />
     <ClInclude Include="DLSS\DlssSR.h" />
     <ClInclude Include="DLSS\DlssTiming.h" />
+    <ClInclude Include="Cadence\SceneCut.h" />
+    <ClInclude Include="FrameGen\echo\EchoFlow.h" />
+    <ClInclude Include="FrameGen\echo\EchoSynth11.h" />
     <ClInclude Include="DLSS\NgxRuntime.h" />
     <ClInclude Include="Upscale\MpvShader.h" />
     <ClInclude Include="Upscale\MpvShaderTables.h" />

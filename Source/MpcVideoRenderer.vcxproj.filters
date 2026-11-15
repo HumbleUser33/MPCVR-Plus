@@ -93,6 +93,18 @@
     <ClCompile Include="DX11VideoProcessorPresent.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Cadence\SceneCut.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FrameGen\echo\EchoFlow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FrameGen\echo\EchoSynth11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DX11VideoProcessorCadence.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="DX11VideoProcessorStats.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -219,6 +231,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Logo\LogoWorker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Cadence\SceneCut.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FrameGen\echo\EchoFlow.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FrameGen\echo\EchoSynth11.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DLSS\DlssOpticalFlow.h">

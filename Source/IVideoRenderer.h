@@ -215,6 +215,16 @@ constexpr inline auto LOGO_MARGIN_MIN = 0;
 constexpr inline auto LOGO_MARGIN_MAX = 3;
 constexpr inline auto LOGO_MARGIN_DEF = 1;
 
+// Where a cadence slips (Settings_t::iCadenceSlips): as it falls, on a scene cut, or on a
+// scene cut and else covered by a picture made between two. The values are
+// CPresentSchedule::CadenceSlips'.
+enum : int {
+    CADENCE_SLIPS_Off = 0,
+    CADENCE_SLIPS_OnCut,
+    CADENCE_SLIPS_OnCutOrMade,
+    CADENCE_SLIPS_COUNT
+};
+
 // The picture delay, in milliseconds. Later is what a slow sound asks for; earlier is
 // there for a television that takes longer over the picture than the sound takes to
 // arrive. The step is the slider's: a picture moves by whole refreshes in any case.
@@ -355,6 +365,13 @@ struct Settings_t {
 	// smeared further than the analysis saw.
 	int  iLogoMargin;
 
+	// The refresh more a film at 23.976, 29.97 or 59.94 pictures a second owes a screen at
+	// 60 Hz every few seconds, and the repeat or the drop a film at the screen's own rate
+	// owes it once in a long while, CADENCE_SLIPS_*: where they fall, held for a scene cut,
+	// or held for one and else shown as a picture EchoFG makes between the two. Direct3D 11
+	// and render ahead, which schedules every picture.
+	int  iCadenceSlips;
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -449,6 +466,7 @@ struct Settings_t {
 		iDebandLevel                    = CLEAN_LEVEL_DEF;
 		bHideLogo                       = false;
 		iLogoMargin                     = LOGO_MARGIN_DEF;
+		iCadenceSlips                   = CADENCE_SLIPS_Off;
 	}
 };
 
@@ -501,6 +519,7 @@ inline void KeepOutOfPreset(Settings_t& sets, const Settings_t& current)
 	sets.bAdjustPresentTime   = current.bAdjustPresentTime;
 	sets.bReinitByDisplay     = current.bReinitByDisplay;
 	sets.bDlssRenderAhead     = current.bDlssRenderAhead;
+	sets.iCadenceSlips        = current.iCadenceSlips;
 }
 
 constexpr int PRESET_COUNT = 10;

@@ -435,6 +435,14 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		}
 		str += std::format(L", scheduled: repeated {}, dropped {}, shown late {}",
 			m_PresentSchedule.RepeatedCount(), m_PresentSchedule.DroppedCount(), m_PresentSchedule.LateCount());
+		// The cadence slips placed: on a cut, and those no cut came in time for, with how
+		// many of them a made picture covered.
+		if (m_iCadenceSlips != CADENCE_SLIPS_Off) {
+			str += std::format(L", slips on a cut {}, forced {}", m_PresentSchedule.SlipsOnCut(), m_PresentSchedule.SlipsForced());
+			if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {
+				str += std::format(L" (made {})", m_PresentSchedule.MadeShown());
+			}
+		}
 	} else
 	if (m_bDlssRenderAhead && m_UsedSwapEffect == DXGI_SWAP_EFFECT_DISCARD && m_pFilter->m_filterState == State_Running) {
 		// Worth saying, since the remedy is one setting away: the Discard swap effect

@@ -37,6 +37,9 @@
 #include "DLSS/DlssNR.h"
 #include "DLSS/DlssSR.h"
 #include "DLSS/DlssTiming.h"
+#include "Cadence/SceneCut.h"
+#include "FrameGen/echo/EchoFlow.h"
+#include "FrameGen/echo/EchoSynth11.h"
 #include "Upscale/MpvShader.h"
 #include "VideoProcessor.h"
 #include "SubPic/DX11SubPic.h"
@@ -507,6 +510,45 @@ private:
 	REFERENCE_TIME m_rtScheduledOffset = 0;   // its refresh, less its own time
 	void ReadPresentSchedule();
 	void WaitForScheduledPresent(const CPresentSchedule::Plan& plan, const bool bMeasure);
+	void WaitUntilTick(long long tick);
+
+	// The refresh a film at 23.976, 29.97 or 59.94 pictures a second owes a screen at
+	// 60 Hz now and then, and the repeat or the drop a film at the screen's own rate owes
+	// it once in a long while, placed on a scene cut, or shown as a picture made between
+	// two (CPresentSchedule::SetCadenceSlips, DX11VideoProcessorCadence.cpp).
+	int m_iCadenceSlips = CADENCE_SLIPS_Off;   // user setting
+	CSceneCut m_SceneCut;
+	CEchoFlow m_CadenceFlow;
+	CEchoSynth11 m_CadenceSynth;
+	Tex2D_t m_TexCadencePicture[2];            // the video area of the last two pictures, as drawn and before anything over it
+	Tex2D_t m_TexCadenceMade;                  // the picture made between them
+	CComPtr<ID3D11UnorderedAccessView> m_pCadenceMadeUav;
+	Tex2D_t m_TexCadenceKeep;                  // the drawn picture's back buffer, while the made one goes first
+	CRect m_cadenceRect;                       // the video area those were taken from
+	int m_iCadencePicture = 0;                 // which of the two holds the last picture
+	bool m_bCadenceHaveLast = false;           // it holds one
+	bool m_bCadenceHaveBefore = false;         // and the other one holds the picture before it
+	bool m_bCadenceMeasured = false;           // the scene cut detector measured the last picture
+	bool m_bCadenceMakeReady = false;          // the motion and the synthesis can run
+	bool m_bCadenceMakeFailed = false;         // they could not be made: slips are plain, as option 2
+	uint64_t m_cadenceId = 0;                  // the last picture measured
+	double m_cadenceMadeMs = 6.0;              // what a made picture takes the GPU, the longest lately
+	std::atomic<int> m_cadenceAhead = 0;       // how much earlier samples are asked for so that one can be made, 100 ns
+	unsigned m_cadenceMadeFailed = 0;          // forced slips a made picture could not be had for
+	// MPCVR_CADENCE_DUMP: the first made pictures kept with the two they were made between
+	Tex2D_t m_TexCadenceDump[3];
+	bool m_bCadenceDumpPending = false;
+	unsigned m_cadenceDumped = 0;
+	void CadenceWriteDump();
+	bool CadenceActive() const;
+	UINT CadenceEncoding() const;
+	void CadenceTakePicture(ID3D11Texture2D* pBackBuffer);
+	int CadenceReadCut(CPacingTrace::Picture* pTraced);
+	bool CadencePresentMade(const CPresentSchedule::Plan& plan, CComPtr<ID3D11Texture2D>& pBackBuffer, bool bMeasure, bool bTrace, const CPacingTrace::Picture& traced);
+	void CadenceUpdateAhead();
+	void CadenceReset();
+	void CadenceRelease();
+	void DrawOverlays(ID3D11Texture2D* pBackBuffer, HRESULT& hr);
 
 	// Every picture's way to the screen, written to a file when one is asked for.
 	CPacingTrace m_PacingTrace;

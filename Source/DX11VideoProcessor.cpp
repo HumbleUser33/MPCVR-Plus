@@ -468,6 +468,8 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	// Only Configure() used to take it, so the renderer made for each film had it on
 	// whatever the setting said: unticked, it stayed off until the next file.
 	m_bDlssRenderAhead     = config.bDlssRenderAhead;
+	m_iCadenceSlips        = config.iCadenceSlips;
+	m_PresentSchedule.SetCadenceSlips(m_iCadenceSlips);
 
 	m_nCurrentAdapter = -1;
 
@@ -744,6 +746,7 @@ void CDX11VideoProcessor::ReleaseVP()
 	m_SRCutReadback.Release();
 	m_RenderAhead.Reset();
 	m_DlssNRTimes.Reset();
+	CadenceReset();
 
 	m_TexMpvLuma.Release();
 	m_TexMpvResize.Release();
@@ -786,6 +789,7 @@ void CDX11VideoProcessor::ReleaseDevice()
 	m_DlssStageTimes.Release();
 	m_pVPTimingProbe.Release();
 	m_pPictureDoneQuery.Release();
+	CadenceRelease();
 	ReleaseVPScale();
 	m_D3D11VPScale.ReleaseVideoDevice();
 	m_D3D11VP.ReleaseVideoDevice();
@@ -3627,30 +3631,14 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 
 	m_DlssStageTimes.EndFrame(m_pDeviceContext);   // nothing to do when no set is open
 
-	if (!m_pPSHalfOUtoInterlace) {
-		DrawSubtitles(pBackBuffer);
+	// The picture as drawn, before anything goes over it, for the cadence slips: whether
+	// it opens a shot, and what a picture made before it would be made from.
+	m_bCadenceMeasured = false;
+	if (field && frameStartTime != INVALID_TIME && CadenceActive() && !m_renderRect.IsRectEmpty()) {
+		CadenceTakePicture(pBackBuffer);
 	}
 
-	if (m_bShowStats) {
-		hr = DrawStats(pBackBuffer);
-	}
-	DrawNotice(pBackBuffer);
-
-	if (m_bAlphaBitmapEnable) {
-		D3D11_TEXTURE2D_DESC desc;
-		pBackBuffer->GetDesc(&desc);
-		D3D11_VIEWPORT VP = {
-			m_AlphaBitmapNRectDest.left * desc.Width,
-			m_AlphaBitmapNRectDest.top * desc.Height,
-			(m_AlphaBitmapNRectDest.right - m_AlphaBitmapNRectDest.left) * desc.Width,
-			(m_AlphaBitmapNRectDest.bottom - m_AlphaBitmapNRectDest.top) * desc.Height,
-			0.0f,
-			1.0f
-		};
-		hr = AlphaBlt(m_TexAlphaBitmap.pShaderResource, pBackBuffer,
-			m_pAlphaBitmapVertex, &VP,
-			m_pSamplerLinear);
-	}
+	DrawOverlays(pBackBuffer, hr);
 
 #if 0
 	{ // Tearing test (very non-optimal implementation, use only for tests)
@@ -3744,6 +3732,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 			const double drawMs = std::max((double)(tickNow - (long long)tick1) * 1000.0 / GetPreciseTicksPerSecond(),
 				m_RenderAhead.MaxLatencyMs());
 			plan = m_PresentSchedule.Choose(tickNow, tickDue, frameMs, drawMs);
+			CadenceUpdateAhead();
 			// A second field belongs to its sample, and the sample is all that can be left out.
 			if (plan.bSkipNext && !m_bDoubleFrames) {
 				m_bSkipNextSample = true;
@@ -3779,6 +3768,16 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		return hr;
 	}
 
+	// A cadence slip that no cut came in time for: the refresh it adds shows a picture
+	// made between the last one and this one, and this one follows it on the next.
+	bool bMadeShown = false;
+	if (plan.bValid && plan.bSlipForced && plan.bSlipMade) {
+		bMadeShown = CadencePresentMade(plan, pBackBuffer, field == 1, bTrace, traced);
+		if (!pBackBuffer) {
+			return E_FAIL;
+		}
+	}
+
 	// Without a refresh to aim at -- DXGI has not said where they are, or the setting
 	// is off -- a picture a DLSS pass or a prescaler worked on is still held for its
 	// time on the reference clock, as before.
@@ -3790,7 +3789,35 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 
 	if (plan.bValid) {
 		// Only the first picture of a sample is started early; a second field follows it.
-		WaitForScheduledPresent(plan, field == 1);
+		WaitForScheduledPresent(plan, field == 1 && !bMadeShown);
+		// A cadence slip waiting for a cut: this picture is one or it is not, which the
+		// GPU has said by now if it is done with it. A cut takes the slip -- the refresh
+		// more, or the picture less at a film's own rate.
+		if (plan.bSlipIfCut || plan.bSlipNextIfCut || plan.bDropIfCut) {
+			const int cut = CadenceReadCut(bTrace ? &traced : nullptr);
+			m_PresentSchedule.ApplyCut(plan, cut == 1);
+			if (bTrace && plan.bSlipOnCut) {
+				traced.flags |= plan.bDrop ? (CPacingTrace::Dropped | CPacingTrace::SlipOnCut) : 0;
+				traced.tickTarget = plan.tickRefresh;
+			}
+			if (plan.bDrop) {
+				m_tickOnScreen = 0;
+				if (bTrace) {
+					traced.tickGpuDone = (long long)m_tickPictureDone;
+					ReadShownForTrace(traced.after);
+					m_PacingTrace.Add(traced);
+				}
+				return hr;
+			}
+			if (plan.bSlipOnCut) {
+				WaitUntilTick(plan.tickCall);
+			}
+		} else if (m_bCadenceMeasured) {
+			CadenceReadCut(bTrace ? &traced : nullptr);   // for the trace
+		}
+		if (bTrace) {
+			traced.flags |= (plan.bSlipForced ? CPacingTrace::SlipForced : 0) | (plan.bSlipOnCut ? CPacingTrace::SlipOnCut : 0);
+		}
 	} else {
 		// Upstream's two ways of timing Present are for render ahead off. Render ahead
 		// never waits for a vertical blank, which puts the call where a refresh is worst
@@ -5360,6 +5387,13 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		m_bScheduled = false;
 		UpdateStatsPresent();
 	}
+	if (config.iCadenceSlips != m_iCadenceSlips) {
+		// The pictures keep the cadence they have; only where its next slip goes changes.
+		m_iCadenceSlips = config.iCadenceSlips;
+		m_PresentSchedule.SetCadenceSlips(m_iCadenceSlips);
+		CadenceReset();
+		UpdateStatsPresent();
+	}
 
 	if (config.iTexFormat != m_iTexFormat) {
 		m_iTexFormat = config.iTexFormat;
@@ -5722,6 +5756,7 @@ void CDX11VideoProcessor::Flush()
 	m_rtStart = 0;
 	m_bSkipNextSample = false;
 	m_PresentSchedule.Flush();
+	CadenceReset();
 	if (m_PacingTrace.Enabled()) {
 		m_PacingTrace.Note(L"flush");
 	}
@@ -5870,6 +5905,12 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 			if (swapchain_desc.SwapEffect != DXGI_SWAP_EFFECT_DISCARD
 					&& swapchain_desc.SwapEffect != DXGI_SWAP_EFFECT_SEQUENTIAL) {
 				m_strStatsPresent.append(L"\nFrame sync    : a refresh chosen for each picture");
+				// Where the cadence slips (iCadenceSlips), and why not a made picture when none can be.
+				if (m_iCadenceSlips == CADENCE_SLIPS_OnCut) {
+					m_strStatsPresent.append(L", slips on a cut");
+				} else if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {
+					m_strStatsPresent.append(m_bCadenceMakeFailed ? L", slips on a cut (no made pictures here)" : L", slips on a cut or made");
+				}
 			} else {
 				m_strStatsPresent.append(L"\nFrame sync    : held to its time");
 			}

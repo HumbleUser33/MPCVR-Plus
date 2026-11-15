@@ -246,7 +246,11 @@ void CDX11VideoProcessor::NoteDlssForTrace()
 
 int CDX11VideoProcessor::GetRenderAhead()
 {
-	return RenderAheadActive() ? m_RenderAhead.GetAhead() : 0;
+	// A cadence slip that may end on a made picture wants the sample a refresh and the
+	// made picture earlier (CadenceUpdateAhead); never more than render ahead's own bound.
+	return RenderAheadActive()
+		? std::min(m_RenderAhead.GetAhead() + m_cadenceAhead.load(std::memory_order_relaxed), (int)(CRenderAhead::kMaxAheadMs * 10000.0))
+		: 0;
 }
 
 // Render ahead, first half: a marker after the picture's last command, which tells

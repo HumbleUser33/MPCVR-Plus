@@ -502,6 +502,17 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Resolution). Without it a picture reaches the screen a refresh or two after its time.\n"
 		"The statistics then show 'scheduled', and how many pictures were repeated or dropped.\n"
 		"Needs Direct3D 11 and the Flip swap effect (always used for HDR)." },
+	{ IDC_CADENCE_SLIPS,
+		L"A film at 23.976, 29.97 or 59.94 frames a second on a screen at 60 Hz owes it a refresh "
+		"now and then: every 8 s a picture is held a refresh longer (a 3,3 in the 3:2 cadence), "
+		"every 17 s at 29.97 and 59.94. At the film's own rate the clocks part by a picture once "
+		"in a long while.\n"
+		"Where they fall: where the cadence puts them, as before.\n"
+		"On a scene cut: held, up to 17 ms early or late, for the next change of shot, where a "
+		"picture held a refresh longer is not seen.\n"
+		"On a cut, else a made picture: when no cut comes in time, the refresh it adds shows a "
+		"picture EchoFG makes between the two.\n"
+		"24, 25 and 30 frames a second are not touched. Needs Render ahead." },
 	{ IDC_CHECK2,
 		L"Shows the renderer's statistics over the picture: formats, processing steps and their "
 		"cost, sync offset.\n"
@@ -719,6 +730,10 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Discard (legacy)");
 	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Flip (recommended)");
 
+	Combo_AddData(Item(IDC_CADENCE_SLIPS), L"Where they fall",               CADENCE_SLIPS_Off);
+	Combo_AddData(Item(IDC_CADENCE_SLIPS), L"On a scene cut",                CADENCE_SLIPS_OnCut);
+	Combo_AddData(Item(IDC_CADENCE_SLIPS), L"On a cut, else a made picture", CADENCE_SLIPS_OnCutOrMade);
+
 	// In the order of the enum, so the position is the value.
 	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Off");
 	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Adaptive-Sharpen");
@@ -893,6 +908,7 @@ void CVRSettingsPPage::SetControls()
 	SetCheck(IDC_CHECK13, m_SetsPP.bAdjustPresentTime);
 	SetCheck(IDC_CHECK16, m_SetsPP.bReinitByDisplay);
 	SetCheck(IDC_CHECK26, m_SetsPP.bDlssRenderAhead);
+	Combo_SelectData(Item(IDC_CADENCE_SLIPS), m_SetsPP.iCadenceSlips);
 	Send(IDC_COMBO6, CB_SETCURSEL, m_SetsPP.iResizeStats, 0);
 	Send(IDC_SLIDER8, TBM_SETPOS, TRUE, (LPARAM)(m_SetsPP.iVideoDelay / VIDEO_DELAY_STEP));
 	SetText(IDC_EDIT10, DelayText(m_SetsPP.iVideoDelay).c_str());
@@ -1021,6 +1037,9 @@ void CVRSettingsPPage::EnableControls()
 	const BOOL bUpstreamTiming = !(m_SetsPP.bUseD3D11 && m_SetsPP.bDlssRenderAhead);
 	Enable(IDC_CHECK15, bUpstreamTiming);
 	Enable(IDC_CHECK13, bUpstreamTiming);
+	// The cadence slips are placed by render ahead's schedule.
+	Enable(IDC_STATIC_CADENCE_SLIPS, !bUpstreamTiming);
+	Enable(IDC_CADENCE_SLIPS, !bUpstreamTiming);
 
 	// DLSS. The path boxes stay live even when the feature is off, so a wrong path
 	// can be fixed without enabling it first.
@@ -1455,6 +1474,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_COMBO_DVTM,  &m_SetsPP.iHdrDoviToneMappingType, false },
 				{ IDC_COMBO_SDRTM, &m_SetsPP.iSdrToneMappingType,     false },
 				{ IDC_DEBLOCK,     &m_SetsPP.iDeblock,                true  },
+				{ IDC_CADENCE_SLIPS, &m_SetsPP.iCadenceSlips,         false },
 			};
 			for (const auto& c : byData) {
 				if (nID == c.id) {

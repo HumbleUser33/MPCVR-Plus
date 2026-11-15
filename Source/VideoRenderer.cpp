@@ -104,6 +104,7 @@
 #define OPT_UpscalingSmallFilter           L"UpscalingSmallFilter"
 #define OPT_DlssRenderAhead                L"DlssRenderAhead"
 #define OPT_VideoDelay                     L"VideoDelay"
+#define OPT_CadenceSlips                   L"CadenceSlips"
 #define OPT_SdrToneMappingType             L"SdrToneMappingType"
 // registry only, not saved
 #define OPT_SdrPeakWindowMs                L"SdrPeakWindowMs"
@@ -353,6 +354,9 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_VideoDelay, dw)) {
 		sets.iVideoDelay = discard<int>((int)dw, 0, VIDEO_DELAY_MIN, VIDEO_DELAY_MAX);
 	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_CadenceSlips, dw)) {
+		sets.iCadenceSlips = discard<int>(dw, CADENCE_SLIPS_Off, 0, CADENCE_SLIPS_COUNT-1);
+	}
 }
 
 static void WriteSettings(CRegKey& key, const Settings_t& sets)
@@ -428,6 +432,7 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_UpscalingSmall,      sets.bUpscalingSmall);
 	key.SetDWORDValue(OPT_UpscalingSmallFilter, sets.iUpscalingSmall);
 	key.SetDWORDValue(OPT_VideoDelay,          (DWORD)sets.iVideoDelay);
+	key.SetDWORDValue(OPT_CadenceSlips,        sets.iCadenceSlips);
 }
 
 // The settings are this renderer's own. The original is often on the same machine -- MPC-HC

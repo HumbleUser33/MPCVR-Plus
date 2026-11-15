@@ -30,7 +30,8 @@ It is published as **MPCVR-Plus**: `origin` is HumbleUser33/MPCVR-Plus, the bran
 
 - **Resource numbers live in reserved ranges.** Upstream owns everything below 1900, and
   every control below 1200. Ours go in 4000-4019 (dialogs), 1900-1999 (shaders),
-  2000-2099 (generated) and 1200-1399 (controls). The head of `Source/resource.h` says so,
+  2000-2099 (generated), 2100-2149 (EchoStorm's motion and synthesis, numbered as the
+  frame generation branch numbers them) and 1200-1399 (controls). The head of `Source/resource.h` says so,
   and section 5 of the pre-flight checks it. A number used by both sides compiles without
   a word and loads the wrong resource.
 
