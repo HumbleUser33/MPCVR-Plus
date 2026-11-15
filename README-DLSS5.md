@@ -2530,8 +2530,10 @@ as they change:
 - *Sync offset* and *On screen*: see *A film at the screen's own rate* and *A refresh chosen
   for every picture*. *Video delay* follows them when one is set.
 - *Hiccups*, with the hiccup hidden on scene changes: how many of the cadence's slips went on a
-  scene change, how many elsewhere for want of one, how many of those an interpolated frame
-  covered, and how many interpolated frames came out too late and were left out.
+  scene change, how many did `not` -- no scene change came in time, and the slip was taken where
+  the cadence put it, seen as before -- and in brackets how many of those an interpolated frame
+  covered and how many interpolated frames came out `too late` and were left out:
+  `Hiccups : 9 on scene changes, 2 not (1 interpolated)`.
 - *Frames*: the samples received, those the renderer left undrawn for coming too late, the
   second fields of a deinterlaced picture left out, and the pictures that failed; *turns lost*
   and *turns late* when a picture's turn in the renderer was taken away or came late, the

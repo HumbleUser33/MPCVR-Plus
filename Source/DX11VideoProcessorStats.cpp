@@ -459,16 +459,18 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		str += std::format(L", scheduled: repeated {}, dropped {}, shown late {}",
 			m_PresentSchedule.RepeatedCount(), m_PresentSchedule.DroppedCount(), m_PresentSchedule.LateCount());
 		// The cadence slips placed, on a line of their own: on the line above they took it
-		// out of the box. On a scene change, elsewhere for want of one, and of those how
-		// many an interpolated frame covered.
+		// out of the box. On a scene change, not on one for want of one in time, and of those
+		// how many an interpolated frame covered and how many interpolated frames came too
+		// late to be shown. "Elsewhere" read as a place on the screen.
 		if (m_iCadenceSlips != CADENCE_SLIPS_Off) {
 			// Short enough for three-digit counts, two hours of film, within the box.
-			str += std::format(L"\nHiccups       : {} on scene changes, {} elsewhere", m_PresentSchedule.SlipsOnCut(), m_PresentSchedule.SlipsForced());
+			str += std::format(L"\nHiccups       : {} on scene changes, {} not", m_PresentSchedule.SlipsOnCut(), m_PresentSchedule.SlipsForced());
 			if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {
-				str += std::format(L", {} interpolated", m_PresentSchedule.MadeShown());
+				str += std::format(L" ({} interpolated", m_PresentSchedule.MadeShown());
 				if (m_cadenceMadeLate) {
-					str += std::format(L", {} late", m_cadenceMadeLate);
+					str += std::format(L", {} too late", m_cadenceMadeLate);
 				}
+				str += L')';
 			}
 		}
 	} else
