@@ -116,6 +116,9 @@ static const Toggle g_toggles[] = {
 	{ "Super Resolution off",                   [](Settings_t& s) { s.bVPScaling = false; } },
 	{ "DLSS SR on",                             [](Settings_t& s) { s.bDlssSR = true; } },
 	{ "DLSS SR off",                            [](Settings_t& s) { s.bDlssSR = false; } },
+	{ "Cadence slips on a cut",                 [](Settings_t& s) { s.iCadenceSlips = CADENCE_SLIPS_OnCut; } },
+	{ "Cadence slips on a cut, else made",      [](Settings_t& s) { s.iCadenceSlips = CADENCE_SLIPS_OnCutOrMade; } },
+	{ "Cadence slips where they fall",          [](Settings_t& s) { s.iCadenceSlips = CADENCE_SLIPS_Off; } },
 };
 
 static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, int seconds)

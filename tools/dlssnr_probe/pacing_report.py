@@ -25,6 +25,11 @@ refresh of nearly every picture; the refresh times themselves come from the pair
 the screen's real period rather than the one it announces.
 
 --skip leaves out the first seconds of each stretch, while the film settles.
+
+A film at 23.976 on a screen at 60 Hz is counted as a 3:2 cadence: its slips, two pictures in a
+row held alike, with when each came, marked c when it was taken on a scene cut and f when it was
+forced for want of one (the Cadence slips setting). The pictures made for a forced slip are
+counted apart and left out of the steps.
 """
 
 import io
@@ -43,6 +48,10 @@ HELD, VBLANK, FIELD2, NOT_PRESENTED, VP, RTX_HDR, HDR, EXCLUSIVE, SCHEDULED, REP
     1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
 DLSS_NR, NR_FLOW, NR_DETECTOR, NR_VECTORS, DLSS_SR, SKIPPED = 2048, 4096, 8192, 16384, 32768, 65536
 VP_AFTER_NR, SCENE_CUT = 131072, 262144
+# The cadence slips (CPresentSchedule::SetCadenceSlips): a picture made between two for the
+# refresh a forced slip adds, a slip taken on a cut, one forced for want of a cut, and a
+# picture the slips' own detector called a cut.
+GENERATED, SLIP_ON_CUT, SLIP_FORCED, CADENCE_CUT = 4194304, 16777216, 33554432, 67108864
 
 # The detector's limits (Source/DLSS/DlssStabilizer.cpp, kCut...), and the units the trace
 # writes its measures in.
@@ -237,7 +246,11 @@ def report(qpf, notes, rows, skip_s, max_rows, plot):
             onscreen.append(on)
         timeline.append((r, index, lat, on))
 
-    # The cadence: one refresh more than the picture before, or not.
+    # The cadence: one refresh more than the picture before, or not. A picture made for the
+    # refresh a cadence slip adds takes a refresh of its own between two drawn ones; the
+    # steps are those of the drawn pictures, and the made ones are counted apart.
+    made = [t for t in timeline if t[0]["flags"] & GENERATED]
+    timeline = [t for t in timeline if not t[0]["flags"] & GENERATED]
     steps = {}
     repeats = drops = 0
     last = None
@@ -271,6 +284,35 @@ def report(qpf, notes, rows, skip_s, max_rows, plot):
     if events:
         print("     at (s): " + " ".join("%.1f%s" % (w, "+" if s > one else "-") for w, s in events[:40])
               + (" ..." if len(events) > 40 else ""))
+    # A 3:2 cadence (2.5 refreshes a frame, give or take a little): its slips are two
+    # pictures in a row held alike, 2,2 or 3,3, and anything outside 2 and 3 is a fault.
+    # From the mean frame: Matroska's stamps are rounded to the millisecond, and their
+    # median is 42 ms for a film at 23.976.
+    drawn = [r for r in rows if not r["flags"] & GENERATED]
+    mean_frame_ms = (drawn[-1]["rtStart"] - drawn[0]["rtStart"]) / 10000.0 / (len(drawn) - 1) if len(drawn) > 1 else frame_ms
+    ratio = mean_frame_ms / (period * ms) if period else 0
+    if abs(ratio / 2.5 - 1.0) < 0.004:
+        known = [(r, index) for (r, index, lat, on) in timeline if index is not None]
+        gaps = [(b[0], b[1] - a[1]) for a, b in zip(known, known[1:])]
+        slips, faults = [], []
+        for (r0, g0), (r1, g1) in zip(gaps, gaps[1:]):
+            when = (r1["tickPresentCall"] - presented[0]["tickPresentCall"]) / qpf
+            if g1 not in (2, 3):
+                faults.append((when, g1))
+            elif g0 == g1:
+                slips.append((when, g1, r1["flags"]))
+        span = seconds / len(slips) if slips else 0
+        print("  3:2 cadence: %d slip(s) (two pictures in a row held alike), one every %.1f s; %d other step(s) outside 2 and 3"
+              % (len(slips), span, len(faults)))
+        if slips:
+            print("     at (s): " + " ".join("%.1f%s" % (w, "/%d%s" % (g, "c" if f & SLIP_ON_CUT else "f" if f & SLIP_FORCED else ""))
+                                         for w, g, f in slips[:40]) + (" ..." if len(slips) > 40 else ""))
+    on_cut = sum(1 for (r, index, lat, on) in timeline if r["flags"] & SLIP_ON_CUT)
+    forced = sum(1 for (r, index, lat, on) in timeline if r["flags"] & SLIP_FORCED)
+    called = sum(1 for (r, index, lat, on) in timeline if r["flags"] & CADENCE_CUT)
+    if on_cut or forced or made or called:
+        print("  cadence slips placed: %d on a cut, %d forced, %d covered by a made picture; %d picture(s) called a cut by their detector"
+              % (on_cut, forced, len(made), called))
     print("  Sync offset (clock when Present returns, less the picture's time), ms : " + stats(sync))
     print("  on the screen (its refresh, less the picture's time), ms             : " + stats(onscreen))
     if latency:

@@ -65,6 +65,11 @@ fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_aby.cso "%SH%\ps_dlss_compose.hlsl
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_guided.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=6 >NUL || EXIT /B 1
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_reducex.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=7 >NUL || EXIT /B 1
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_compose_reducey.cso "%SH%\ps_dlss_compose.hlsl" /DPASS=8 >NUL || EXIT /B 1
+REM The cadence slips: their scene cut frame, and EchoStorm's motion and synthesis.
+fxc /nologo /O2 /T cs_5_0 /Fo cs_scene_cut_luma.cso "%SH%\cs_scene_cut_luma.hlsl" >NUL || EXIT /B 1
+FOR %%p IN (0 1 2 3 4 5) DO fxc /nologo /O2 /T cs_5_0 /Fo cs_echo_flow%%p.cso "%SH%\cs_echo_flow.hlsl" /DPASS=%%p >NUL || EXIT /B 1
+FOR %%e IN (Luma TileMode Decide Apply) DO fxc /nologo /O2 /T cs_5_0 /Fo cs_echo_fix_%%e.cso "%SH%\cs_echo_flowfix.hlsl" /E %%e >NUL || EXIT /B 1
+FOR %%e IN (Clear Err0 Box5 ErrA Splat Hyp1 Hyp2 Holes Synth MarkPrep MarkLarge MarkUpdate GrainStat) DO fxc /nologo /O2 /T cs_5_0 /Fo cs_echo_synth_%%e.cso "%SH%\cs_echo_synth.hlsl" /E %%e >NUL || EXIT /B 1
 rc /nologo /fo detector_shaders.res detector_shaders.rc || EXIT /B 1
 
 REM ONNX Runtime with DirectML, when it has been fetched into external\onnxruntime.
@@ -81,11 +86,25 @@ IF EXIST "%ORT%\build\native\include\onnxruntime_cxx_api.h" (
   COPY /Y "%DML%\bin\x64-win\DirectML.dll" . >NUL
 )
 
+REM EchoStorm's own code, when it has been fetched into external\framegen\echostorm (as the
+REM frame generation branch has it): --tcadencemade then checks the filter's Direct3D 11
+REM port of its synthesis against it. Without it the suite runs, minus that check.
+SET ECHOS=..\..\external\framegen\echostorm
+SET ECHOFLAGS=
+SET ECHOSRC=
+IF EXIST "%ECHOS%\engine\own_synth.cpp" (
+  ECHO   with EchoStorm's own code, for the port check
+  SET ECHOFLAGS=/DHAVE_ECHOSTORM /I%ECHOS%
+  SET ECHOSRC=%ECHOS%\engine\own_synth.cpp
+)
+
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
-   /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" %ORTFLAGS% harness.cpp %ORTLIB% ^
+   /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" %ORTFLAGS% %ECHOFLAGS% harness.cpp %ORTLIB% %ECHOSRC% ^
    "%SRC%\DLSS\DlssNR.cpp" "%SRC%\DLSS\DlssOpticalFlow.cpp" "%SRC%\DLSS\DlssStabilizer.cpp" ^
    "%SRC%\DLSS\DlssSR.cpp" "%SRC%\DLSS\DlssCompose.cpp" "%SRC%\Upscale\MpvShader.cpp" ^
    "%SRC%\DX11Helper.cpp" "%SRC%\Utils\Util.cpp" "%SRC%\Logo\LogoAnalysis.cpp" ^
+   "%SRC%\DLSS\DlssTiming.cpp" "%SRC%\Cadence\SceneCut.cpp" "%SRC%\FrameGen\echo\EchoFlow.cpp" ^
+   "%SRC%\FrameGen\echo\EchoSynth11.cpp" ^
    "%MH%\hook.c" "%MH%\buffer.c" "%MH%\trampoline.c" "%MH%\hde\hde64.c" ^
    detector_shaders.res /Fe:dlssnr_harness.exe || EXIT /B 1
 

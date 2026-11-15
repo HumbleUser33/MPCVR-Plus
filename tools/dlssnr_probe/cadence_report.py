@@ -13,7 +13,8 @@ What counts as a fault:
   short     a picture on the screen for fewer refreshes than the cadence allows (1 at 60 Hz)
   long      a picture on the screen for more (4 or more at 60 Hz, 2 or more at 24 Hz)
   slip      at 60 Hz, two pictures in a row held alike (2,2 or 3,3): the 3:2 cadence
-            changing phase, which a screen at 60.000 Hz needs once in 16.7 s
+            changing phase, which a screen at 60.000 Hz needs once in 8.3 s (200 pictures:
+            the film gains half a refresh on it, and the 3 and the 2 change places)
   same      a new image whose film picture is the one before it again
   back      a new image whose film picture is the one before the one before (A B A)
   marker    the marker moved by other than one pixel: pictures drawn and not shown, or

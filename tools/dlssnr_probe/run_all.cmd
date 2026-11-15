@@ -58,6 +58,10 @@ REM The channel's logo: six logos laid over the film, one across a black bar's e
 REM fitted and taken out, three of them through x264; the shaders against the reference,
 REM and what they cost.
 CALL :Run "a channel's logo hidden on film"     "dlssnr_harness.exe --tlogo --nonr"
+REM The cadence slips: the schedule against a simulated screen, and the picture made for
+REM a slip no cut came in time for, against EchoStorm's own where its code is at hand.
+CALL :Run "the cadence slips' schedule"        "dlssnr_harness.exe --tcadence --nonr"
+CALL :Run "the picture made for a cadence slip" "dlssnr_harness.exe --tcadencemade --nonr --timage" "%REF%"
 CALL :Run "video processor rebuild"            "vp_rebuild_test.exe"
 CALL :Run "the generated 4:4:4 chroma pass"    "shader444_test.exe"
 CALL :Run "playback, 10 s"                     "playback_test.exe --seconds 10"
@@ -76,6 +80,7 @@ CALL :Run "pictures from a decoder's device"   "playback_test.exe --gpu --toggle
 CALL :Run "the Settings page and its lists"    "playback_test.exe --mainpage 2"
 CALL :Run "the Settings page, DLSS 5 NR"       "playback_test.exe --mainpage 2 --section 4"
 CALL :Run "the Settings page, Detail"          "playback_test.exe --mainpage 2 --section 3"
+CALL :Run "the Settings page, Presentation"    "playback_test.exe --mainpage 2 --section 6"
 REM Five graphs made and unmade in one process, DLSS off and on: what a player does
 REM from one film to the next. It was called "the DLSS page" and ran a switch that no
 REM longer existed, so it played these without saying so -- and it is where the fault of

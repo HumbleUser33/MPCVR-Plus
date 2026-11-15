@@ -1018,6 +1018,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 #include "nrscale_suite.inl"
 #include "logo_compose.inl"
 #include "logo_suite.inl"
+#include "cadence_suite.inl"
 
 int wmain(int argc, wchar_t** argv)
 {
@@ -1144,6 +1145,15 @@ int wmain(int argc, wchar_t** argv)
 		}
 	}
 	const bool temporalCutScan = !cutScan.empty();
+	std::wstring cadenceCut;   // --tcadencecut <film> [--cutfrom s] [--cutfor s] [--hdr]: the cadence slips' detector over a film
+	for (int i = 1; i + 1 < argc; i++) {
+		if (!wcscmp(argv[i], L"--tcadencecut")) {
+			cadenceCut = argv[i + 1];
+		}
+	}
+	const bool temporalCadenceCut = !cadenceCut.empty();
+	const bool temporalCadence = hasArg(L"--tcadence");         // the cadence slips' schedule, simulated
+	const bool temporalCadenceMade = hasArg(L"--tcadencemade"); // the picture made for a forced slip
 	std::wstring autoMaskClip;   // --tautomask <folder>: what DLSS 5 NR's auto mask changes on a film's frames
 	for (int i = 1; i + 1 < argc; i++) {
 		if (!wcscmp(argv[i], L"--tautomask")) {
@@ -1187,7 +1197,8 @@ int wmain(int argc, wchar_t** argv)
 	const bool suites[] = { temporal, temporalOracle, temporalEffect, temporalFlow, temporalStab || temporalStabPort,
 		temporalStabBench, temporalUpscale, temporalUpscaleCost, temporalChroma, temporalSharpen, temporalClean, temporalMpvPort,
 		temporalDownPort, temporalDownscale, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
-		temporalPipeline, temporalNRScale, temporalSRClip, temporalSRCut, temporalCutScan, temporalAutoMask, temporalLogo };
+		temporalPipeline, temporalNRScale, temporalSRClip, temporalSRCut, temporalCutScan, temporalAutoMask, temporalLogo,
+		temporalCadence, temporalCadenceCut, temporalCadenceMade };
 	if (std::count(std::begin(suites), std::end(suites), true) > 1) {
 		Head("Result");
 		printf("  more than one suite named: the harness runs one a call, give each its own\n");
@@ -1197,14 +1208,18 @@ int wmain(int argc, wchar_t** argv)
 		return 4;
 	}
 	if (temporal || temporalOracle || temporalEffect || temporalFlow
-			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalClean || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask || temporalLogo) {
+			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalClean || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask || temporalLogo
+			|| temporalCadence || temporalCadenceCut || temporalCadenceMade) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
 			if (!wcscmp(argv[i], L"--srrefs")) {
 				srRefs = _wtoi(argv[i + 1]);
 			}
 		}
-		const int rc = temporalLogo ? temporal::RunLogo(dev, ctx, hasArg(L"--real") ? 2 : hasArg(L"--study") ? 1 : 0, logoFilm.c_str())
+		const int rc = temporalCadence ? temporal::RunCadence()
+			: temporalCadenceCut ? temporal::RunCadenceCut(dev, ctx, cadenceCut.c_str(), cutFrom, cutFor, hasArg(L"--hdr"))
+			: temporalCadenceMade ? temporal::RunCadenceMade(dev, ctx, temporalImage.c_str())
+			: temporalLogo ? temporal::RunLogo(dev, ctx, hasArg(L"--real") ? 2 : hasArg(L"--study") ? 1 : 0, logoFilm.c_str())
 			: temporalAutoMask ? temporal::RunAutoMask(dev, ctx, dlss, autoMaskClip.c_str(), autoMaskSkin)
 			: temporalCutScan ? temporal::RunCutScan(dev, ctx, cutScan.c_str(), cutFrom, cutFor)
 			: temporalSRCut ? temporal::RunSRCut(dev, ctx, srCut.c_str(), srDllPath.c_str(), hasArg(L"--tsrcrops"),

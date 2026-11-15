@@ -42,6 +42,9 @@
 //                                     blocks, fed in NV12, cleaned by each path that converts it;
 //                                     --clean10 the same in P010. --file <film> --deblock N --deband N
 //                                     plays a film with the artifact removal at those levels (0 off)
+//   playback_test.exe --file <film> --cadence N   the cadence slips: 0 where they fall, 1 on a scene
+//                                     cut, 2 on a cut or else a made picture (with MPCVR_PACING_TRACE,
+//                                     pacing_report.py counts them)
 
 #include <windows.h>
 #include <VersionHelpers.h>
@@ -130,6 +133,7 @@ static int g_filmDoviTm = -1;     // --dovitm 0|6
 static int g_filmSdrTm = -1;      // --sdrtm 0 Fixed, 1 Metadata, 2 Measured
 static int g_filmToSdr = -1;      // --tosdr 0|1
 static int g_filmPreferDovi = -1; // --prefdovi 0|1
+static int g_filmCadence = -1;    // --cadence 0..2: where the cadence slips go (CADENCE_SLIPS_*)
 // --asis: leave the settings exactly as the registry has them. The only way to drive a
 // renderer this bench did not build: Settings_t has grown fields since, so SetSettings
 // on the stock filter writes a layout it does not know and it ignores the lot. Each
@@ -1535,6 +1539,9 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		if (g_filmSdrTm >= 0) {
 			sets.iSdrToneMappingType = g_filmSdrTm;
 		}
+		if (g_filmCadence >= 0) {
+			sets.iCadenceSlips = g_filmCadence;
+		}
 		if (g_filmToSdr >= 0) {
 			sets.bConvertToSdr = g_filmToSdr != 0;
 		}
@@ -1596,6 +1603,10 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		if (g_filmDeblock >= 0 || g_filmDeband >= 0) {
 			printf("   clean kept   : deblock %d level %d, deband %d level %d\n",
 				back.iDeblock, back.iDeblockLevel, (int)back.bDeband, back.iDebandLevel);
+		}
+		// The cadence slips, the last field of Settings_t now.
+		if (g_filmCadence >= 0) {
+			printf("   cadence kept : slips %d, logo margin %d\n", back.iCadenceSlips, back.iLogoMargin);
 		}
 	}
 	}
@@ -2781,6 +2792,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_filmDoviTm = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--sdrtm")) {
 			g_filmSdrTm = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--cadence")) {
+			g_filmCadence = std::clamp(_wtoi(argv[i + 1]), 0, CADENCE_SLIPS_COUNT - 1);
 		} else if (!wcscmp(argv[i], L"--tosdr")) {
 			g_filmToSdr = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--prefdovi")) {
