@@ -502,17 +502,33 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Resolution). Without it a picture reaches the screen a refresh or two after its time.\n"
 		"The statistics then show 'scheduled', and how many pictures were repeated or dropped.\n"
 		"Needs Direct3D 11 and the Flip swap effect (always used for HDR)." },
-	{ IDC_CADENCE_SLIPS,
-		L"A film at 23.976, 29.97 or 59.94 frames a second on a screen at 60 Hz owes it a refresh "
-		"now and then: every 8 s a picture is held a refresh longer (a 3,3 in the 3:2 cadence), "
-		"every 17 s at 29.97 and 59.94. At the film's own rate the clocks part by a picture once "
-		"in a long while.\n"
-		"Where they fall: where the cadence puts them, as before.\n"
-		"On a scene cut: held, up to 17 ms early or late, for the next change of shot, where a "
-		"picture held a refresh longer is not seen.\n"
-		"On a cut, else a made picture: when no cut comes in time, the refresh it adds shows a "
-		"picture EchoFG makes between the two.\n"
-		"24, 25 and 30 frames a second are not touched. Needs Render ahead." },
+	{ IDC_GROUP_WORKAROUNDS,
+		L"Fixes for what the screen or Windows impose on a film, beyond the renderer's own timing. "
+		"They need Render ahead." },
+	{ IDC_CADENCE_CUT,
+		L"A 23.976 fps film cannot be shared out evenly on a 60 Hz screen: every 8 seconds two "
+		"pictures in a row stay three refreshes instead of three then two, a small hiccup in the "
+		"motion. 29.97 and 59.94 fps do the same every 17 seconds. No renderer can avoid it, only "
+		"choose where it goes.\n"
+		"Ticked, it waits for the next change of shot, a few seconds at most, and puts the hiccup "
+		"there, where it is not seen; a picture is then never more than about 13 ms off its time. "
+		"At the film's own rate (23.976 fps on 23.976 Hz) the picture repeated or skipped once in a "
+		"long while waits for a change of shot the same way.\n"
+		"24, 25 and 30 fps are not touched." },
+	{ IDC_CADENCE_MADE,
+		L"When no change of shot comes in time, the hiccup's extra refresh shows a frame "
+		"interpolated between the two pictures (EchoFG) instead of holding one.\n"
+		"It costs the GPU about as much as a picture, once every few seconds, and asks for each "
+		"picture earlier while it waits. A frame not ready in time falls back to the plain hiccup. "
+		"Needs Direct3D feature level 11_1." },
+	{ IDC_SWAPCHAIN_RENEW,
+		L"A bug in Windows, not in the renderer nor in the NVIDIA driver: after a while at "
+		"23.976 Hz (often half an hour), Windows' graphics kernel loses its count of the screen's "
+		"refreshes and holds every picture to 1/23 s. The film then stutters about once a second "
+		"until it is restarted.\n"
+		"Ticked, the renderer notices pictures shown late although they were ready, and rebuilds "
+		"its swap chain, which clears it: a few pictures lost once. Unticked, the stutter stays as "
+		"Windows leaves it." },
 	{ IDC_CHECK2,
 		L"Shows the renderer's statistics over the picture: formats, processing steps and their "
 		"cost, sync offset.\n"
@@ -730,10 +746,6 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Discard (legacy)");
 	Send(IDC_COMBO4, CB_ADDSTRING, 0, (LPARAM)L"Flip (recommended)");
 
-	Combo_AddData(Item(IDC_CADENCE_SLIPS), L"Where they fall",               CADENCE_SLIPS_Off);
-	Combo_AddData(Item(IDC_CADENCE_SLIPS), L"On a scene cut",                CADENCE_SLIPS_OnCut);
-	Combo_AddData(Item(IDC_CADENCE_SLIPS), L"On a cut, else a made picture", CADENCE_SLIPS_OnCutOrMade);
-
 	// In the order of the enum, so the position is the value.
 	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Off");
 	Send(IDC_SHARPEN, CB_ADDSTRING, 0, (LPARAM)L"Adaptive-Sharpen");
@@ -908,7 +920,9 @@ void CVRSettingsPPage::SetControls()
 	SetCheck(IDC_CHECK13, m_SetsPP.bAdjustPresentTime);
 	SetCheck(IDC_CHECK16, m_SetsPP.bReinitByDisplay);
 	SetCheck(IDC_CHECK26, m_SetsPP.bDlssRenderAhead);
-	Combo_SelectData(Item(IDC_CADENCE_SLIPS), m_SetsPP.iCadenceSlips);
+	SetCheck(IDC_CADENCE_CUT, m_SetsPP.iCadenceSlips != CADENCE_SLIPS_Off);
+	SetCheck(IDC_CADENCE_MADE, m_SetsPP.iCadenceSlips == CADENCE_SLIPS_OnCutOrMade);
+	SetCheck(IDC_SWAPCHAIN_RENEW, m_SetsPP.bSwapChainRenew);
 	Send(IDC_COMBO6, CB_SETCURSEL, m_SetsPP.iResizeStats, 0);
 	Send(IDC_SLIDER8, TBM_SETPOS, TRUE, (LPARAM)(m_SetsPP.iVideoDelay / VIDEO_DELAY_STEP));
 	SetText(IDC_EDIT10, DelayText(m_SetsPP.iVideoDelay).c_str());
@@ -1037,9 +1051,12 @@ void CVRSettingsPPage::EnableControls()
 	const BOOL bUpstreamTiming = !(m_SetsPP.bUseD3D11 && m_SetsPP.bDlssRenderAhead);
 	Enable(IDC_CHECK15, bUpstreamTiming);
 	Enable(IDC_CHECK13, bUpstreamTiming);
-	// The cadence slips are placed by render ahead's schedule.
-	Enable(IDC_STATIC_CADENCE_SLIPS, !bUpstreamTiming);
-	Enable(IDC_CADENCE_SLIPS, !bUpstreamTiming);
+	// The workarounds are render ahead's: its schedule places the cadence's hiccup and
+	// sees the pictures Windows holds back.
+	Enable(IDC_GROUP_WORKAROUNDS, !bUpstreamTiming);
+	Enable(IDC_CADENCE_CUT, !bUpstreamTiming);
+	Enable(IDC_CADENCE_MADE, !bUpstreamTiming && m_SetsPP.iCadenceSlips != CADENCE_SLIPS_Off);
+	Enable(IDC_SWAPCHAIN_RENEW, !bUpstreamTiming);
 
 	// DLSS. The path boxes stay live even when the feature is off, so a wrong path
 	// can be fixed without enabling it first.
@@ -1329,6 +1346,18 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 			return (INT_PTR)1;
 		}
 
+		if (action == BN_CLICKED && (nID == IDC_CADENCE_CUT || nID == IDC_CADENCE_MADE)) {
+			// Two boxes for the one setting: off, on a change of shot, or that and else a frame made.
+			const int value = !Checked(IDC_CADENCE_CUT) ? CADENCE_SLIPS_Off
+				: Checked(IDC_CADENCE_MADE) ? CADENCE_SLIPS_OnCutOrMade : CADENCE_SLIPS_OnCut;
+			if (value != m_SetsPP.iCadenceSlips) {
+				m_SetsPP.iCadenceSlips = value;
+				SetDirty();
+			}
+			EnableControls();
+			return (INT_PTR)1;
+		}
+
 		if (action == BN_CLICKED) {
 			// bEnables: the box decides whether other controls still serve.
 			const struct { int id; bool* pValue; bool bEnables; } checks[] = {
@@ -1360,6 +1389,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK29, &m_SetsPP.bUpscalingSmall,      true  },
 				{ IDC_CHECK26, &m_SetsPP.bDlssRenderAhead,     true  },
 				{ IDC_CHECK27, &m_SetsPP.bVPReplaceChroma,     true  },
+				{ IDC_SWAPCHAIN_RENEW, &m_SetsPP.bSwapChainRenew, false },
 			};
 			for (const auto& c : checks) {
 				if (nID == c.id) {
@@ -1474,7 +1504,6 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_COMBO_DVTM,  &m_SetsPP.iHdrDoviToneMappingType, false },
 				{ IDC_COMBO_SDRTM, &m_SetsPP.iSdrToneMappingType,     false },
 				{ IDC_DEBLOCK,     &m_SetsPP.iDeblock,                true  },
-				{ IDC_CADENCE_SLIPS, &m_SetsPP.iCadenceSlips,         false },
 			};
 			for (const auto& c : byData) {
 				if (nID == c.id) {

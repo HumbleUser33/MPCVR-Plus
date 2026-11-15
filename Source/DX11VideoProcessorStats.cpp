@@ -438,9 +438,13 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		// The cadence slips placed: on a cut, and those no cut came in time for, with how
 		// many of them a made picture covered.
 		if (m_iCadenceSlips != CADENCE_SLIPS_Off) {
-			str += std::format(L", slips on a cut {}, forced {}", m_PresentSchedule.SlipsOnCut(), m_PresentSchedule.SlipsForced());
+			str += std::format(L", hiccups on a scene change {}, elsewhere {}", m_PresentSchedule.SlipsOnCut(), m_PresentSchedule.SlipsForced());
 			if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {
-				str += std::format(L" (made {})", m_PresentSchedule.MadeShown());
+				str += std::format(L" ({} interpolated", m_PresentSchedule.MadeShown());
+				if (m_cadenceMadeLate) {
+					str += std::format(L", {} too late, left out", m_cadenceMadeLate);
+				}
+				str += L")";
 			}
 		}
 	} else

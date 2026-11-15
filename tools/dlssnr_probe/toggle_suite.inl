@@ -119,6 +119,8 @@ static const Toggle g_toggles[] = {
 	{ "Cadence slips on a cut",                 [](Settings_t& s) { s.iCadenceSlips = CADENCE_SLIPS_OnCut; } },
 	{ "Cadence slips on a cut, else made",      [](Settings_t& s) { s.iCadenceSlips = CADENCE_SLIPS_OnCutOrMade; } },
 	{ "Cadence slips where they fall",          [](Settings_t& s) { s.iCadenceSlips = CADENCE_SLIPS_Off; } },
+	{ "Swap chain renewal off",                 [](Settings_t& s) { s.bSwapChainRenew = false; } },
+	{ "Swap chain renewal on",                  [](Settings_t& s) { s.bSwapChainRenew = true; } },
 };
 
 static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, int seconds)

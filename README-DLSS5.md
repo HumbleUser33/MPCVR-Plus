@@ -2004,6 +2004,9 @@ film at 55 minutes, then none in the 10 minutes after. With this one, in MPC-HC 
 after 36 minutes, renewed 3 s later at the fourth group, 7 pictures left out in that minute and
 none in the 38 minutes that followed. A mode of a whole number of hertz has no beat, and the
 rule is off there; 29.97 or 59.94 Hz would beat with their own, which is not measured.
+*Windows 23 Hz stutter: rebuild the swap chain* (Presentation tab, *Workarounds*, on by
+default) turns the renewal off when unticked: the stutter then stays as Windows leaves it, and
+the trace notes each time the swap chain would have been rebuilt.
 
 **What holds them back, from the graphics kernel's own events.** An event trace of
 Microsoft-Windows-DxgKrnl, recorded with WPR while the film played in MPC-HC and the swap chain
@@ -2094,12 +2097,13 @@ Measured first as it was, in MPC-HC (a copy of it, the screen held at 60.000 Hz)
 reading the screen: **17 slips in 143 s, one every 8.4 s**, each a 3,3, and nothing else repeated or
 left out; the screen showed 14 in the 123 s it was watched.
 
-**Cadence slips** (Presentation tab) says where they go:
+Two boxes of the Presentation tab's *Workarounds* say where they go:
 
-- **Where they fall**, the default: where the nearest refresh puts them, as before.
-- **On a scene cut**: the cadence is kept past the point where the nearest refresh would break it,
-  and broken on the first cut found from a quarter of a refresh before that point to a quarter
-  after (a 3:2 cadence), or from half a refresh to where the step was given up before -- three
+- Neither, the default: where the nearest refresh puts them, as before (*where they fall* below).
+- **Hide the 60 Hz hiccup on scene changes** (*on a scene cut*): the cadence is kept past the
+  point where the nearest refresh would break it, and broken on the first cut found from a
+  quarter of a refresh before that point to a quarter after (a 3:2 cadence), or from half a
+  refresh to where the step was given up before -- three
   quarters of a refresh, or 17 ms if that is more (a whole step) -- the last picture of the old shot
   holding the screen a refresh longer. In a 3:2 cadence only a 2 is made a 3, never a 3 a 4: a cut
   that opens on a 3 gives the slip to the picture after it, the new shot's first holding a refresh
@@ -2107,9 +2111,9 @@ left out; the screen showed 14 in the 123 s it was watched.
   within 12.5 ms of its time in a 3:2 cadence, against 8.3 ms where they fall, and within 17 ms at
   29.97 and 59.94; at a film's own rate the step was already kept to three quarters of a refresh,
   and the repeat or the picture left out that the drift owes waits for a cut within it.
-- **On a cut, else a made picture**: the same, and a slip that no cut came in time for shows a
-  picture made between the two, by EchoFG (below), on the refresh it adds. A picture left out at
-  a film's own rate stays one.
+- and **Otherwise, show an interpolated frame** (*on a cut, else made*): the same, and a slip
+  that no cut came in time for shows a picture made between the two, by EchoFG (below), on the
+  refresh it adds. A picture left out at a film's own rate stays one.
 
 The same two and a half minutes of film, each line a start of the player, the slips counted in
 the pacing trace (`pacing_report.py` counts the 3,3s and says how each was taken) and the screen
@@ -2154,12 +2158,31 @@ dragged along by learning it over many pairs, are left out: a slip makes one pic
 seconds. The shaders bind fourteen views, which takes Direct3D feature level 11_1; without it, or
 when the picture is not ready for its refresh, the slip is a plain one.
 
-It has to be ready a refresh before the drawn picture's own: in MPC-HC at 4K on an RTX 4060 it was
-done 25 to 30 ms after the drawn picture, the motion of both pictures measured from nothing and the
-synthesis, and render ahead asks for every sample a refresh and that much earlier while a slip
-waits (80 ms ahead of its time instead of 29, medians of the run with every cut ignored); all 19
-were on their refresh. `MPCVR_CADENCE_DUMP=<folder>` writes the first six made pictures there,
-each with the two it was made between, to look at.
+It has to be ready a refresh before the drawn picture's own, and the drawn picture cannot come
+before the one ahead of it has been presented: at 23.976 fps on 60 Hz that leaves about 38 ms for
+the GPU to draw the picture and EchoFG to make the one before it. So the renderer waits for the GPU
+to be done with the drawn picture, and starts EchoFG only if its time -- the median of the last five
+times it ran, timed on the GPU, the first of them once alone as playback starts -- still fits
+before the refresh, by the schedule's guard. A made picture the GPU has not finished by then is not
+shown: the drawn one goes back into the back buffer and the slip is a plain one.
+
+The first version did neither, and on a 4K HDR film drawn by the shaders (3840x1600, HEVC with Dolby
+Vision) it made things worse: its made pictures were not finished in time, reached the screen a
+refresh late, and the screen read 3,3,1,1 where a plain slip is 3,3, thirteen times in two minutes.
+There EchoFG took 8 ms timed alone as the film started and 20 ms while it played, beside 17.5 ms for
+each drawn picture; a 1080p film enlarged by RTX Video Super Resolution to the same 3840x1600, the
+GPU busier and quicker for it, had EchoFG at 7.4 to 11.7 ms while it played. Measured again in MPC-HC,
+every cut ignored:
+
+| film | slips forced | covered by a made picture | the screen |
+|---|---|---|---|
+| 1080p AV1, RTX Video Super Resolution to 4K | 18 | 18, each done before its `Present` | 15 made pictures watched, each a picture of its own; no 3,3 |
+| 4K HEVC HDR, the shaders | 18 | 0: no room for EchoFG | 15 plain 3,3s, no 3,3,1,1 |
+
+and the 4K film with its cuts: 14 slips on a cut and 4 forced, plain. Render ahead asks for every
+sample a refresh and EchoFG's time earlier while a slip waits (80 ms ahead of its time instead of 29
+on the 1080p film). `MPCVR_CADENCE_DUMP=<folder>` writes the first six made pictures there, each with
+the two it was made between, to look at.
 
 ### A video delay, for a sound that arrives late
 
@@ -2368,10 +2391,13 @@ key, both DLL paths, and the working size, which is what the card can carry.
 | Swap effect | Flip (recommended) | How pictures are handed to Windows. Render ahead needs Flip to give each picture a refresh. *Discard* is the older mode, for drivers that misbehave with Flip. HDR output always uses Flip |
 | Use exclusive fullscreen | off | In fullscreen the filter takes the display directly instead of going through the desktop: less latency, but menus drawn over the film may not show and Alt+Tab is slower |
 | Reinitialize device when changing display | off | Creates the Direct3D device again when the window moves to another screen |
-| Render ahead: a refresh chosen for each picture | on | See *Render ahead* and *A refresh chosen for every picture*. Gives every picture a refresh chosen in advance, and starts each early enough for it. Needs Direct3D 11, and the flip model for the first of the two. Registry `DlssRenderAhead` |
 | Wait for VBlank before Present | off | Upstream's timing, with render ahead off: waits for the next refresh before each picture. Greyed while render ahead is on, which never waits for it |
 | Adjust the frame presentation time | on | Upstream's timing, with render ahead off: holds each picture until half a refresh before its time. Greyed while render ahead is on, which always holds the pictures it does not schedule |
-| Cadence slips | Where they fall | See *Cadence slips: on a scene cut, or a picture made between two*. The refresh a film at 23.976, 29.97 or 59.94 fps owes a screen at 60 Hz every few seconds, and the picture more or less a film at the screen's own rate owes it once in a long while: where the cadence puts them, held for the next change of shot, or held for one and else shown as a picture EchoFG makes. Needs render ahead. Registry `CadenceSlips` |
+| Render ahead: a refresh chosen for each picture | on | See *Render ahead* and *A refresh chosen for every picture*. Gives every picture a refresh chosen in advance, and starts each early enough for it. Needs Direct3D 11, and the flip model for the first of the two. Registry `DlssRenderAhead` |
+| *Workarounds*, greyed with render ahead off: | | |
+| Hide the 60 Hz hiccup on scene changes | off | See *Cadence slips: on a scene cut, or a picture made between two*. The refresh a film at 23.976, 29.97 or 59.94 fps owes a screen at 60 Hz every few seconds -- two pictures in a row held three refreshes at 23.976 -- waits for the next change of shot, where it is not seen; so does the picture more or less a film at the screen's own rate owes it once in a long while. 24, 25 and 30 fps are left alone. Registry `CadenceSlips` 1 |
+| Otherwise, show an interpolated frame | off | When no change of shot comes in time, the refresh added shows a frame EchoFG makes between the two pictures. Needs the box above, and Direct3D feature level 11_1. Registry `CadenceSlips` 2 |
+| Windows 23 Hz stutter: rebuild the swap chain | on | See *A swap chain that starts skipping flips*. A bug of Windows' graphics kernel, which after a while at 23.976 Hz holds every picture to 1/23 s: the swap chain is rebuilt when pictures ready in time are shown late. Unticked, the stutter stays as Windows leaves it. Registry `SwapChainRenew` |
 | Show statistics | off | The statistics over the picture; Ctrl+J in MPC-HC |
 | Size | Fixed size | Whether the statistics keep their size or grow with the window |
 | Video delay | 0 ms | See *A video delay, for a sound that arrives late*. Every picture shown that long after its time, −200 to +500 ms, to the nearest refresh. Applies as the slider is dragged |
@@ -2805,12 +2831,13 @@ picture*). `MPCVR_SWAPCHAIN_RENEW=0` leaves flips the system holds back as they 
 each time the swap chain would have been renewed (see *A swap chain that starts skipping
 flips*), for as long as the system's own tools need them to last.
 
-With *Cadence slips* set, a picture's flags say whether it was a slip taken on a cut, a forced
+With the hiccup hidden on scene changes, a picture's flags say whether it was a slip taken on a cut, a forced
 one, or a picture made for one (written on a line of its own, at its own time between the two),
 and whether the slips' detector called it a cut; its cut columns hold that detector's measures
 when DLSS Super Resolution's own does not run. `pacing_report.py` counts the slips of a 3:2
 cadence and how each was taken. `MPCVR_CADENCE_NOCUT=1` traces what the detector says and takes
-no slip on it, so that every slip is forced and, with *else a made picture*, covered by one;
+no slip on it, so that every slip is forced and, with *Otherwise, show an interpolated frame*,
+covered by one;
 `MPCVR_CADENCE_DUMP=<folder>` keeps the first six made pictures (see *Cadence slips*).
 
 Each line also has, since 2.5: when the GPU was seen done with the picture while it waited for

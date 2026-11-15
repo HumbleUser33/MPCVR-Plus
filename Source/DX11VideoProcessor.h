@@ -517,6 +517,7 @@ private:
 	// it once in a long while, placed on a scene cut, or shown as a picture made between
 	// two (CPresentSchedule::SetCadenceSlips, DX11VideoProcessorCadence.cpp).
 	int m_iCadenceSlips = CADENCE_SLIPS_Off;   // user setting
+	bool m_bSwapChainRenew = true;             // user setting: RenewSwapChainIfStuck may rebuild it
 	CSceneCut m_SceneCut;
 	CEchoFlow m_CadenceFlow;
 	CEchoSynth11 m_CadenceSynth;
@@ -532,7 +533,17 @@ private:
 	bool m_bCadenceMakeReady = false;          // the motion and the synthesis can run
 	bool m_bCadenceMakeFailed = false;         // they could not be made: slips are plain, as option 2
 	uint64_t m_cadenceId = 0;                  // the last picture measured
-	double m_cadenceMadeMs = 6.0;              // what a made picture takes the GPU, the longest lately
+	float m_cadenceEchoMs[5] = {};             // what EchoFG took the GPU, the last five times it ran
+	int m_cadenceEchoCount = 0, m_cadenceEchoNext = 0;
+	CComPtr<ID3D11Query> m_pCadenceTiming[3];  // disjoint, before EchoFG, after it
+	bool m_bCadenceTimingPending = false;
+	long long m_cadenceMadeRt = 0;             // the last made picture's time, for its line in the trace
+	unsigned m_cadenceMadeLate = 0;            // made pictures the GPU had not finished by their Present, left out
+	CComPtr<ID3D11Query> m_pCadenceDrawnQuery; // whether the GPU is done with the drawn picture, then with the made one
+	bool m_bCadenceMadeQueued = false;         // the last picture had one made, shown or not: its GPU time is not a drawn picture's
+	double CadenceEchoMs() const;
+	void CadenceReadTiming();
+	bool CadenceMake(float t, bool bTime);
 	std::atomic<int> m_cadenceAhead = 0;       // how much earlier samples are asked for so that one can be made, 100 ns
 	unsigned m_cadenceMadeFailed = 0;          // forced slips a made picture could not be had for
 	// MPCVR_CADENCE_DUMP: the first made pictures kept with the two they were made between

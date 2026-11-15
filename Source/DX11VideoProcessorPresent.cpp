@@ -88,9 +88,10 @@ void CDX11VideoProcessor::ReadPresentSchedule()
 // come back within a minute, renewing is not what it needs, and it is not tried again on
 // this swap chain.
 //
-// MPCVR_SWAPCHAIN_RENEW=0 in the environment leaves them held back, with a note in the
-// trace each time the swap chain would have been renewed: the system's own tools see
-// what holds them back only while it lasts.
+// The setting (Workarounds, bSwapChainRenew) unticked, or MPCVR_SWAPCHAIN_RENEW=0 in the
+// environment, leaves them held back, with a note in the trace each time the swap chain
+// would have been renewed: the system's own tools see what holds them back only while it
+// lasts.
 void CDX11VideoProcessor::RenewSwapChainIfStuck()
 {
 	static const bool s_bRenew = [] {
@@ -104,9 +105,9 @@ void CDX11VideoProcessor::RenewSwapChainIfStuck()
 	if (!m_PresentSchedule.FlipsStuck()) {
 		return;
 	}
-	if (!s_bRenew) {
-		m_PacingTrace.Note(std::format(L"swap chain not renewed (MPCVR_SWAPCHAIN_RENEW=0): {} pictures ready in time shown late, {:.1f} refreshes apart",
-			CPresentSchedule::kStuckRun, m_PresentSchedule.StuckSpacing()));
+	if (!s_bRenew || !m_bSwapChainRenew) {
+		m_PacingTrace.Note(std::format(L"swap chain not renewed ({}): {} pictures ready in time shown late, {:.1f} refreshes apart",
+			s_bRenew ? L"the setting is off" : L"MPCVR_SWAPCHAIN_RENEW=0", CPresentSchedule::kStuckRun, m_PresentSchedule.StuckSpacing()));
 		return;
 	}
 	const uint64_t tickNow = GetPreciseTick();

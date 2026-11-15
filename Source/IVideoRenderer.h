@@ -371,6 +371,9 @@ struct Settings_t {
 	// or held for one and else shown as a picture EchoFG makes between the two. Direct3D 11
 	// and render ahead, which schedules every picture.
 	int  iCadenceSlips;
+	// Windows' own stutter at 23.976 Hz (its graphics kernel holding every flip to 1/23 s):
+	// the swap chain rebuilt when pictures ready in time are shown late. Render ahead.
+	bool bSwapChainRenew;
 
 	Settings_t() {
 		SetDefault();
@@ -467,6 +470,7 @@ struct Settings_t {
 		bHideLogo                       = false;
 		iLogoMargin                     = LOGO_MARGIN_DEF;
 		iCadenceSlips                   = CADENCE_SLIPS_Off;
+		bSwapChainRenew                 = true;
 	}
 };
 
@@ -520,6 +524,7 @@ inline void KeepOutOfPreset(Settings_t& sets, const Settings_t& current)
 	sets.bReinitByDisplay     = current.bReinitByDisplay;
 	sets.bDlssRenderAhead     = current.bDlssRenderAhead;
 	sets.iCadenceSlips        = current.iCadenceSlips;
+	sets.bSwapChainRenew      = current.bSwapChainRenew;
 }
 
 constexpr int PRESET_COUNT = 10;

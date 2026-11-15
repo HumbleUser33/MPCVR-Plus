@@ -1606,7 +1606,8 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		}
 		// The cadence slips, the last field of Settings_t now.
 		if (g_filmCadence >= 0) {
-			printf("   cadence kept : slips %d, logo margin %d\n", back.iCadenceSlips, back.iLogoMargin);
+			printf("   cadence kept : slips %d, swap chain renewal %d, logo margin %d\n", back.iCadenceSlips,
+				(int)back.bSwapChainRenew, back.iLogoMargin);
 		}
 	}
 	}

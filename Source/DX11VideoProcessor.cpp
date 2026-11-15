@@ -470,6 +470,7 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_bDlssRenderAhead     = config.bDlssRenderAhead;
 	m_iCadenceSlips        = config.iCadenceSlips;
 	m_PresentSchedule.SetCadenceSlips(m_iCadenceSlips);
+	m_bSwapChainRenew      = config.bSwapChainRenew;
 
 	m_nCurrentAdapter = -1;
 
@@ -3771,6 +3772,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	// A cadence slip that no cut came in time for: the refresh it adds shows a picture
 	// made between the last one and this one, and this one follows it on the next.
 	bool bMadeShown = false;
+	m_bCadenceMadeQueued = false;
 	if (plan.bValid && plan.bSlipForced && plan.bSlipMade) {
 		bMadeShown = CadencePresentMade(plan, pBackBuffer, field == 1, bTrace, traced);
 		if (!pBackBuffer) {
@@ -3789,7 +3791,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 
 	if (plan.bValid) {
 		// Only the first picture of a sample is started early; a second field follows it.
-		WaitForScheduledPresent(plan, field == 1 && !bMadeShown);
+		WaitForScheduledPresent(plan, field == 1 && !m_bCadenceMadeQueued);
 		// A cadence slip waiting for a cut: this picture is one or it is not, which the
 		// GPU has said by now if it is done with it. A cut takes the slip -- the refresh
 		// more, or the picture less at a film's own rate.
@@ -5387,6 +5389,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		m_bScheduled = false;
 		UpdateStatsPresent();
 	}
+	m_bSwapChainRenew = config.bSwapChainRenew;   // read at the next stuck flip
 	if (config.iCadenceSlips != m_iCadenceSlips) {
 		// The pictures keep the cadence they have; only where its next slip goes changes.
 		m_iCadenceSlips = config.iCadenceSlips;
@@ -5907,9 +5910,10 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 				m_strStatsPresent.append(L"\nFrame sync    : a refresh chosen for each picture");
 				// Where the cadence slips (iCadenceSlips), and why not a made picture when none can be.
 				if (m_iCadenceSlips == CADENCE_SLIPS_OnCut) {
-					m_strStatsPresent.append(L", slips on a cut");
+					m_strStatsPresent.append(L", hiccups on scene changes");
 				} else if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {
-					m_strStatsPresent.append(m_bCadenceMakeFailed ? L", slips on a cut (no made pictures here)" : L", slips on a cut or made");
+					m_strStatsPresent.append(m_bCadenceMakeFailed ? L", hiccups on scene changes (no interpolated frames here)"
+						: L", hiccups on scene changes or interpolated");
 				}
 			} else {
 				m_strStatsPresent.append(L"\nFrame sync    : held to its time");
