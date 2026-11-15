@@ -357,11 +357,11 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 			std::wstring text;
 			double ms = -1;
 			if (m_bCadenceMakeFailed) {
-				text = L"interpolated frames not available here (feature level 11_1)";
+				text = L"no interpolated frames here (feature level 11_1)";
 			} else if (!m_cadenceEchoCount) {
 				text = L"interpolated frame, not timed yet";
 			} else {
-				text = std::format(L"interpolated frame {}x{}, now and then, not in the total",
+				text = std::format(L"interpolated frame {}x{}, not in the total",
 					m_cadenceRect.Width(), m_cadenceRect.Height());
 				ms = CadenceEchoMs();
 			}

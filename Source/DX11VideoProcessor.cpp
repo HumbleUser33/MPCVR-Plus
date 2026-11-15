@@ -5911,12 +5911,12 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 			if (swapchain_desc.SwapEffect != DXGI_SWAP_EFFECT_DISCARD
 					&& swapchain_desc.SwapEffect != DXGI_SWAP_EFFECT_SEQUENTIAL) {
 				m_strStatsPresent.append(L"\nFrame sync    : a refresh chosen for each picture");
-				// Where the cadence slips (iCadenceSlips), and why not a made picture when none can be.
-				if (m_iCadenceSlips == CADENCE_SLIPS_OnCut) {
-					m_strStatsPresent.append(L", hiccups on scene changes");
+				// Where the cadence slips (iCadenceSlips), within the 80 columns of the rules: the
+				// pipeline's EchoFG line says why there are no interpolated frames, when there are none.
+				if (m_iCadenceSlips == CADENCE_SLIPS_OnCut || (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade && m_bCadenceMakeFailed)) {
+					m_strStatsPresent.append(L", hiccups hidden");
 				} else if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {
-					m_strStatsPresent.append(m_bCadenceMakeFailed ? L", hiccups on scene changes (no interpolated frames here)"
-						: L", hiccups on scene changes or interpolated");
+					m_strStatsPresent.append(L", hiccups hidden/interpolated");
 				}
 			} else {
 				m_strStatsPresent.append(L"\nFrame sync    : held to its time");
