@@ -2078,6 +2078,89 @@ with Windows' hardware-accelerated GPU scheduling off; they come from the GPU be
 service of NVIDIA's, and with the scheduling on there were none in thirteen minutes (see *Known
 limitations*).
 
+### Cadence slips: on a scene cut, or a picture made between two
+
+A 23.976 fps film on a screen at 60.000 Hz owes the screen a refresh it cannot share out: 2.5025
+refreshes a picture where the 3:2 cadence gives 2.5. Every 200 pictures, 8.34 s, the 3 and the 2
+change places, and two pictures in a row are held three refreshes, a 3,3. A film at 29.97 or 59.94
+owes one every 16.7 s, a picture held a refresh more; a film at the screen's own rate owes one in a
+long while, the two clocks drifting some parts in a million apart (one picture in 64 minutes,
+measured above). No renderer can do with fewer -- they are the arithmetic of the two rates -- but
+where one goes is free within a little of the pictures' times, and where the picture changes
+anyway, on a scene cut, a picture held a refresh longer is not seen.
+
+Measured first as it was, in MPC-HC (a copy of it, the screen held at 60.000 Hz), a 23.976 fps film,
+4K HDR output through the video processor with RTX Video HDR, the pacing trace and `cadence_watch`
+reading the screen: **17 slips in 143 s, one every 8.4 s**, each a 3,3, and nothing else repeated or
+left out; the screen showed 14 in the 123 s it was watched.
+
+**Cadence slips** (Presentation tab) says where they go:
+
+- **Where they fall**, the default: where the nearest refresh puts them, as before.
+- **On a scene cut**: the cadence is kept past the point where the nearest refresh would break it,
+  and broken on the first cut found from a quarter of a refresh before that point to a quarter
+  after (a 3:2 cadence), or from half a refresh to where the step was given up before -- three
+  quarters of a refresh, or 17 ms if that is more (a whole step) -- the last picture of the old shot
+  holding the screen a refresh longer. In a 3:2 cadence only a 2 is made a 3, never a 3 a 4: a cut
+  that opens on a 3 gives the slip to the picture after it, the new shot's first holding a refresh
+  longer. No cut by the end of that window, and the slip is taken where it is. A picture is then
+  within 12.5 ms of its time in a 3:2 cadence, against 8.3 ms where they fall, and within 17 ms at
+  29.97 and 59.94; at a film's own rate the step was already kept to three quarters of a refresh,
+  and the repeat or the picture left out that the drift owes waits for a cut within it.
+- **On a cut, else a made picture**: the same, and a slip that no cut came in time for shows a
+  picture made between the two, by EchoFG (below), on the refresh it adds. A picture left out at
+  a film's own rate stays one.
+
+The same two and a half minutes of film, each line a start of the player, the slips counted in
+the pacing trace (`pacing_report.py` counts the 3,3s and says how each was taken) and the screen
+read by `cadence_watch` for two of those minutes:
+
+| Cadence slips | slips taken on a cut | forced | covered by a made picture | the screen: 3,3s seen, and on a cut | a picture against its time |
+|---|---|---|---|---|---|
+| where they fall | -- | -- | -- | 14, none placed | −9.3 to +9.6 ms |
+| on a scene cut | 18 | 2 | -- | 14, all 14 | −13.1 to +12.5 ms |
+| on a cut, else made | 17 | 2 | 2 | 14, 13 on a cut; the 14th forced, its made picture on a nearly still stretch, where it looks the same as the one before | −12.5 to +13.5 ms |
+| else made, every cut ignored (`MPCVR_CADENCE_NOCUT=1`) | 0 | 20 | 19 | 1: 14 of the 15 made pictures watched showed as a picture of their own between the two, the 15th on a still stretch | −13.1 to +5.6 ms |
+
+A first version waited for a cut until a picture was 17 ms early, as long as in a whole step, and
+was worse for it: a slip forced there had taken only half of the refresh it was owed, so the next
+cut took another at once, and three came in four seconds where one every 8.3 is due. A slip
+waiting in a 3:2 cadence also had no use for a cut on a 3, which is every other cut.
+
+24, 25 and 30 fps on 60 Hz are left as they are, and so is any rate the screen is not a little
+faster than. It needs render ahead, which schedules every picture; the line *Frame sync* in the
+statistics says which is in force, and *On screen* counts the slips taken on a cut, the forced
+ones and the made pictures.
+
+**The cuts** are found by the detector DLSS Super Resolution drops its history on
+(`cs_dlss_scene_cut.hlsl`, *DLSS SR at a cut*), with the thresholds it was chosen with, run here on
+any card: on a frame of its own made from the picture as drawn, before anything goes over it
+(`cs_scene_cut_luma.hlsl`, the same box and size as the flow frames it was tuned on, an HDR picture
+seen in its SDR view), and without NVIDIA Optical Flow's global motion, which its ratio to the
+pictures before and its histogram make up for. Its answer is the GPU's, read when the picture's turn
+to be presented comes: not done by then is no cut. A false cut only moves a slip. Over the same two
+and a half minutes of film beside ffmpeg's scene score (`dlssnr_harness --tcadencecut`): 60 cuts
+called, every picture ffmpeg scores past 0.3 among them, and 12 called where ffmpeg scores under
+0.1, all in eight seconds of flashes where the picture changes as much as at a cut.
+
+**The made picture** is EchoStorm's frame synthesis, EchoFG, from its motion estimate: the picture
+between the last one and this one at the moment of the refresh the slip adds, with the subtitles,
+the statistics and the player's own bitmap drawn over it as over any picture. Its Direct3D 11 host
+(`Source/FrameGen/echo/EchoSynth11.cpp`) makes the very picture EchoStorm's own Direct3D 12 code
+makes, to the byte, at 1080p and at 4K (`dlssnr_harness --tcadencemade`, beside EchoStorm's code):
+on a pan of a 4K film frame, 52.7 dB from the picture truly there at 1080p and 51.9 at 4K, where a
+plain blend of the two is 34.2 and 32.9. EchoStorm's marks, which keep a channel's logo from being
+dragged along by learning it over many pairs, are left out: a slip makes one picture every few
+seconds. The shaders bind fourteen views, which takes Direct3D feature level 11_1; without it, or
+when the picture is not ready for its refresh, the slip is a plain one.
+
+It has to be ready a refresh before the drawn picture's own: in MPC-HC at 4K on an RTX 4060 it was
+done 25 to 30 ms after the drawn picture, the motion of both pictures measured from nothing and the
+synthesis, and render ahead asks for every sample a refresh and that much earlier while a slip
+waits (80 ms ahead of its time instead of 29, medians of the run with every cut ignored); all 19
+were on their refresh. `MPCVR_CADENCE_DUMP=<folder>` writes the first six made pictures there,
+each with the two it was made between, to look at.
+
 ### A video delay, for a sound that arrives late
 
 All of the above puts the picture where the reference clock says, and the clock is the sound
@@ -2288,6 +2371,7 @@ key, both DLL paths, and the working size, which is what the card can carry.
 | Render ahead: a refresh chosen for each picture | on | See *Render ahead* and *A refresh chosen for every picture*. Gives every picture a refresh chosen in advance, and starts each early enough for it. Needs Direct3D 11, and the flip model for the first of the two. Registry `DlssRenderAhead` |
 | Wait for VBlank before Present | off | Upstream's timing, with render ahead off: waits for the next refresh before each picture. Greyed while render ahead is on, which never waits for it |
 | Adjust the frame presentation time | on | Upstream's timing, with render ahead off: holds each picture until half a refresh before its time. Greyed while render ahead is on, which always holds the pictures it does not schedule |
+| Cadence slips | Where they fall | See *Cadence slips: on a scene cut, or a picture made between two*. The refresh a film at 23.976, 29.97 or 59.94 fps owes a screen at 60 Hz every few seconds, and the picture more or less a film at the screen's own rate owes it once in a long while: where the cadence puts them, held for the next change of shot, or held for one and else shown as a picture EchoFG makes. Needs render ahead. Registry `CadenceSlips` |
 | Show statistics | off | The statistics over the picture; Ctrl+J in MPC-HC |
 | Size | Fixed size | Whether the statistics keep their size or grow with the window |
 | Video delay | 0 ms | See *A video delay, for a sound that arrives late*. Every picture shown that long after its time, −200 to +500 ms, to the nearest refresh. Applies as the slider is dragged |
@@ -2598,6 +2682,14 @@ dlssnr_harness.exe --tautomask <dir> DLSS 5 NR with and without its auto mask on
 dlssnr_harness.exe --tcutscan <film> the cut detection alone over minutes of a film, decoded by ffmpeg: its four
                                   measures on every picture, with ffmpeg's own scene score beside them
                                   (--cutfrom <s> --cutfor <s>: the stretch, 300 s by default)
+dlssnr_harness.exe --tcadence     the cadence slips' schedule against a simulated screen: 23.976, 29.97
+                                  and 59.94 at 60 Hz with cuts every 4 s, every 29 s and none, 24, 25
+                                  and 30 left alone, a film at the screen's own rate drifting both ways
+dlssnr_harness.exe --tcadencecut <film>   the cadence slips' own cut detector over a stretch of a film,
+                                  beside ffmpeg's scene score (--cutfrom, --cutfor; --hdr: as PQ)
+dlssnr_harness.exe --tcadencemade the picture made for a slip: EchoStorm's own synthesis and the
+                                  filter's Direct3D 11 port on the same pair, to the byte (with
+                                  EchoStorm's code in external\framegen\echostorm), and what each part costs
 dlssnr_harness.exe --tupscale     the resize shaders and the mpv prescalers on film frames
 dlssnr_harness.exe --tupscalecost what EfRLFN costs at film sizes
 dlssnr_harness.exe --tchroma      the chroma upsamplers on 4:2:0 made from film frames
@@ -2712,6 +2804,14 @@ is exclusive. `MPCVR_SWAPCHAIN_BUFFERS=n` forces that count (see *A refresh chos
 picture*). `MPCVR_SWAPCHAIN_RENEW=0` leaves flips the system holds back as they are, with a note
 each time the swap chain would have been renewed (see *A swap chain that starts skipping
 flips*), for as long as the system's own tools need them to last.
+
+With *Cadence slips* set, a picture's flags say whether it was a slip taken on a cut, a forced
+one, or a picture made for one (written on a line of its own, at its own time between the two),
+and whether the slips' detector called it a cut; its cut columns hold that detector's measures
+when DLSS Super Resolution's own does not run. `pacing_report.py` counts the slips of a 3:2
+cadence and how each was taken. `MPCVR_CADENCE_NOCUT=1` traces what the detector says and takes
+no slip on it, so that every slip is forced and, with *else a made picture*, covered by one;
+`MPCVR_CADENCE_DUMP=<folder>` keeps the first six made pictures (see *Cadence slips*).
 
 Each line also has, since 2.5: when the GPU was seen done with the picture while it waited for
 its `Present` (0 when it was not done by then), the picture's stamp and the time the schedule
@@ -2831,6 +2931,7 @@ playback_test.exe --logo --file <film>   Find the logo pressed on a real film, t
 playback_test.exe --toggle       each setting changed in full playback, as the player does
 playback_test.exe --toggle --gpu --hdr --switch   as a hardware decoder feeds it, in HDR
 playback_test.exe --toggle --file <mkv> --seek 1740   a real film, split and decoded
+playback_test.exe --file <film> --cadence N   the cadence slips: 0 where they fall, 1 on a cut, 2 else made
 playback_test.exe --nrscale 70 --nrscaleto 100   DLSS 5 NR's working size, and another taken while it plays
 playback_test.exe --filter <ax>   any of the above with another build of the x64 filter
 ```
@@ -2921,6 +3022,12 @@ picture without it, those of **LogoScan** (`github.com/DeepRegular/LogoScan`); t
 edges after Özay and Sankur (EUSIPCO 2009) and the iterative refinement after Erofeev et al.
 (GraphiCon 2011); the fill is Gortler et al.'s push-pull. FFmpeg's `removelogo` and `delogo`
 were the anchors it was measured against.
+
+**EchoStorm**'s motion estimate, its FlowFix and its frame synthesis, EchoFG
+(`Source/FrameGen/echo/`, `Shaders/d3d11/cs_echo_*.hlsl`), are ported from its Direct3D 12 code
+at revision 8d3eac3 (`github.com/Echo-Storm/ls-addon-manager`), Copyright (c) 2026 Echo-Storm and
+andreiday, under the **MIT** licence, whose text is in `Source/FrameGen/echo/EchoStorm-LICENSE.txt`;
+its notice travels with each file. Here they make the picture a cadence slip adds.
 
 `Source/DLSS/NvOF/` holds the two interface headers of the NVIDIA Optical Flow SDK 5.0.7,
 copied unchanged. Each carries its own permission notice ("This copyright notice applies to

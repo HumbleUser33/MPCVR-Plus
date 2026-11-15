@@ -159,6 +159,7 @@ notice its absence.
 | Temporal stabilizer on Optical Flow | `Source/DLSS/DlssStabilizer.cpp`, `DlssOpticalFlow.cpp` | `--tstab`, `--tstabport` |
 | DLSS Super Resolution 4.5, with its own motion | `Source/DLSS/DlssSR.cpp`, `DlssStabilizer.cpp`, `Source/DX11VideoProcessorDlss.cpp` | `--tsr`, `--tsrport`, `--tsrstill` |
 | Render ahead | `Source/DX11VideoProcessorPresent.cpp`, `DX11VideoProcessor.cpp` | `playback_test --seconds` |
+| Cadence slips on a scene cut, or covered by a picture EchoFG makes | `Source/DLSS/DlssTiming.cpp` (`CPresentSchedule`), `Source/DX11VideoProcessorCadence.cpp`, `Source/Cadence/`, `Source/FrameGen/echo/` | `--tcadence`, `--tcadencemade` |
 | The settings page, eight tabs in one | `Source/SettingsPage/` | `playback_test --mainpage`, `--frame` |
 | The statistics laid out as the pipeline, each step with its GPU time | `Source/DX11VideoProcessorStats.cpp` (`GetStatsText`), `Source/DLSS/DlssTiming.cpp` | `playback_test --file <film> --only 4`, `--afternr` |
 | mpv prescalers: FSRCNNX 8/16, RAVU-zoom, ArtCNN, the AR entries | `Source/Upscale/`, `Source/DX11VideoProcessorMpv.cpp`, `Shaders/mpv/` | `--tmpvport`, `--tupscale`, `--scalers` |
