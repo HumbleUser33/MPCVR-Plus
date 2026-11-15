@@ -2133,8 +2133,8 @@ waiting in a 3:2 cadence also had no use for a cut on a 3, which is every other 
 
 24, 25 and 30 fps on 60 Hz are left as they are, and so is any rate the screen is not a little
 faster than. It needs render ahead, which schedules every picture; the line *Frame sync* in the
-statistics says which is in force, and *On screen* counts the slips taken on a cut, the forced
-ones and the made pictures.
+statistics says which is in force, and *Hiccups* counts the slips taken on a cut, the forced ones
+and the made pictures.
 
 **The cuts** are found by the detector DLSS Super Resolution drops its history on
 (`cs_dlss_scene_cut.hlsl`, *DLSS SR at a cut*), with the thresholds it was chosen with, run here on
@@ -2495,6 +2495,7 @@ steps work in.
 | DLSS 5 NR | The network's tuning, or why it is not running. *working* is the reduction and the composition at a working size below the picture's; *stabilizer* its Optical Flow and the stabilizer. The network runs on a Direct3D 12 device of its own and is timed there, by timestamps on its queue |
 | Scaling | From what size to what size, and what does it, with all it costs: the processor's second turn after DLSS 5 NR, DLSS SR and its *motion*, or an mpv prescaler, each with the resize shader that finishes the job. `SuperResolution*` when the driver's Super Resolution runs, and `(No Super Resolution when chroma by shaders)` when it was asked for on a 4:4:4 picture. When the processor resized in its own step, a time here is only the resize shader copying the picture to its place -- a film with black bars, or one in a window -- and the line says `placed by the shaders`: 0.5 ms for a 2.39:1 film on a 4K screen, which is not Super Resolution's (that is in the processor's time). With *DLSS SR* ticked and not enlarging, a sub-line says why |
 | Finish | What runs at the size the picture is shown at: a correction, the tone mapping, the sharpening and its level, the player's shaders, the dither |
+| Cadence | With *Hide the 60 Hz hiccup on scene changes*: the picture copied out of the back buffer and measured for a scene change, every picture while a hiccup may come. Under it, *EchoFG* is the interpolated frame (*Otherwise, show an interpolated frame*): the median of its last five times on the GPU, which decides whether one is made, and not in the total, since it is made every few seconds and not for every picture |
 
 Each time is the mean of the last 32 pictures, measured on the GPU with timestamps read back
 later, never waited for, and only while the statistics are shown. A step whose text does not
@@ -2528,6 +2529,9 @@ as they change:
   what decides when each picture is presented.
 - *Sync offset* and *On screen*: see *A film at the screen's own rate* and *A refresh chosen
   for every picture*. *Video delay* follows them when one is set.
+- *Hiccups*, with the hiccup hidden on scene changes: how many of the cadence's slips went on a
+  scene change, how many elsewhere for want of one, how many of those an interpolated frame
+  covered, and how many interpolated frames came out too late and were left out.
 - *Frames*: the samples received, those the renderer left undrawn for coming too late, the
   second fields of a deinterlaced picture left out, and the pictures that failed; *turns lost*
   and *turns late* when a picture's turn in the renderer was taken away or came late, the
