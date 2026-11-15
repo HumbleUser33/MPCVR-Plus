@@ -346,6 +346,29 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		}
 	}
 
+	// The cadence slips: every picture copied out and measured for a scene change while a
+	// slip may come, and the interpolated frame made for one no scene change came in time
+	// for. That one is made every few seconds and not for every picture: its time is
+	// EchoFG's own, timed on the GPU (the median of the last five, which decides whether
+	// one is made), and is not in the total.
+	if (m_iCadenceSlips != CADENCE_SLIPS_Off && (m_PresentSchedule.SlipsPlaced() || Ms(CGpuStageTimes::Cadence) >= 0)) {
+		Step(L"Cadence", L"picture copied, scene change detector", Ms(CGpuStageTimes::Cadence));
+		if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {
+			std::wstring text;
+			double ms = -1;
+			if (m_bCadenceMakeFailed) {
+				text = L"interpolated frames not available here (feature level 11_1)";
+			} else if (!m_cadenceEchoCount) {
+				text = L"interpolated frame, not timed yet";
+			} else {
+				text = std::format(L"interpolated frame {}x{}, now and then, not in the total",
+					m_cadenceRect.Width(), m_cadenceRect.Height());
+				ms = CadenceEchoMs();
+			}
+			Line(L"    EchoFG", text, ms, false);
+		}
+	}
+
 	// What the steps cost together, against the time a picture lasts: the first thing
 	// to look at when pictures come late.
 	const double frameMs = m_pFilter->m_FrameStats.GetAverageFrameDuration() / 10000.0 / (m_bDoubleFrames ? 2 : 1);
@@ -435,16 +458,17 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		}
 		str += std::format(L", scheduled: repeated {}, dropped {}, shown late {}",
 			m_PresentSchedule.RepeatedCount(), m_PresentSchedule.DroppedCount(), m_PresentSchedule.LateCount());
-		// The cadence slips placed: on a cut, and those no cut came in time for, with how
-		// many of them a made picture covered.
+		// The cadence slips placed, on a line of their own: on the line above they took it
+		// out of the box. On a scene change, elsewhere for want of one, and of those how
+		// many an interpolated frame covered.
 		if (m_iCadenceSlips != CADENCE_SLIPS_Off) {
-			str += std::format(L", hiccups on a scene change {}, elsewhere {}", m_PresentSchedule.SlipsOnCut(), m_PresentSchedule.SlipsForced());
+			// Short enough for three-digit counts, two hours of film, within the box.
+			str += std::format(L"\nHiccups       : {} on scene changes, {} elsewhere", m_PresentSchedule.SlipsOnCut(), m_PresentSchedule.SlipsForced());
 			if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {
-				str += std::format(L" ({} interpolated", m_PresentSchedule.MadeShown());
+				str += std::format(L", {} interpolated", m_PresentSchedule.MadeShown());
 				if (m_cadenceMadeLate) {
-					str += std::format(L", {} too late, left out", m_cadenceMadeLate);
+					str += std::format(L", {} late", m_cadenceMadeLate);
 				}
-				str += L")";
 			}
 		}
 	} else

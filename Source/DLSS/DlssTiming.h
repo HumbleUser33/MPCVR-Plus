@@ -607,9 +607,10 @@ public:
 	// Prepass: the chroma rebuilt for the video processor, a prescaler's included.
 	// Resize: the resize shader. Finish: everything after it, dither included.
 	// Deblock, Deband: the artifact removal on the decoded planes, as the sample is
-	// copied; the write back into the processor's input is the last one's.
+	// copied; the write back into the processor's input is the last one's. Cadence: the
+	// picture copied out for the cadence slips and measured for a scene cut.
 	enum Stage { NRMotion, NRStabilize, SRMotion, SR, MpvLuma, MpvChroma, VPScale, NRReduce, NRCompose,
-		VP, ShaderConvert, Prepass, Resize, Finish, Deblock, Deband, Logo, StageCount };
+		VP, ShaderConvert, Prepass, Resize, Finish, Deblock, Deband, Logo, Cadence, StageCount };
 
 	void Release();
 

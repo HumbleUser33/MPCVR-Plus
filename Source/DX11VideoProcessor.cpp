@@ -3630,14 +3630,17 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		hr = Process(pBackBuffer, m_srcRect, m_videoRect, m_FieldDrawn == 2);
 	}
 
-	m_DlssStageTimes.EndFrame(m_pDeviceContext);   // nothing to do when no set is open
-
 	// The picture as drawn, before anything goes over it, for the cadence slips: whether
-	// it opens a shot, and what a picture made before it would be made from.
+	// it opens a shot, and what a picture made before it would be made from. Timed with
+	// the steps before it, while the statistics show.
 	m_bCadenceMeasured = false;
 	if (field && frameStartTime != INVALID_TIME && CadenceActive() && !m_renderRect.IsRectEmpty()) {
+		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::Cadence);
 		CadenceTakePicture(pBackBuffer);
+		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Cadence);
 	}
+
+	m_DlssStageTimes.EndFrame(m_pDeviceContext);   // nothing to do when no set is open
 
 	DrawOverlays(pBackBuffer, hr);
 
