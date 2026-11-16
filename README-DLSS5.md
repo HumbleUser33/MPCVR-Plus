@@ -2959,7 +2959,7 @@ on the performance counter, as in the pacing trace, so the two files line up to 
 microsecond.
 
 ```
-cadence_watch.exe --out C:\temp\screen.csv --seconds 120 [--delay 8] [--shot C:\temp\osd.bmp]
+cadence_watch.exe --out C:\temp\screen.csv --seconds 120 [--delay 8] [--shot C:\temp\osd.bmp [--shotrect l,t,r,b]]
 python cadence_report.py C:\temp\screen.csv [--hz 23.976] [--fps 23.976] [--list 40]
 ```
 
@@ -2968,7 +2968,8 @@ stayed, and each fault with its time and how long after a cut it came: a picture
 shorter than the film's rate on that screen allows, two held alike in a 3:2 cadence (a break),
 a picture that is the one before again, or the one before that (a single-frame flash in the
 film does that too), and the green block moving other than one pixel. `--shot` keeps a picture
-of the statistics as the watch starts. The duplication is work for the compositor: it doubled
+of the statistics as the watch starts; with `--shotrect`, the part of the screen it names in
+fractions of it, at its own size: the statistics' graph at the bottom right of a window, say. The duplication is work for the compositor: it doubled
 the rare refreshes the compositor missed at 23.976 Hz.
 
 **`freeze_dump.exe`** — run against a player that hangs (by name, by process id, or with no
