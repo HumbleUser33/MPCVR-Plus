@@ -1019,6 +1019,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 #include "logo_compose.inl"
 #include "logo_suite.inl"
 #include "cadence_suite.inl"
+#include "echoperf_suite.inl"
 
 int wmain(int argc, wchar_t** argv)
 {
@@ -1154,6 +1155,17 @@ int wmain(int argc, wchar_t** argv)
 	const bool temporalCadenceCut = !cadenceCut.empty();
 	const bool temporalCadence = hasArg(L"--tcadence");         // the cadence slips' schedule, simulated
 	const bool temporalCadenceMade = hasArg(L"--tcadencemade"); // the picture made for a forced slip
+	const bool temporalEchoPerf = hasArg(L"--techoperf");       // EchoFG's cost, pass by pass, against EchoStorm's own
+	int echoRuns = 20;
+	std::wstring echoTriplet;   // --techotriplet PREFIX: three pictures of a film in a row (PREFIX_1.png ..)
+	for (int i = 1; i + 1 < argc; i++) {
+		if (!wcscmp(argv[i], L"--techoruns")) {
+			echoRuns = _wtoi(argv[i + 1]);
+		}
+		if (!wcscmp(argv[i], L"--techotriplet")) {
+			echoTriplet = argv[i + 1];
+		}
+	}
 	std::wstring autoMaskClip;   // --tautomask <folder>: what DLSS 5 NR's auto mask changes on a film's frames
 	for (int i = 1; i + 1 < argc; i++) {
 		if (!wcscmp(argv[i], L"--tautomask")) {
@@ -1198,7 +1210,7 @@ int wmain(int argc, wchar_t** argv)
 		temporalStabBench, temporalUpscale, temporalUpscaleCost, temporalChroma, temporalSharpen, temporalClean, temporalMpvPort,
 		temporalDownPort, temporalDownscale, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
 		temporalPipeline, temporalNRScale, temporalSRClip, temporalSRCut, temporalCutScan, temporalAutoMask, temporalLogo,
-		temporalCadence, temporalCadenceCut, temporalCadenceMade };
+		temporalCadence, temporalCadenceCut, temporalCadenceMade, temporalEchoPerf };
 	if (std::count(std::begin(suites), std::end(suites), true) > 1) {
 		Head("Result");
 		printf("  more than one suite named: the harness runs one a call, give each its own\n");
@@ -1209,7 +1221,7 @@ int wmain(int argc, wchar_t** argv)
 	}
 	if (temporal || temporalOracle || temporalEffect || temporalFlow
 			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalClean || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask || temporalLogo
-			|| temporalCadence || temporalCadenceCut || temporalCadenceMade) {
+			|| temporalCadence || temporalCadenceCut || temporalCadenceMade || temporalEchoPerf) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
 			if (!wcscmp(argv[i], L"--srrefs")) {
@@ -1219,6 +1231,7 @@ int wmain(int argc, wchar_t** argv)
 		const int rc = temporalCadence ? temporal::RunCadence()
 			: temporalCadenceCut ? temporal::RunCadenceCut(dev, ctx, cadenceCut.c_str(), cutFrom, cutFor, hasArg(L"--hdr"))
 			: temporalCadenceMade ? temporal::RunCadenceMade(dev, ctx, temporalImage.c_str())
+			: temporalEchoPerf ? temporal::RunEchoPerf(dev, ctx, temporalImage.c_str(), echoRuns, echoTriplet.c_str(), hasArg(L"--hdr"))
 			: temporalLogo ? temporal::RunLogo(dev, ctx, hasArg(L"--real") ? 2 : hasArg(L"--study") ? 1 : 0, logoFilm.c_str())
 			: temporalAutoMask ? temporal::RunAutoMask(dev, ctx, dlss, autoMaskClip.c_str(), autoMaskSkin)
 			: temporalCutScan ? temporal::RunCutScan(dev, ctx, cutScan.c_str(), cutFrom, cutFor)

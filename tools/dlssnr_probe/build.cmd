@@ -88,14 +88,15 @@ IF EXIST "%ORT%\build\native\include\onnxruntime_cxx_api.h" (
 
 REM EchoStorm's own code, when it has been fetched into external\framegen\echostorm (as the
 REM frame generation branch has it): --tcadencemade then checks the filter's Direct3D 11
-REM port of its synthesis against it. Without it the suite runs, minus that check.
+REM port of its synthesis against it, and --techoperf times its motion and synthesis beside
+REM the port's. Without it the suites run, minus those.
 SET ECHOS=..\..\external\framegen\echostorm
 SET ECHOFLAGS=
 SET ECHOSRC=
 IF EXIST "%ECHOS%\engine\own_synth.cpp" (
   ECHO   with EchoStorm's own code, for the port check
   SET ECHOFLAGS=/DHAVE_ECHOSTORM /I%ECHOS%
-  SET ECHOSRC=%ECHOS%\engine\own_synth.cpp
+  SET ECHOSRC=%ECHOS%\engine\own_synth.cpp %ECHOS%\engine\flow_estimator.cpp %ECHOS%\engine\flow_fix.cpp
 )
 
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^

@@ -37,6 +37,8 @@ UINT Groups(UINT n, UINT size) { return (n + size - 1) / size; }
 
 } // namespace
 
+void (*CEchoFlow::s_passHook)(ID3D11DeviceContext*, int, bool) = nullptr;
+
 HRESULT CEchoFlow::Tex::Create(ID3D11Device* pDevice, UINT width, UINT height, DXGI_FORMAT format)
 {
 	Release();
@@ -140,7 +142,8 @@ void CEchoFlow::Release()
 
 bool CEchoFlow::Ensure(ID3D11Device* pDevice, UINT width, UINT height)
 {
-	if (width == m_width && height == m_height && m_out.pTex) {
+	const UINT scale = m_wantScale ? m_wantScale : width > 2560 ? 2 : 1;
+	if (width == m_width && height == m_height && scale == m_scale && m_out.pTex) {
 		return true;
 	}
 	ReleaseTextures();
@@ -150,7 +153,7 @@ bool CEchoFlow::Ensure(ID3D11Device* pDevice, UINT width, UINT height)
 
 	// The analysis size, and the sizes of the pyramid: halved while the next is still at
 	// least 64x32, and down to half size at least.
-	m_scale = width > 2560 ? 2 : 1;
+	m_scale = scale;
 	m_lw[0] = (width + m_scale - 1) / m_scale;
 	m_lh[0] = (height + m_scale - 1) / m_scale;
 	m_levels = 1;
@@ -227,13 +230,47 @@ void CEchoFlow::Run(ID3D11DeviceContext* pContext, int shader, std::initializer_
 	pContext->CSSetSamplers(0, 1, &m_pLinear.p);
 	pContext->CSSetShaderResources(0, 8, srv);
 	pContext->CSSetUnorderedAccessViews(0, 5, uav, nullptr);
+	if (s_passHook) {
+		s_passHook(pContext, shader, false);
+	}
 	pContext->Dispatch(groupsX, groupsY, 1);
+	if (s_passHook) {
+		s_passHook(pContext, shader, true);
+	}
 
 	// Unbound: what a pass writes the next one reads.
 	ID3D11ShaderResourceView* noSrv[8] = {};
 	ID3D11UnorderedAccessView* noUav[5] = {};
 	pContext->CSSetShaderResources(0, 8, noSrv);
 	pContext->CSSetUnorderedAccessViews(0, 5, noUav, nullptr);
+}
+
+// The frame's pyramid, into the slot of the frame now (m_current).
+void CEchoFlow::Pyramid(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView* pFrame, UINT encoding, float white)
+{
+	const int cur = m_current;
+	{
+		FlowConstants c = { m_lw[0], m_lh[0] };
+		c.radius = encoding;
+		c.lambda = white;
+		c.inScale = m_scale;
+		Run(pContext, Luma, { pFrame }, { m_luma[cur][0].pUav }, &c, sizeof(c), Groups(m_lw[0], 8), Groups(m_lh[0], 8));
+	}
+	for (int k = 1; k < m_levels; k++) {
+		const FlowConstants c = { m_lw[k], m_lh[k], m_lw[k - 1], m_lh[k - 1] };
+		Run(pContext, Down, { m_luma[cur][k - 1].pSrv }, { m_luma[cur][k].pUav }, &c, sizeof(c), Groups(m_lw[k], 8), Groups(m_lh[k], 8));
+	}
+}
+
+void CEchoFlow::Prime(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView* pFrame, UINT encoding, float whiteNits)
+{
+	if (!IsReady() || !m_out.pTex || !pFrame) {
+		return;
+	}
+	pContext->OMSetRenderTargets(0, nullptr, nullptr);
+	Pyramid(pContext, pFrame, encoding, whiteNits > 0 ? whiteNits : 80.0f);
+	m_current = 1 - m_current;
+	m_bPrevious = true;
 }
 
 void CEchoFlow::Measure(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView* pFrame, ID3D11ShaderResourceView* pBefore,
@@ -251,19 +288,7 @@ void CEchoFlow::Measure(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView*
 
 	const int cur = m_current, prev = 1 - m_current;
 	const float white = whiteNits > 0 ? whiteNits : 80.0f;
-
-	// This frame's pyramid.
-	{
-		FlowConstants c = { m_lw[0], m_lh[0] };
-		c.radius = encoding;
-		c.lambda = white;
-		c.inScale = m_scale;
-		Run(pContext, Luma, { pFrame }, { m_luma[cur][0].pUav }, &c, sizeof(c), Groups(m_lw[0], 8), Groups(m_lh[0], 8));
-	}
-	for (int k = 1; k < m_levels; k++) {
-		const FlowConstants c = { m_lw[k], m_lh[k], m_lw[k - 1], m_lh[k - 1] };
-		Run(pContext, Down, { m_luma[cur][k - 1].pSrv }, { m_luma[cur][k].pUav }, &c, sizeof(c), Groups(m_lw[k], 8), Groups(m_lh[k], 8));
-	}
+	Pyramid(pContext, pFrame, encoding, white);
 
 	if (m_bPrevious) {
 		const int top = m_levels - 1;

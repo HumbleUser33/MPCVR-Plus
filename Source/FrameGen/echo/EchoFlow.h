@@ -29,10 +29,20 @@ public:
 	void Release();
 	bool IsReady() const { return m_pCS[0] != nullptr; }
 
+	// Frames are analysed at 1/scale of their size (1, 2 or 4, as FlowEstimator's input
+	// scale); 0, the default: 2 for a frame more than 2560 wide, else 1. Taken at the next
+	// Ensure.
+	void SetAnalysisScale(UINT scale) { m_wantScale = scale == 0 ? 0 : scale <= 1 ? 1 : scale >= 4 ? 4 : 2; }
 	// Textures for frames of width x height; nothing is done when they already are.
 	bool Ensure(ID3D11Device* pDevice, UINT width, UINT height);
 	// The next frame has no frame before it: its vectors are zero.
 	void Forget() { m_bPrevious = false; }
+
+	// Only what the next Measure compares pFrame with: its pyramid. Motion() is left as it
+	// was. Measure(pFrame, nullptr) does this and then writes the zero vectors a frame with
+	// none before it has, at the frames' size, which a caller that only wants the next
+	// frame's vectors has no use for.
+	void Prime(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView* pFrame, UINT encoding, float whiteNits);
 
 	// The motion of pFrame (width x height, any format a shader reads as colour) since the
 	// frame given before, pBefore -- the same frame the call before was given, still as it
@@ -48,6 +58,11 @@ public:
 	ID3D11Texture2D* Estimate() const { return m_motion.pTex; }
 	const std::wstring& Status() const { return m_status; }
 	UINT AnalysisScale() const { return m_scale; }
+
+	// For the harness's profile: called around each pass's dispatch, with the pass's index
+	// (Luma .. FixApply below); null in the filter.
+	static void (*s_passHook)(ID3D11DeviceContext* pContext, int pass, bool bEnd);
+	enum { PassLuma, PassDown, PassGlobal, PassSearch, PassMedian, PassPixel, PassFixLuma, PassFixTiles, PassFixDecide, PassFixApply, PassCount };
 
 private:
 	static constexpr int kMaxLevels = 7;
@@ -66,6 +81,7 @@ private:
 	void Run(ID3D11DeviceContext* pContext, int shader, std::initializer_list<ID3D11ShaderResourceView*> srvs,
 		std::initializer_list<ID3D11UnorderedAccessView*> uavs, const void* constants, UINT size, UINT groupsX, UINT groupsY);
 	void ReleaseTextures();
+	void Pyramid(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView* pFrame, UINT encoding, float white);
 
 	CComPtr<ID3D11ComputeShader> m_pCS[ShaderCount];
 	CComPtr<ID3D11Buffer> m_pConstants;
@@ -73,6 +89,7 @@ private:
 
 	UINT m_width = 0, m_height = 0;     // the frames'
 	UINT m_scale = 1;                   // they are analysed at 1/m_scale of that
+	UINT m_wantScale = 0;               // SetAnalysisScale's, 0 by the frames' width
 	int m_levels = 0;
 	UINT m_lw[kMaxLevels] = {}, m_lh[kMaxLevels] = {}, m_gw[kMaxLevels] = {}, m_gh[kMaxLevels] = {};
 	Tex m_luma[2][kMaxLevels];          // two pyramids: this frame's and the one before's (R16F)

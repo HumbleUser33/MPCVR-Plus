@@ -14,7 +14,9 @@
 //   --tcadencemade [--timage PICTURE]
 //                    the made picture. EchoStorm's own synthesis, where its code is beside the
 //                    harness (HAVE_ECHOSTORM), and the filter's Direct3D 11 port of it make
-//                    the same picture of the same pair, to the byte; how near it comes to the
+//                    the same picture of the same pair, to the byte, in cells of 2 and of 4;
+//                    the motion from the picture before's pyramid alone (CEchoFlow::Prime) is
+//                    the motion from its vectors, to the byte; how near it comes to the
 //                    picture truly between them, beside the plain blend; and what the detector,
 //                    the motion and the synthesis cost the GPU at 1080p and 4K
 
@@ -29,6 +31,8 @@
 #include <d3d12.h>
 #include <d3dcompiler.h>
 #include "engine/own_synth.h"
+#include "engine/flow_estimator.h"
+#include "engine/flow_fix.h"
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
@@ -170,7 +174,7 @@ public:
 		}
 	}
 
-	bool Init(std::string& error)
+	bool Init(std::string& error, int scale = 2)
 	{
 		D3D12_COMMAND_QUEUE_DESC qd = {};
 		qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -184,6 +188,7 @@ public:
 		}
 		m_list->Close();
 		m_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+		m_orig.SetAnalysisScale(scale);
 		if (!m_orig.Init(m_dev, [this](const char* s) { m_log = s; })) {
 			error = "EchoStorm's own synthesis: " + m_log;
 			return false;
@@ -651,9 +656,15 @@ static int RunCadenceMade(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wch
 			rc = 1;
 			continue;
 		}
-		// As the renderer makes it (CadencePresentMade): the motion from nothing, then the pair.
+		// As the renderer makes it (CadenceMake): the picture before's pyramid, then the pair.
+		// Its own vectors from nothing (Measure with no picture before) would be zeros nothing
+		// reads: the motion comes out the same to the byte either way.
+		std::vector<uint8_t> fromNothing;
 		flow.Forget();
 		flow.Measure(ctx, texA.pShaderResource, nullptr, 0, 203.0f);
+		flow.Measure(ctx, texC.pShaderResource, texA.pShaderResource, 0, 203.0f);
+		const bool bFromNothing = ReadTexture(dev, ctx, flow.Motion(), 4, fromNothing);
+		flow.Prime(ctx, texA.pShaderResource, 0, 203.0f);
 		flow.Measure(ctx, texC.pShaderResource, texA.pShaderResource, 0, 203.0f);
 		const bool made = synth.Make(ctx, texA.pShaderResource, texC.pShaderResource, flow.MotionView(), outUav, t, 0, 203.0f, 0.6f, 1.0f);
 		std::vector<uint8_t> port, motion;
@@ -663,31 +674,49 @@ static int RunCadenceMade(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wch
 			rc = 1;
 			continue;
 		}
+		Check(bFromNothing && fromNothing == motion, std::format("the motion from the picture before's pyramid alone is the motion from its vectors at {}x{}", W, H).c_str());
 		const int margin = (int)std::ceil(std::max(sx, sy)) + 4;
 		Out("  %dx%d, a pan of (%.1f, %.1f) pixels, t %.1f: PSNR against the picture truly there %.2f dB, the plain blend %.2f dB\n",
 			W, H, sx, sy, t, PsnrBgra(truth, port, W, H, true, margin), PsnrBgra(truth, blend, W, H, false, margin));
 
 #ifdef HAVE_ECHOSTORM
-		{
+		// In cells of 2, EchoStorm's default, and in cells of 4, which the renderer takes for a
+		// picture more than 2560 wide.
+		for (const uint32_t scale : { 2u, 4u }) {
+			std::vector<uint8_t> portScaled = port;
+			if (scale != 2) {
+				// A synthesis of its own: its grain's seed counts from its first picture, as
+				// EchoStorm's does.
+				CEchoSynth11 scaled;
+				scaled.SetAnalysisScale(scale);
+				const bool bScaled = scaled.Init(dev) && scaled.Ensure(dev, W, H)
+					&& scaled.Make(ctx, texA.pShaderResource, texC.pShaderResource, flow.MotionView(), outUav, t, 0, 203.0f, 0.6f, 1.0f)
+					&& ReadTexture(dev, ctx, texOut.pTexture, 4, portScaled);
+				Check(bScaled, std::format("the port in cells of {} at {}x{}", scale, W, H).c_str());
+				if (!bScaled) {
+					continue;
+				}
+			}
 			COwnSynthRun orig;
 			std::string err;
 			std::vector<uint8_t> origOut;
 			std::vector<HALF> vectors((size_t)2 * W * H);
 			memcpy(vectors.data(), motion.data(), motion.size());
-			const bool bRan = orig.Init(err) && orig.Run(W, H, a, c, vectors, t, origOut);
+			const bool bRan = orig.Init(err, (int)scale) && orig.Run(W, H, a, c, vectors, t, origOut);
 			Check(bRan, ("EchoStorm's own synthesis on the same pair " + err).c_str());
 			if (bRan) {
 				size_t differ = 0;
 				int worst = 0;
 				for (size_t p = 0; p < origOut.size(); p += 4) {
 					for (int ch = 0; ch < 3; ch++) {
-						const int d = std::abs((int)origOut[p + ch] - (int)port[p + (2 - ch)]);
+						const int d = std::abs((int)origOut[p + ch] - (int)portScaled[p + (2 - ch)]);
 						differ += d ? 1 : 0;
 						worst = std::max(worst, d);
 					}
 				}
-				Out("  EchoStorm's own synthesis against the filter's Direct3D 11 port: %zu values differ, by %d at most\n", differ, worst);
-				Check(differ == 0, std::format("the port makes EchoStorm's picture to the byte at {}x{}", W, H).c_str());
+				Out("  EchoStorm's own synthesis against the filter's Direct3D 11 port, cells of %u: %zu values differ, by %d at most\n",
+					scale, differ, worst);
+				Check(differ == 0, std::format("the port makes EchoStorm's picture to the byte at {}x{} in cells of {}", W, H, scale).c_str());
 			}
 		}
 #else

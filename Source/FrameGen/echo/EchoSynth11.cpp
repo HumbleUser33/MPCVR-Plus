@@ -27,6 +27,8 @@ static_assert(sizeof(Constants) == 60);
 
 } // namespace
 
+void (*CEchoSynth11::s_passHook)(ID3D11DeviceContext*, int, bool) = nullptr;
+
 bool CEchoSynth11::Init(ID3D11Device* pDevice)
 {
 	if (IsReady()) {
@@ -96,14 +98,15 @@ void CEchoSynth11::Release()
 
 bool CEchoSynth11::Ensure(ID3D11Device* pDevice, const uint32_t w, const uint32_t h)
 {
-	if (w == m_w && h == m_h && m_pBuf[0]) {
+	if (w == m_w && h == m_h && m_scale == m_wantScale && m_pBuf[0]) {
 		return true;
 	}
 	ReleaseBuffers();
 	if (!IsReady() || !w || !h) {
 		return false;
 	}
-	const uint32_t aw = (w + kScale - 1) / kScale, ah = (h + kScale - 1) / kScale;
+	m_scale = m_wantScale;
+	const uint32_t aw = (w + m_scale - 1) / m_scale, ah = (h + m_scale - 1) / m_scale;
 	D3D11_BUFFER_DESC desc = {};
 	desc.ByteWidth = aw * ah * 4;
 	desc.Usage = D3D11_USAGE_DEFAULT;
@@ -130,7 +133,7 @@ bool CEchoSynth11::Ensure(ID3D11Device* pDevice, const uint32_t w, const uint32_
 	m_h = h;
 	m_aw = aw;
 	m_ah = ah;
-	m_status = std::format(L"EchoFG, {}x{} in cells of {}", w, h, kScale);
+	m_status = std::format(L"EchoFG, {}x{} in cells of {}", w, h, m_scale);
 	return true;
 }
 
@@ -163,7 +166,7 @@ bool CEchoSynth11::Make(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView*
 	// Direct3D 11 orders a dispatch after the one before that wrote the same views: every
 	// pass reads what the one before wrote without a barrier of its own.
 	auto pass = [&](Entry e, uint32_t mode, uint32_t phase, float k, bool bFull = false) {
-		const Constants c = { m_aw, m_ah, m_w, m_h, mode, phase, now, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, kScale,
+		const Constants c = { m_aw, m_ah, m_w, m_h, mode, phase, now, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, m_scale,
 			std::clamp(soften, 0.0f, 1.0f), 0.0f, bGrain ? std::clamp(grain, 0.0f, 1.0f) : 0.0f, m_seed };
 		D3D11_MAPPED_SUBRESOURCE mapped = {};
 		if (FAILED(pContext->Map(m_pConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
@@ -172,7 +175,13 @@ bool CEchoSynth11::Make(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView*
 		memcpy(mapped.pData, &c, sizeof(c));
 		pContext->Unmap(m_pConstants, 0);
 		pContext->CSSetShader(m_pCS[e], nullptr, 0);
+		if (s_passHook) {
+			s_passHook(pContext, e, false);
+		}
 		pContext->Dispatch(bFull ? fx : gx, bFull ? fy : gy, 1);
+		if (s_passHook) {
+			s_passHook(pContext, e, true);
+		}
 		return true;
 	};
 	bool bOk = true;

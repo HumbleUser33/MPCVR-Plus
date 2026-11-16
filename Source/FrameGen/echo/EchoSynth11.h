@@ -31,6 +31,11 @@ public:
 	void Release();
 	bool IsReady() const { return m_pCS[0] != nullptr; }
 
+	// The analysis cells, as OwnSynth::SetAnalysisScale: 1 pixel, 2 (EchoStorm's default) or
+	// 4; taken at the next Ensure.
+	void SetAnalysisScale(uint32_t scale) { m_wantScale = scale <= 1 ? 1 : scale >= 4 ? 4 : 2; }
+	uint32_t AnalysisScale() const { return m_scale; }
+
 	// Buffers for frames of this size; nothing is done when they already are.
 	bool Ensure(ID3D11Device* pDevice, uint32_t w, uint32_t h);
 
@@ -45,10 +50,13 @@ public:
 
 	const std::wstring& Status() const { return m_status; }
 
-private:
 	enum Entry { Clear, Err0, Box5, ErrA, Splat, Hyp1, Hyp2, Holes, Synth, MarkPrep, MarkLarge, MarkUpdate, GrainStat, EntryCount };
+	// For the harness's profile: called around each pass's dispatch, with its entry point; null
+	// in the filter.
+	static void (*s_passHook)(ID3D11DeviceContext* pContext, int entry, bool bEnd);
+
+private:
 	static constexpr int kBuffers = 13;
-	static constexpr uint32_t kScale = 2;   // EchoStorm's analysis cells: 2 x 2 pixels
 
 	void ReleaseBuffers();
 
@@ -58,6 +66,7 @@ private:
 	CComPtr<ID3D11Buffer> m_pBuf[kBuffers];
 	CComPtr<ID3D11UnorderedAccessView> m_pBufUav[kBuffers];
 	uint32_t m_seed = 0;
+	uint32_t m_wantScale = 2, m_scale = 2;   // the analysis cells: 2 x 2 pixels unless asked otherwise
 	uint32_t m_w = 0, m_h = 0, m_aw = 0, m_ah = 0;
 	std::wstring m_status;
 };
