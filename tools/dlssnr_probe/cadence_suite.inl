@@ -799,6 +799,7 @@ static int RunCadenceMade(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wch
 		}
 		Check(bCost, "the costs measured");
 	}
+	factory.Release();   // before COM goes, not after it: released after, it crashed the harness on its way out
 	if (SUCCEEDED(coInit)) {
 		CoUninitialize();
 	}
