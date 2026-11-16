@@ -10,10 +10,13 @@
 // renderer draws.
 //
 //    cadence_watch --out file.csv [--seconds 60] [--delay 0] [--region l,t,r,b] [--shot file.bmp]
+//                  [--shotrect l,t,r,b]
 //
 // --region is the part of the screen, in fractions, the tiles are spread over: keep it
 // clear of the statistics and the subtitles. --shot keeps the top left quarter of the
-// first image, where the statistics are. The analysis is cadence_report.py's.
+// first image, where the statistics are, at half size; with --shotrect, that part of the
+// screen instead (fractions), at its own size: the statistics' graph at the bottom right,
+// say. The analysis is cadence_report.py's.
 
 #define NOMINMAX
 #include <windows.h>
@@ -75,6 +78,7 @@ int wmain(int argc, wchar_t** argv)
 	std::wstring out, shot;
 	double seconds = 60, delay = 0;
 	double rl = 0.45, rt = 0.25, rr = 0.92, rb = 0.72;
+	double sl = -1, st = 0, sr = 0, sb = 0;   // --shotrect
 	for (int i = 1; i < argc; i++) {
 		const std::wstring a = argv[i];
 		if (a == L"--out" && i + 1 < argc) out = argv[++i];
@@ -82,6 +86,7 @@ int wmain(int argc, wchar_t** argv)
 		else if (a == L"--delay" && i + 1 < argc) delay = _wtof(argv[++i]);
 		else if (a == L"--shot" && i + 1 < argc) shot = argv[++i];
 		else if (a == L"--region" && i + 1 < argc) swscanf_s(argv[++i], L"%lf,%lf,%lf,%lf", &rl, &rt, &rr, &rb);
+		else if (a == L"--shotrect" && i + 1 < argc) swscanf_s(argv[++i], L"%lf,%lf,%lf,%lf", &sl, &st, &sr, &sb);
 	}
 	if (out.empty()) {
 		wprintf(L"cadence_watch --out file.csv [--seconds 60] [--delay 0] [--region l,t,r,b] [--shot file.bmp]\n");
@@ -348,13 +353,18 @@ int wmain(int argc, wchar_t** argv)
 						}
 					}
 					if (!shot.empty()) {
-						// The top left of the screen, where the statistics are, at half size, for a person to read.
-						const int sw = W / 4, sh = H * 3 / 8, rowBytes = (sw * 3 + 3) & ~3;
+						// The top left of the screen, where the statistics are, at half size, for a person to
+						// read; or the part --shotrect names, at its own size.
+						const bool bRect = sl >= 0 && sr > sl && sb > st;
+						const int x0 = bRect ? (int)(sl * W) : 0, y0 = bRect ? (int)(st * H) : 0, step = bRect ? 1 : 2;
+						const int sw = bRect ? std::max(1, (int)((sr - sl) * W)) : W / 4;
+						const int sh = bRect ? std::max(1, (int)((sb - st) * H)) : H * 3 / 8;
+						const int rowBytes = (sw * 3 + 3) & ~3;
 						std::vector<BYTE> img((size_t)rowBytes * sh);
 						for (int y = 0; y < sh; y++) {
 							for (int x = 0; x < sw; x++) {
 								double rgb[3];
-								px.At(x * 2, y * 2, rgb);
+								px.At(std::min(W - 1, x0 + x * step), std::min(H - 1, y0 + y * step), rgb);
 								BYTE* d = &img[(size_t)(sh - 1 - y) * rowBytes + x * 3];
 								for (int c = 0; c < 3; c++) {
 									const double v = std::clamp(rgb[2 - c], 0.0, 1.0);
