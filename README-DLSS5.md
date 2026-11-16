@@ -2184,6 +2184,50 @@ sample a refresh and EchoFG's time earlier while a slip waits (80 ms ahead of it
 on the 1080p film). `MPCVR_CADENCE_DUMP=<folder>` writes the first six made pictures there, each with
 the two it was made between, to look at.
 
+**Why EchoFG took 8 ms timed alone and 20 to 52 ms in the player** is the GPU's clock, not the
+port. A card playing a film is left by its driver in its video states: through the 4K film drawn by
+the shaders, nvidia-smi read every half second had the RTX 4060 at P3 and P5, 450 to 570 MHz of its
+2865, 34 to 38 % busy; the 1080p film enlarged by RTX Video Super Resolution keeps it at P0, 1.6 to
+2.8 GHz. Every GPU time is five or six times what it is at full clock then, and the clock is the
+driver's to choose from one start of the player to the next. At full clock the Direct3D 11 port takes
+1.2 to 1.4 times as long as EchoStorm's own Direct3D 12 code run in turn with it on the same pair
+(`dlssnr_harness --techoperf`: 7.96 ms against 6.07 at 3840x2160 HDR, 6.05 against 4.44 at
+3840x1600, 6.24 against 5.28 at 3840x2160 SDR), every pass alike: the two put the same barrier after
+every pass, and fxc's /O3 changes nothing. Four changes followed:
+
+- A picture more than 2560 wide is synthesised in cells of 4 pixels, which EchoStorm offers (its
+  motion is analysed at half size already). On three pictures in a row of the 4K film's tracking
+  shot, the middle one made from the other two: 6.6 ms in cells of 2 and 4.6 in cells of 4, and
+  as near the picture truly there (43.66 dB against 43.51; a plain blend is 25.47). On the 1080p
+  film enlarged to 3840x1600, 40.76 dB either way. The motion at a quarter of the size was 0.6 ms
+  quicker and lost 0.3 dB there and 7 dB on a pan: not taken.
+- The picture before needs only its pyramid (`CEchoFlow::Prime`): its vectors from nothing were
+  zeros at the full size that nothing read. 0.2 ms, the same vectors to the byte.
+- EchoFG's time is brought to the GPU's clock of the moment: the copy and the detector every
+  picture has are timed while made pictures may be wanted, and EchoFG's times are kept as a
+  multiple of them. Timed once at one clock and trusted at another, EchoFG was started where it
+  could not be ready, came out late and held up the picture after it on the GPU.
+- In a 3:2 cadence a made picture that a 2 leaves too little time for goes on a 3 instead, a
+  picture sooner: from the Present of the 3 to the refresh it is for there are four refreshes,
+  56 ms at 60 Hz, where a 2 leaves three, 39 ms. A 3 made a 4 takes a whole refresh where a 3,3
+  takes half, so these slips come every 16.7 s at 23.976 fps, and the pictures between are within
+  12.5 ms of their time either way. A plain slip there would be a 4, so it is done only where the
+  made picture fits on a 3 and not on a 2; where it fits on neither, the slip is a 2 made a 3.
+
+In a window the desktop composes the picture a refresh before the screen shows it, and the made
+picture has to be done by then; it was allowed a refresh more, as full screen is. Measured in
+MPC-HC after these changes, the film at 60 Hz:
+
+| film | GPU | slips forced | covered by a made picture | the screen |
+|---|---|---|---|---|
+| 4K HEVC HDR, the shaders, every cut ignored, 2 min watched | P3, 495 MHz | 10 | 7 | 7 made pictures, each a picture of its own; 1 plain 3,3 |
+| the same, its cuts heeded, a minute of fade and tracking shot | P3, 510 MHz | 3 | 3 | 3 made pictures, 2 slips on a cut, no 3,3 |
+| 1080p AV1 enlarged by RTX Video Super Resolution, in a 3400x1900 window, every cut ignored | P0, 1.9 GHz | 17 | 17 | 15 made pictures watched, no 3,3 |
+
+NVIDIA's *Prefer maximum performance* for the player (Manage 3D settings, Program Settings, Power
+management mode) keeps the card at P0 while a film plays, where every step of the chain takes a
+fifth of the time; that is a setting of the computer, left to its owner.
+
 ### A video delay, for a sound that arrives late
 
 All of the above puts the picture where the reference clock says, and the clock is the sound
@@ -2495,7 +2539,7 @@ steps work in.
 | DLSS 5 NR | The network's tuning, or why it is not running. *working* is the reduction and the composition at a working size below the picture's; *stabilizer* its Optical Flow and the stabilizer. The network runs on a Direct3D 12 device of its own and is timed there, by timestamps on its queue |
 | Scaling | From what size to what size, and what does it, with all it costs: the processor's second turn after DLSS 5 NR, DLSS SR and its *motion*, or an mpv prescaler, each with the resize shader that finishes the job. `SuperResolution*` when the driver's Super Resolution runs, and `(No Super Resolution when chroma by shaders)` when it was asked for on a 4:4:4 picture. When the processor resized in its own step, a time here is only the resize shader copying the picture to its place -- a film with black bars, or one in a window -- and the line says `placed by the shaders`: 0.5 ms for a 2.39:1 film on a 4K screen, which is not Super Resolution's (that is in the processor's time). With *DLSS SR* ticked and not enlarging, a sub-line says why |
 | Finish | What runs at the size the picture is shown at: a correction, the tone mapping, the sharpening and its level, the player's shaders, the dither |
-| Cadence | With *Hide the 60 Hz hiccup on scene changes*: the picture copied out of the back buffer and measured for a scene change, every picture while a hiccup may come. Under it, *EchoFG* is the interpolated frame (*Otherwise, show an interpolated frame*): the median of its last five times on the GPU, which decides whether one is made, and not in the total, since it is made every few seconds and not for every picture |
+| Cadence | With *Hide the 60 Hz hiccup on scene changes*: the picture copied out of the back buffer and measured for a scene change, every picture while a hiccup may come. Under it, *EchoFG* is the interpolated frame (*Otherwise, show an interpolated frame*): the median of its last five times on the GPU, each brought to the GPU's clock of the moment, which decides whether one is made, and not in the total, since it is made every few seconds and not for every picture |
 
 Each time is the mean of the last 32 pictures, measured on the GPU with timestamps read back
 later, never waited for, and only while the statistics are shown. A step whose text does not
@@ -2716,12 +2760,19 @@ dlssnr_harness.exe --tcutscan <film> the cut detection alone over minutes of a f
                                   (--cutfrom <s> --cutfor <s>: the stretch, 300 s by default)
 dlssnr_harness.exe --tcadence     the cadence slips' schedule against a simulated screen: 23.976, 29.97
                                   and 59.94 at 60 Hz with cuts every 4 s, every 29 s and none, 24, 25
-                                  and 30 left alone, a film at the screen's own rate drifting both ways
+                                  and 30 left alone, a film at the screen's own rate drifting both ways,
+                                  a made picture too long for a 2 put on a 3
 dlssnr_harness.exe --tcadencecut <film>   the cadence slips' own cut detector over a stretch of a film,
                                   beside ffmpeg's scene score (--cutfrom, --cutfor; --hdr: as PQ)
 dlssnr_harness.exe --tcadencemade the picture made for a slip: EchoStorm's own synthesis and the
-                                  filter's Direct3D 11 port on the same pair, to the byte (with
-                                  EchoStorm's code in external\framegen\echostorm), and what each part costs
+                                  filter's Direct3D 11 port on the same pair, to the byte, in cells
+                                  of 2 and of 4 (with EchoStorm's code in external\framegen\echostorm),
+                                  and what each part costs
+dlssnr_harness.exe --techoperf    EchoFG on the GPU pass by pass, the port against EchoStorm's own
+                                  Direct3D 12 code run in turn with it, and what might make it cheaper,
+                                  each with its picture against the one truly between the two
+                                  (--techotriplet <prefix> [--hdr]: <prefix>_1.png .. _3.png, three
+                                  pictures of a film in a row, the second the one to make)
 dlssnr_harness.exe --tupscale     the resize shaders and the mpv prescalers on film frames
 dlssnr_harness.exe --tupscalecost what EfRLFN costs at film sizes
 dlssnr_harness.exe --tchroma      the chroma upsamplers on 4:2:0 made from film frames
