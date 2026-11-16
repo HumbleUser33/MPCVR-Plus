@@ -537,12 +537,21 @@ private:
 	int m_cadenceEchoCount = 0, m_cadenceEchoNext = 0;
 	CComPtr<ID3D11Query> m_pCadenceTiming[3];  // disjoint, before EchoFG, after it
 	bool m_bCadenceTimingPending = false;
+	// The GPU's pace: the copy and the detector of each picture, timed while made pictures may
+	// be wanted, and what it was when each of EchoFG's times was measured (CadenceEchoMs).
+	CComPtr<ID3D11Query> m_pCadenceProbe[3];   // disjoint, before the copy, after the detector
+	bool m_bCadenceProbePending = false;
+	float m_cadenceProbeMs[5] = {};
+	int m_cadenceProbeCount = 0, m_cadenceProbeNext = 0;
+	float m_cadenceEchoProbe[5] = {};          // the probe when m_cadenceEchoMs[i] was timed; 0, none
 	long long m_cadenceMadeRt = 0;             // the last made picture's time, for its line in the trace
 	unsigned m_cadenceMadeLate = 0;            // made pictures the GPU had not finished by their Present, left out
 	CComPtr<ID3D11Query> m_pCadenceDrawnQuery; // whether the GPU is done with the drawn picture, then with the made one
 	bool m_bCadenceMadeQueued = false;         // the last picture had one made, shown or not: its GPU time is not a drawn picture's
 	double CadenceEchoMs() const;
+	double CadenceProbeMs() const;
 	void CadenceReadTiming();
+	void CadenceReadProbe();
 	bool CadenceMake(float t, bool bTime);
 	std::atomic<int> m_cadenceAhead = 0;       // how much earlier samples are asked for so that one can be made, 100 ns
 	unsigned m_cadenceMadeFailed = 0;          // forced slips a made picture could not be had for

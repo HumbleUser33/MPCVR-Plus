@@ -367,11 +367,18 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 	} else if (m_bLast && bPlace && (m_lastGap == 2 || m_lastGap == 3) && bNear32) {
 		// A 3:2 cadence on a screen a little faster than it: the 3 and 2 kept by turns past
 		// the point where the nearest refresh would give a 3,3, the slip -- always a 2 made a
-		// 3, never a 3 made a 4 -- taken on a cut from kSlipEarly of a refresh before that
-		// point, or at the limit.
+		// 3, never a 3 made a 4, but for a made picture that needs a 3 -- taken on a cut from
+		// kSlipEarly of a refresh before that point, or at the limit.
 		const long long gap = m_lastGap == 3 ? 2 : 3;
 		const long long held = m_lastRefresh + gap;
 		const double e = (double)held - x;
+		// From the Present of the picture before the slip to the moment the made picture has
+		// to be ready, after a 2 (one refresh fewer after a 3): the picture after it drawn, and
+		// the made one made, in that time.
+		const double periodMs = m_period / TicksPerMs();
+		const double madeSpanMs = 3.0 * periodMs - (callPhase + guard) / TicksPerMs();
+		const bool bMadeOnThree = bMayMake && m_madeMs > 0.0 && drawMs + m_madeMs > madeSpanMs
+			&& drawMs + m_madeMs <= madeSpanMs + periodMs;
 		if (e < -2.0 || e > 1.5) {
 			// Nowhere near the cadence (a clock that jumped): the nearest refresh again.
 			refresh = std::max(nearest, m_lastRefresh + 1);
@@ -390,6 +397,13 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 					bSlipIfCut = true;
 					m_bSlipWaiting = true;
 				}
+			} else if (bMadeOnThree && (double)held + 2.0 - (x + perFrame) < -0.5 - kSlipEarly) {
+				// A 3, and the 2 after it would be forced with too little time for its made
+				// picture: the slip here, the 3 made a 4 and the made picture on its fourth
+				// refresh.
+				refresh = held + 1;
+				bSlipForced = true;
+				bSlipMade = true;
 			} else if ((double)held + 2.0 - (x + perFrame) < -0.5 + kSlipEarly) {
 				// A 3, with the 2 after it in the window: a cut here slips that one.
 				bSlipNextIfCut = true;
@@ -538,6 +552,12 @@ CPresentSchedule::Plan CPresentSchedule::MadePlan(const long long tickNow, const
 	return made;
 }
 
+long long CPresentSchedule::ReadyBy(const Plan& plan) const
+{
+	const double guard = std::min(kGuardPhase * m_period, kGuardMaxMs * TicksPerMs());
+	return RefreshTime(plan.refresh - m_depth) - (long long)guard;
+}
+
 double CPresentSchedule::StuckSpacing() const
 {
 	if (m_nominalMs <= 0) {
@@ -602,6 +622,9 @@ void CPresentSchedule::Presented(unsigned presentId, const Plan& plan, long long
 			m_slipsForced += plan.bSlipForced ? 1 : 0;
 		}
 		m_lastGap = m_bLast ? plan.refresh - m_lastRefresh : 0;
+		if (m_lastGap == 4 && plan.bSlipForced) {
+			m_lastGap = 3;   // a 3 made a 4 for a made picture: the picture after it is a 2
+		}
 		m_lastDue = plan.tickDue;
 		m_bLast = true;
 		m_lastRefresh = plan.refresh;

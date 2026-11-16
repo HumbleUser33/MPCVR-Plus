@@ -3735,6 +3735,8 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 			// thread does not wait for.
 			const double drawMs = std::max((double)(tickNow - (long long)tick1) * 1000.0 / GetPreciseTicksPerSecond(),
 				m_RenderAhead.MaxLatencyMs());
+			// What a made picture would take now, with the margin CadencePresentMade allows it.
+			m_PresentSchedule.SetMadeMs(m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade && m_bCadenceMakeReady ? CadenceEchoMs() + 1.0 : 0.0);
 			plan = m_PresentSchedule.Choose(tickNow, tickDue, frameMs, drawMs);
 			CadenceUpdateAhead();
 			// A second field belongs to its sample, and the sample is all that can be left out.

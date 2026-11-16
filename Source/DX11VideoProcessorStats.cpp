@@ -349,8 +349,8 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	// The cadence slips: every picture copied out and measured for a scene change while a
 	// slip may come, and the interpolated frame made for one no scene change came in time
 	// for. That one is made every few seconds and not for every picture: its time is
-	// EchoFG's own, timed on the GPU (the median of the last five, which decides whether
-	// one is made), and is not in the total.
+	// EchoFG's own, timed on the GPU and brought to the GPU's pace of the moment (the median
+	// of the last five, which decides whether one is made), and is not in the total.
 	if (m_iCadenceSlips != CADENCE_SLIPS_Off && (m_PresentSchedule.SlipsPlaced() || Ms(CGpuStageTimes::Cadence) >= 0)) {
 		Step(L"Cadence", L"picture copied, scene change detector", Ms(CGpuStageTimes::Cadence));
 		if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {

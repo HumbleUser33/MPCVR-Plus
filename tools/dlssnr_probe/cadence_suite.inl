@@ -62,10 +62,12 @@ struct CadenceResult {
 // The filter's CPresentSchedule against a screen of periodMs, Present shown on the first
 // refresh after its call, pictures due every frameMs on a clock that may drift against the
 // screen's, scene cuts at the pictures given.
-CadenceResult RunSchedule(double frameMs, double periodMs, int mode, const std::set<int>& cuts, int pictures, double clockPpm = 0)
+CadenceResult RunSchedule(double frameMs, double periodMs, int mode, const std::set<int>& cuts, int pictures, double clockPpm = 0,
+	double madeMs = 0)
 {
 	CPresentSchedule s;
 	s.SetCadenceSlips(mode);
+	s.SetMadeMs(madeMs);
 	LARGE_INTEGER f;
 	QueryPerformanceFrequency(&f);
 	const double tpm = f.QuadPart / 1000.0;
@@ -435,6 +437,18 @@ static int RunCadence()
 	ReportSchedule("23.976@60 on a cut else made, cuts every 29 s", rm, rm.slipsForced > 0 && rm.made == rm.slipsForced && rm.worstEarlyMs > -13.0);
 	const CadenceResult nm = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, none, n);
 	ReportSchedule("23.976@60 on a cut else made, no cuts", nm, nm.slipsForced >= 10 && nm.made == nm.slipsForced);
+	// A made picture that the time a 2 leaves would not see ready (8 ms to draw the picture
+	// after it, 40 to make it): its slip on the 3 before, the 3 made a 4. A 4 takes a whole
+	// refresh where a 3,3 takes half: half as many slips, every 16.7 s.
+	const CadenceResult m3 = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, none, n, 0, 40.0);
+	ReportSchedule("23.976@60 else made, 40 ms: on a 3", m3, m3.slipsForced >= 6 && m3.made == m3.slipsForced
+		&& m3.gaps[4] == m3.made && m3.worstEarlyMs > -13.0 && m3.worstLateMs < 13.0);
+	// One that a 3 would not see ready either: the slips on a 2, as ever.
+	const CadenceResult m9 = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, none, n, 0, 60.0);
+	ReportSchedule("23.976@60 else made, 60 ms: on a 2", m9, m9.slipsForced >= 10 && m9.gaps[4] == 0);
+	// And with cuts every 4 s, the slips on them, whatever a made picture would take.
+	const CadenceResult c3 = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, cuts, n, 0, 40.0);
+	ReportSchedule("23.976@60 else made, 40 ms, cuts every 4 s", c3, c3.slipsOnCut >= 10 && c3.slipsForced == 0 && c3.gaps[4] == 0);
 
 	const CadenceResult o29 = RunSchedule(f29, p60, CS::CadenceSlipsWhereTheyFall, none, 30 * 120);
 	ReportSchedule("29.97@60 where they fall", o29, o29.slipsForced == 0 && o29.slipsOnCut == 0);

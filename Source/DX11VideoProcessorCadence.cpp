@@ -167,10 +167,16 @@ void CDX11VideoProcessor::CadenceRelease()
 	for (auto& q : m_pCadenceTiming) {
 		q.Release();
 	}
+	for (auto& q : m_pCadenceProbe) {
+		q.Release();
+	}
 	m_pCadenceDrawnQuery.Release();
 	m_bCadenceTimingPending = false;
+	m_bCadenceProbePending = false;
 	m_cadenceEchoCount = 0;
 	m_cadenceEchoNext = 0;
+	m_cadenceProbeCount = 0;
+	m_cadenceProbeNext = 0;
 	for (auto& t : m_TexCadenceDump) {
 		t.Release();
 	}
@@ -180,21 +186,63 @@ void CDX11VideoProcessor::CadenceRelease()
 	m_bCadenceMakeFailed = false;
 }
 
-// What a made picture costs the GPU: the median of the last five times EchoFG ran, timed on
-// the GPU, and until it has run once guessed from the size, from what was measured in MPC-HC on
-// an RTX 4060 (about 3 ms a million pixels) with room to spare. The median and not the longest:
-// on a 4K film drawn by the shaders the same work took 8 to 29 ms from one time to the next, and
-// a guess held at the longest made none at all, never to learn again. One that comes out late
-// is left out (CadencePresentMade), which costs a plain slip.
+// What a made picture costs the GPU now: the last five times EchoFG ran, timed on the GPU, each
+// brought to the GPU's pace of the moment, and their median; until it has run once, guessed
+// from the size, from what was measured in MPC-HC on an RTX 4060 (about 3 ms a million pixels)
+// with room to spare. The pace is the probe's: the copy and the detector every picture has,
+// timed while made pictures may be wanted. A card playing a film is left by its driver at a
+// fraction of its clock -- 450 to 570 MHz of 2865 on the RTX 4060, under a 4K film drawn by the
+// shaders -- and raises it now and then, so the same work took 8 to 52 ms from one moment to
+// the next: timed once at one clock and trusted at another, EchoFG was started where it could
+// not be ready, came out late, and held up the picture after it on the GPU. The median and not
+// the longest: a guess held at the longest made none at all, never to learn again. One that
+// still comes out late is left out (CadencePresentMade), which costs a plain slip.
 double CDX11VideoProcessor::CadenceEchoMs() const
 {
 	if (m_cadenceEchoCount <= 0) {
 		return 2.0 + 4.0 * m_cadenceRect.Width() * m_cadenceRect.Height() / 1e6;
 	}
+	const double probe = CadenceProbeMs();
+	float now[5];
+	for (int i = 0; i < m_cadenceEchoCount; i++) {
+		now[i] = probe > 0.0 && m_cadenceEchoProbe[i] > 0.0f
+			? (float)std::clamp(m_cadenceEchoMs[i] * probe / m_cadenceEchoProbe[i], 0.5, 150.0)
+			: m_cadenceEchoMs[i];
+	}
+	std::sort(now, now + m_cadenceEchoCount);
+	return now[m_cadenceEchoCount / 2];
+}
+
+double CDX11VideoProcessor::CadenceProbeMs() const
+{
+	if (m_cadenceProbeCount <= 0) {
+		return 0.0;
+	}
 	float sorted[5];
-	std::copy(m_cadenceEchoMs, m_cadenceEchoMs + m_cadenceEchoCount, sorted);
-	std::sort(sorted, sorted + m_cadenceEchoCount);
-	return sorted[m_cadenceEchoCount / 2];
+	std::copy(m_cadenceProbeMs, m_cadenceProbeMs + m_cadenceProbeCount, sorted);
+	std::sort(sorted, sorted + m_cadenceProbeCount);
+	return sorted[m_cadenceProbeCount / 2];
+}
+
+void CDX11VideoProcessor::CadenceReadProbe()
+{
+	if (!m_bCadenceProbePending) {
+		return;
+	}
+	D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint = {};
+	UINT64 t0 = 0, t1 = 0;
+	if (m_pDeviceContext->GetData(m_pCadenceProbe[0], &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK
+			|| m_pDeviceContext->GetData(m_pCadenceProbe[1], &t0, sizeof(t0), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK
+			|| m_pDeviceContext->GetData(m_pCadenceProbe[2], &t1, sizeof(t1), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+		return;   // not yet: the next picture's is left untimed
+	}
+	m_bCadenceProbePending = false;
+	if (disjoint.Disjoint || !disjoint.Frequency || t1 <= t0) {
+		return;
+	}
+	m_cadenceProbeMs[m_cadenceProbeNext] = (float)((double)(t1 - t0) * 1000.0 / (double)disjoint.Frequency);
+	m_cadenceProbeNext = (m_cadenceProbeNext + 1) % (int)std::size(m_cadenceProbeMs);
+	m_cadenceProbeCount = std::min(m_cadenceProbeCount + 1, (int)std::size(m_cadenceProbeMs));
 }
 
 void CDX11VideoProcessor::CadenceReadTiming()
@@ -215,6 +263,7 @@ void CDX11VideoProcessor::CadenceReadTiming()
 	}
 	const double ms = (double)(t1 - t0) * 1000.0 / (double)disjoint.Frequency;
 	m_cadenceEchoMs[m_cadenceEchoNext] = (float)std::clamp(ms, 0.5, 100.0);
+	m_cadenceEchoProbe[m_cadenceEchoNext] = (float)CadenceProbeMs();
 	m_cadenceEchoNext = (m_cadenceEchoNext + 1) % (int)std::size(m_cadenceEchoMs);
 	m_cadenceEchoCount = std::min(m_cadenceEchoCount + 1, (int)std::size(m_cadenceEchoMs));
 	if (m_PacingTrace.Enabled()) {
@@ -246,8 +295,9 @@ bool CDX11VideoProcessor::CadenceMake(const float t, bool bTime)
 	const UINT encoding = CadenceEncoding();
 	ID3D11ShaderResourceView* pBefore = m_TexCadencePicture[1 - m_iCadencePicture].pShaderResource;
 	ID3D11ShaderResourceView* pNow = m_TexCadencePicture[m_iCadencePicture].pShaderResource;
-	m_CadenceFlow.Forget();
-	m_CadenceFlow.Measure(m_pDeviceContext, pBefore, nullptr, encoding, kWhiteNits);
+	// The picture before needs only its pyramid: the vectors of its own from nothing would be
+	// zeros written at the full size and never read.
+	m_CadenceFlow.Prime(m_pDeviceContext, pBefore, encoding, kWhiteNits);
 	m_CadenceFlow.Measure(m_pDeviceContext, pNow, pBefore, encoding, kWhiteNits);
 	const bool bMade = m_CadenceSynth.Make(m_pDeviceContext, pBefore, pNow, m_CadenceFlow.MotionView(), m_pCadenceMadeUav, t,
 		encoding, kWhiteNits, kSoften, encoding == 0 ? kGrain : 0.0f);
@@ -262,6 +312,7 @@ bool CDX11VideoProcessor::CadenceMake(const float t, bool bTime)
 void CDX11VideoProcessor::CadenceTakePicture(ID3D11Texture2D* pBackBuffer)
 {
 	CadenceReadTiming();
+	CadenceReadProbe();
 	if (m_bCadenceDumpPending) {
 		CadenceWriteDump();   // the copies of the last made picture, which the GPU has had a picture's time for
 	}
@@ -277,6 +328,10 @@ void CDX11VideoProcessor::CadenceTakePicture(ID3D11Texture2D* pBackBuffer)
 		m_cadenceRect = rect;
 		CadenceReset();
 		m_bCadenceMakeReady = false;
+		// The probe's work is the size's: its times start again. EchoFG's, kept as a multiple
+		// of the probe, carry over.
+		m_cadenceProbeCount = 0;
+		m_cadenceProbeNext = 0;
 		for (auto& t : m_TexCadencePicture) {
 			if (FAILED(t.Create(m_pDevice, bb.Format, w, h, Tex2D_DefaultShader))) {
 				DLog(L"CDX11VideoProcessor::CadenceTakePicture() : the copies of {}x{} could not be made", w, h);
@@ -289,6 +344,21 @@ void CDX11VideoProcessor::CadenceTakePicture(ID3D11Texture2D* pBackBuffer)
 		return;
 	}
 
+	// The probe of the GPU's pace (CadenceEchoMs), while made pictures may be wanted.
+	bool bProbe = m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade && !m_bCadenceMakeFailed && !m_bCadenceProbePending;
+	if (bProbe && !m_pCadenceProbe[0]) {
+		D3D11_QUERY_DESC qd = { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
+		m_pDevice->CreateQuery(&qd, &m_pCadenceProbe[0]);
+		qd.Query = D3D11_QUERY_TIMESTAMP;
+		m_pDevice->CreateQuery(&qd, &m_pCadenceProbe[1]);
+		m_pDevice->CreateQuery(&qd, &m_pCadenceProbe[2]);
+	}
+	bProbe = bProbe && m_pCadenceProbe[0] && m_pCadenceProbe[1] && m_pCadenceProbe[2];
+	if (bProbe) {
+		m_pDeviceContext->Begin(m_pCadenceProbe[0]);
+		m_pDeviceContext->End(m_pCadenceProbe[1]);
+	}
+
 	const int cur = m_bCadenceHaveLast ? 1 - m_iCadencePicture : m_iCadencePicture;
 	const D3D11_BOX box = { (UINT)rect.left, (UINT)rect.top, 0, (UINT)rect.right, (UINT)rect.bottom, 1 };
 	m_pDeviceContext->CopySubresourceRegion(m_TexCadencePicture[cur].pTexture, 0, 0, 0, 0, pBackBuffer, 0, &box);
@@ -297,11 +367,21 @@ void CDX11VideoProcessor::CadenceTakePicture(ID3D11Texture2D* pBackBuffer)
 	m_iCadencePicture = cur;
 	m_bCadenceMeasured = m_SceneCut.Measure(m_pDevice, m_pDeviceContext, m_TexCadencePicture[cur].pShaderResource,
 		w, h, CadenceEncoding(), kWhiteNits, ++m_cadenceId);
+	if (bProbe) {
+		m_pDeviceContext->End(m_pCadenceProbe[2]);
+		m_pDeviceContext->End(m_pCadenceProbe[0]);
+		m_bCadenceProbePending = true;
+	}
 
 	// What a made picture needs, made while the film plays and not when a slip needs it:
 	// creating it takes longer than the refresh the picture is for.
 	if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade && !m_bCadenceMakeReady && !m_bCadenceMakeFailed) {
 		const DXGI_FORMAT madeFormat = bb.Format == DXGI_FORMAT_R10G10B10A2_UNORM ? DXGI_FORMAT_R10G10B10A2_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
+		// A picture more than 2560 wide is synthesised in cells of 4 pixels, as its motion is
+		// analysed at half its size: on the RTX 4060, a 4K HDR film's made picture took 6.6 ms
+		// in cells of 2 and 4.6 in cells of 4, and it came as near the picture truly between
+		// the two (43.66 dB against 43.51; harness --techoperf --techotriplet).
+		m_CadenceSynth.SetAnalysisScale(w > 2560 ? 4 : 2);
 		bool bReady = m_CadenceFlow.Init(m_pDevice) && m_CadenceSynth.Init(m_pDevice)
 			&& m_CadenceFlow.Ensure(m_pDevice, w, h) && m_CadenceSynth.Ensure(m_pDevice, w, h);
 		if (bReady) {
@@ -385,11 +465,13 @@ bool CDX11VideoProcessor::CadencePresentMade(const CPresentSchedule::Plan& plan,
 	CPresentSchedule::Plan made = m_PresentSchedule.MadePlan((long long)GetPreciseTick() + echoTicks, plan, t);
 	if (!made.bValid) {
 		m_cadenceMadeFailed++;   // not in time for the refresh before this picture's: a plain slip
+		if (m_PacingTrace.Enabled()) {
+			m_PacingTrace.Note(std::format(L"cadence slips: no interpolated frame, no time left for EchoFG's {:.1f} ms", CadenceEchoMs()));
+		}
 		return false;
 	}
 	{
-		const double guardMs = std::min(CPresentSchedule::kGuardPhase * m_dRefreshPeriodMs, CPresentSchedule::kGuardMaxMs);
-		const long long tickLatest = made.tickRefresh - (long long)(guardMs * ticksPerMs) - echoTicks;
+		const long long tickLatest = m_PresentSchedule.ReadyBy(made) - echoTicks;
 		// A query of its own: the one WaitForScheduledPresent polls, ended once more here,
 		// never said done in time on a 4K film where this one says so after 15 to 19 ms.
 		if (!m_pCadenceDrawnQuery) {
@@ -413,6 +495,10 @@ bool CDX11VideoProcessor::CadencePresentMade(const CPresentSchedule::Plan& plan,
 		}
 		if (!bDone || (long long)GetPreciseTick() > tickLatest) {
 			m_cadenceMadeFailed++;   // this picture took the GPU too long: a plain slip
+			if (m_PacingTrace.Enabled()) {
+				m_PacingTrace.Note(std::format(L"cadence slips: no interpolated frame, the picture after it drawn too late for EchoFG's {:.1f} ms",
+					CadenceEchoMs()));
+			}
 			return false;
 		}
 		// From now: the made picture's time against its refresh, as MadePlan reckons it.
@@ -472,10 +558,10 @@ bool CDX11VideoProcessor::CadencePresentMade(const CPresentSchedule::Plan& plan,
 	WaitForScheduledPresent(forWait, false);
 	uint64_t tickDone = m_tickPictureDone;
 	if (!tickDone && m_pCadenceDrawnQuery) {
-		// Not done when its Present was due: still in time if done before the refresh, by the
-		// schedule's own guard, and presented at once then.
-		const double guardMs = std::min(CPresentSchedule::kGuardPhase * m_dRefreshPeriodMs, CPresentSchedule::kGuardMaxMs);
-		const long long tickLast = made.tickRefresh - (long long)(guardMs * ticksPerMs);
+		// Not done when its Present was due: still in time if done before the refresh (the one
+		// before it in a window, which the desktop composes), by the schedule's own guard, and
+		// presented at once then.
+		const long long tickLast = m_PresentSchedule.ReadyBy(made);
 		for (;;) {
 			BOOL bQueryDone = FALSE;
 			const HRESULT hrDone = m_pDeviceContext->GetData(m_pCadenceDrawnQuery, &bQueryDone, sizeof(bQueryDone), D3D11_ASYNC_GETDATA_DONOTFLUSH);
@@ -498,6 +584,10 @@ bool CDX11VideoProcessor::CadencePresentMade(const CPresentSchedule::Plan& plan,
 		// the back buffer, and the slip is a plain one. Its time still counts among the five.
 		m_cadenceMadeLate++;
 		m_pDeviceContext->CopyResource(pBackBuffer, m_TexCadenceKeep.pTexture);
+		if (m_PacingTrace.Enabled()) {
+			m_PacingTrace.Note(std::format(L"cadence slips: interpolated frame left out, not done by its refresh (EchoFG expected to take {:.1f} ms)",
+				CadenceEchoMs()));
+		}
 		return false;
 	}
 

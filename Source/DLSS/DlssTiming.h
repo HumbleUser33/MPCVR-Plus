@@ -261,8 +261,16 @@ public:
 	// the refresh it adds. A picture shown too late rather than too early, at a film's own
 	// rate, is left out on a cut instead.
 	//
-	// In a 3:2 cadence only a 2 is made a 3, never a 3 a 4. A cut that opens on a picture of
-	// 3 gives the slip to the picture after it: the first picture of the new shot holds the
+	// In a 3:2 cadence only a 2 is made a 3, never a 3 a 4 -- save for a made picture that
+	// would not be ready in time on a 2 (SetMadeMs): the forced slip is then taken on the 3
+	// before it, a picture sooner, and the made picture goes on the 3's fourth refresh. It has
+	// from the 3's Present to that refresh -- four refreshes, where a 2 leaves three -- to
+	// draw the picture after it and make itself. A 4 takes a whole refresh where a 3,3 takes
+	// half: such slips come half as often, every 16.7 s at 23.976 fps on 60 Hz, and the
+	// pictures between them are shown up to 12.5 ms after their time as well as before it.
+	//
+	// A cut that opens on a picture of 3 gives the slip to the picture after it: the first
+	// picture of the new shot holds the
 	// screen a refresh longer. And a slip there takes half a refresh, the 3 and the 2 trading
 	// places, so its window is half a refresh wide, kSlipEarly each side of the point. A
 	// forced slip leaves the cadence at the window's start, and a cut soon after may take the
@@ -307,6 +315,9 @@ public:
 	// One of CadenceSlips. Kept across Reset and Flush.
 	void SetCadenceSlips(int mode);
 	int CadenceSlipsMode() const { return m_cadenceSlips; }
+	// What a made picture takes the GPU now, once the picture after it is drawn: where a 2
+	// of a 3:2 cadence leaves it too little time, a forced slip goes on a 3.
+	void SetMadeMs(double ms) { m_madeMs = ms; }
 
 	// DXGI's account of the swap chain, as often as it is read. nominalPeriodMs is the
 	// display mode's, until the refreshes themselves have said better.
@@ -325,6 +336,11 @@ public:
 	// a forced slip adds (bSlipMade); not valid when there is none, or no time left for it.
 	// t: where that refresh falls between the two pictures' own times, 0 to 1.
 	Plan MadePlan(long long tickNow, const Plan& next, double& t) const;
+	// The last moment the GPU can finish a picture planned for plan.refresh and still have
+	// it shown there, less the guard: that refresh, where the picture is flipped to the
+	// screen itself (depth 0), and the refresh before where the desktop composes it (depth 1,
+	// a window): the desktop takes what is finished when it starts.
+	long long ReadyBy(const Plan& plan) const;
 	// A sample was left out before it was drawn, as a Plan asked.
 	void LeftOut();
 	// msInside: how long Present took to return. bReady: the GPU had finished the picture
@@ -406,6 +422,7 @@ private:
 	long long m_lastDue = 0;       // the last picture's own time, as the schedule went by it
 
 	int m_cadenceSlips = CadenceSlipsWhereTheyFall;
+	double m_madeMs = 0.0;         // SetMadeMs
 	bool m_bSlipWaiting = false;
 	bool m_bSlipCadence = false;
 	bool m_bSlipNext = false;      // the last picture opened a shot on a 3: this one takes the slip
