@@ -222,10 +222,11 @@ void CDX11VideoProcessor::NoteSwapChainForTrace()
 		return;
 	}
 	const std::wstring note = std::format(
-		L"swap chain {}x{} format {} buffers {} effect {} flags {:#x}, refresh {:.4f} ms, wait for vblank {}, adjust present time {}, render ahead {}, exclusive {}, video delay {} ms",
+		L"swap chain {}x{} format {} buffers {} effect {} flags {:#x}, refresh {:.4f} ms, wait for vblank {}, adjust present time {}, render ahead {}, exclusive {}, video delay {} ms, dwm kept composing {}",
 		desc.Width, desc.Height, (int)desc.Format, desc.BufferCount, (int)desc.SwapEffect, desc.Flags,
 		m_dRefreshPeriodMs, m_bVBlankBeforePresent ? 1 : 0, m_bAdjustPresentTime ? 1 : 0, RenderAheadActive() ? 1 : 0,
-		m_bExclusiveScreen ? 1 : 0, m_rtVideoDelay / 10000);
+		m_bExclusiveScreen ? 1 : 0, m_rtVideoDelay / 10000,
+		m_DwmKeepAlive.Now() == CDwmKeepAlive::Drawing ? L"yes" : m_DwmKeepAlive.Now() == CDwmKeepAlive::Waiting ? L"no, not in a window" : L"no");
 	if (note != m_strTraceNote) {
 		m_strTraceNote = note;
 		m_PacingTrace.Note(note);

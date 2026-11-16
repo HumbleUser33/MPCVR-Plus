@@ -63,6 +63,9 @@
     <ClCompile Include="DLSS\DlssTiming.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DLSS\DwmKeepAlive.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Upscale\MpvShader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -264,6 +267,9 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="DLSS\DlssTiming.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DLSS\DwmKeepAlive.h">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="DLSS\NgxRuntime.h">

@@ -209,6 +209,11 @@ it does not say:
   picture on time into a window the desktop no longer updates, and every number the filter
   prints stays perfect. `playback_test --toggle` watches the desktop itself for this; a
   screen copy made with GDI does not see flip-model content.
+- **A window's pacing depends on what else moves on the desktop.** With nothing else moving,
+  DWM composes only when a picture arrives and does not keep time; anything animating beside
+  the player -- the program driving the test among them -- hides that. The filter keeps DWM
+  composing in a window (`DwmKeepAlive`); `MPCVR_DWM_KEEPALIVE=0` takes that away. Judge a
+  window with the desktop left alone, the run started in the background and nobody at the machine.
 - **For anything about pacing, trace the real player.** With `MPCVR_PACING_TRACE=<file>` in
   the player's environment the renderer writes a line a picture, and
   `tools\dlssnr_probe\pacing_report.py` says on which refresh each was shown and how long

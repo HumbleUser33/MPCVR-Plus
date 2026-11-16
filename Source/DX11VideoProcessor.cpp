@@ -891,6 +891,7 @@ void CDX11VideoProcessor::ReleaseDevice()
 
 void CDX11VideoProcessor::ReleaseSwapChain()
 {
+	m_DwmKeepAlive.Stop();
 	if (m_pDXGISwapChain1) {
 		m_pDXGISwapChain1->SetFullscreenState(FALSE, nullptr);
 	}
@@ -2149,6 +2150,12 @@ HRESULT CDX11VideoProcessor::InitSwapChain(bool bWindowChanged)
 		m_UsedSwapEffect = desc1.SwapEffect;
 
 		HRESULT hr2 = m_pDXGISwapChain1->GetContainingOutput(&m_pDXGIOutput);
+		if (!m_bExclusiveScreen) {
+			CComPtr<IDXGIAdapter> pAdapter;
+			if (CComQIPtr<IDXGIDevice> pDXGIDevice = m_pDevice.p; pDXGIDevice && SUCCEEDED(pDXGIDevice->GetAdapter(&pAdapter))) {
+				m_DwmKeepAlive.Start(m_hWnd, pAdapter);
+			}
+		}
 
 		m_currentSwapChainColorSpace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
 		if (bHdrOutput) {

@@ -77,6 +77,7 @@
     <ClCompile Include="DLSS\DlssCompose.cpp" />
     <ClCompile Include="DLSS\DlssSR.cpp" />
     <ClCompile Include="DLSS\DlssTiming.cpp" />
+    <ClCompile Include="DLSS\DwmKeepAlive.cpp" />
     <ClCompile Include="Upscale\MpvShader.cpp" />
     <ClCompile Include="DX11VideoProcessor.cpp" />
     <ClCompile Include="DX11VideoProcessorClean.cpp" />
@@ -138,6 +139,7 @@
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowD3D11.h" />
     <ClInclude Include="DLSS\DlssSR.h" />
     <ClInclude Include="DLSS\DlssTiming.h" />
+    <ClInclude Include="DLSS\DwmKeepAlive.h" />
     <ClInclude Include="Cadence\SceneCut.h" />
     <ClInclude Include="FrameGen\echo\EchoFlow.h" />
     <ClInclude Include="FrameGen\echo\EchoSynth11.h" />

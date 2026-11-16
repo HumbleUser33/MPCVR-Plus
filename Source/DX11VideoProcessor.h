@@ -37,6 +37,7 @@
 #include "DLSS/DlssNR.h"
 #include "DLSS/DlssSR.h"
 #include "DLSS/DlssTiming.h"
+#include "DLSS/DwmKeepAlive.h"
 #include "Cadence/SceneCut.h"
 #include "FrameGen/echo/EchoFlow.h"
 #include "FrameGen/echo/EchoSynth11.h"
@@ -507,6 +508,8 @@ private:
 
 	// Each picture given a refresh in advance, and Present called in time for it.
 	CPresentSchedule m_PresentSchedule;
+	// DWM composing on every refresh while the film plays in a window (DwmKeepAlive.h).
+	CDwmKeepAlive m_DwmKeepAlive;
 	bool m_bScheduled = false;                // the last picture was
 	REFERENCE_TIME m_rtScheduledOffset = 0;   // its refresh, less its own time
 	void ReadPresentSchedule();

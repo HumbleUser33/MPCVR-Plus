@@ -2294,6 +2294,29 @@ as a DXGI that keeps time, and the last neither a picture repeated nor one dropp
 schedule of the morning, the late times gave 126 pictures held one refresh and 163 held four,
 pictures shown from 35.6 ms early to 21.4 ms late: the window as the user saw it.
 
+**Why the times went astray: a desktop with nothing else moving.** The graph stayed irregular in a
+window with that check in place, and the user saw why: it was regular for as long as another program
+animated on the desktop, and irregular again as soon as it stopped. The runs here had always had one
+animating beside the player, the program they were driven from. With nothing else moving, DWM composes
+only when a picture arrives, and then it does not keep time. Two minutes of the 23.976 film in a
+3030x1653 window at 60 Hz, the desktop left alone, with the filter as it was: 31.6 % of DXGI's times off
+the grid by 1 to 16 ms, its count behind its times 3.2 times a second, and on the screen 492 film
+pictures held one refresh and 461 held four. The same with a 4-pixel window elsewhere on the screen
+changing on every composition: no time off the grid, no refresh lost, and 3 pictures held one refresh,
+1462 two and 1473 three, the film's still shots apart.
+
+So in a window the filter now gives DWM something to compose on every refresh: a thread draws one pixel
+of the video window again after every vertical blank, under the swap chain's picture, in two colours a
+step apart (`Source/DLSS/DwmKeepAlive.cpp`). The same two minutes with it: no time off the grid, no
+refresh lost, 2 pictures held one refresh, 1464 two and 1471 three, the screen's times within 1.33 ms of its
+refreshes (7.28 without it). A window over the whole of its monitor, the player's fullscreen, is left
+alone: there the pictures go to the screen without DWM. A film started in a window and put fullscreen
+40 s later went to an overlay of its own as it does without the pixel (1348 pictures presented
+there against 1346).
+The trace's first note says whether DWM is being kept composing; `MPCVR_DWM_KEEPALIVE=0` in the
+player's environment leaves it to itself, to measure without. The check on the grid stays for what
+the pixel cannot reach: a window on a monitor of another graphics card, or the variable left at 0.
+
 ### A video delay, for a sound that arrives late
 
 All of the above puts the picture where the reference clock says, and the clock is the sound
@@ -2954,7 +2977,8 @@ The first note of a trace is the swap chain: its size, how many buffers it has a
 is exclusive. `MPCVR_SWAPCHAIN_BUFFERS=n` forces that count (see *A refresh chosen for every
 picture*). `MPCVR_SWAPCHAIN_RENEW=0` leaves flips the system holds back as they are, with a note
 each time the swap chain would have been renewed (see *A swap chain that starts skipping
-flips*), for as long as the system's own tools need them to last.
+flips*), for as long as the system's own tools need them to last. `MPCVR_DWM_KEEPALIVE=0`
+leaves DWM to compose when it likes in a window (see *Why the times went astray*).
 
 With the hiccup hidden on scene changes, a picture's flags say whether it was a slip taken on a cut, a forced
 one, or a picture made for one (written on a line of its own, at its own time between the two),
