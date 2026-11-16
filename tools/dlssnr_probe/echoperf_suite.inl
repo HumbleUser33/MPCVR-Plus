@@ -10,11 +10,11 @@
 //                    same way on a Direct3D 12 device of their own, where that code is beside
 //                    the harness (HAVE_ECHOSTORM). The GPU's clock is read from nvidia-smi
 //                    before and after each size: a card that is not at its full clock makes
-//                    every number here larger, the same for both. Then what might make it
-//                    cheaper -- the picture before's pyramid alone (CEchoFlow::Prime), the
-//                    synthesis in cells of 4, the motion at a quarter of the frames' size --
-//                    each timed, and its picture against the one truly between the two and
-//                    against the renderer's.
+//                    every number here larger, the same for both. Then the other ways it can
+//                    be run -- the picture before's pyramid alone (CEchoFlow::Prime), the
+//                    synthesis in cells of 1, 2 and 4, the motion at a quarter of the frames'
+//                    size and at their full size -- each timed, and its picture against the
+//                    one truly between the two and against the first's.
 
 #include <map>
 
@@ -351,10 +351,13 @@ static int RunEchoPerf(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_
 #endif
 
 	static const EchoVariant variants[] = {
-		{ "as the renderer makes it", false, 2, 0 },
-		{ "the picture before's pyramid alone", true, 2, 0 },
-		{ "  and the synthesis in cells of 4", true, 4, 0 },
+		{ "the whole motion of the picture before, cells of 2", false, 2, 0 },
+		{ "the picture before's pyramid alone, cells of 2", true, 2, 0 },
+		{ "the picture before's pyramid alone, cells of 1", true, 1, 0 },
+		{ "the picture before's pyramid alone, cells of 4", true, 4, 0 },
 		{ "  and the motion at a quarter size", true, 4, 4 },
+		{ "the motion at the full size, cells of 2", true, 2, 1 },
+		{ "the motion at the full size, cells of 4", true, 4, 1 },
 	};
 	struct Case { int W, H; uint32_t encoding; };
 	std::vector<Case> cases = { { 1920, 1080, 0 }, { 3840, 1600, 2 }, { 3840, 2160, 2 }, { 3840, 2160, 0 } };
@@ -469,7 +472,7 @@ static int RunEchoPerf(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_
 			}
 
 			// Each pass: the median of the runs, a pass run more than once summed.
-			if (&v == &variants[0] || &v == &variants[2] || &v == &variants[3]) {
+			if (&v == &variants[1] || &v == &variants[2] || &v == &variants[3]) {
 				g_echoProfile.dev = dev;
 				CEchoFlow::s_passHook = [](ID3D11DeviceContext* x, int pass, bool bEnd) { g_echoProfile.Hook(x, pass, bEnd); };
 				CEchoSynth11::s_passHook = [](ID3D11DeviceContext* x, int entry, bool bEnd) { g_echoProfile.Hook(x, 100 + entry, bEnd); };

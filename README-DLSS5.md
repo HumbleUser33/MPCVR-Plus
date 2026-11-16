@@ -2196,11 +2196,24 @@ driver's to choose from one start of the player to the next. At full clock the D
 every pass, and fxc's /O3 changes nothing. Four changes followed:
 
 - A picture more than 2560 wide is synthesised in cells of 4 pixels, which EchoStorm offers (its
-  motion is analysed at half size already). On three pictures in a row of the 4K film's tracking
-  shot, the middle one made from the other two: 6.6 ms in cells of 2 and 4.6 in cells of 4, and
-  as near the picture truly there (43.66 dB against 43.51; a plain blend is 25.47). On the 1080p
-  film enlarged to 3840x1600, 40.76 dB either way. The motion at a quarter of the size was 0.6 ms
-  quicker and lost 0.3 dB there and 7 dB on a pan: not taken.
+  motion is analysed at half size already). It was kept for the picture, not for the time: on
+  fourteen sets of three pictures in a row at 3840x1600, eight from the 4K film and six from the
+  1080p film enlarged, the middle one made from the other two and held against the one truly
+  there (`--techoperf --techotriplet`, the GPU at its full clock):
+
+  | at 3840x1600 | mean PSNR | against cells of 2 | EchoFG |
+  |---|---|---|---|
+  | cells of 2, EchoStorm's default | 37.06 dB | -- | 4.8 ms |
+  | cells of 1, EchoStorm's quality reference | 37.02 dB | 5 better, 6 worse, down to −0.34 | 11.2 ms |
+  | **cells of 4** | **37.20 dB** | 12 better, 1 worse (−0.13) | 4.0 ms |
+  | the motion at the full size, cells of 2 | 37.11 dB | 8 better, 4 worse | 7.0 ms |
+  | the motion at the full size, cells of 4 | 37.19 dB | 11 better, 1 worse (−0.02) | 5.6 ms |
+
+  At 1920x800 cells of 4 came out the same as cells of 2 (+0.04 dB on the mean, 2 of 14 worse),
+  and smaller pictures keep EchoStorm's cells of 2. The motion at a quarter of the size lost
+  0.3 dB on the tracking shot and 7 dB on a pan: not taken. (Three pictures in a row by ffmpeg
+  need `-fps_mode passthrough`: without it the millisecond stamps of a Matroska film had ffmpeg
+  repeat one picture in eight of fourteen sets, a middle "picture" the same as the first.)
 - The picture before needs only its pyramid (`CEchoFlow::Prime`): its vectors from nothing were
   zeros at the full size that nothing read. 0.2 ms, the same vectors to the byte.
 - EchoFG's time is brought to the GPU's clock of the moment: the copy and the detector every
@@ -2224,9 +2237,26 @@ MPC-HC after these changes, the film at 60 Hz:
 | the same, its cuts heeded, a minute of fade and tracking shot | P3, 510 MHz | 3 | 3 | 3 made pictures, 2 slips on a cut, no 3,3 |
 | 1080p AV1 enlarged by RTX Video Super Resolution, in a 3400x1900 window, every cut ignored | P0, 1.9 GHz | 17 | 17 | 15 made pictures watched, no 3,3 |
 
-NVIDIA's *Prefer maximum performance* for the player (Manage 3D settings, Program Settings, Power
-management mode) keeps the card at P0 while a film plays, where every step of the chain takes a
-fifth of the time; that is a setting of the computer, left to its owner.
+NVIDIA's *Prefer maximum performance* (Manage 3D settings, Power management mode) keeps the card at
+P0 while a film plays, where every step of the chain takes a fifth of the time; that is a setting of
+the computer, left to its owner. Set for MPC-HC alone, under Program Settings, it changed nothing on
+the machine measured; set in Global Settings, it held the card at 2505 MHz through every film. Then,
+on the same films at 60 Hz:
+
+| film | slips forced | covered by a made picture | the screen |
+|---|---|---|---|
+| 4K HEVC HDR, the shaders, a minute of fade and tracking shot, its cuts heeded | 4 | 4, each on a 2 | 4 made pictures, 3 slips on a cut, no 3,3 |
+| the same film, every cut ignored, 2 min | 16 | 16 | made pictures every 8.3 s; once, a second of 3,3s and 2,2s where DXGI's refresh counts stopped matching their times (Windows', below) |
+| 1080p AV1 enlarged by RTX Video Super Resolution, every cut ignored | 18 | 18 | 14 made pictures seen as pictures of their own, the 15th on a nearly still stretch |
+| the same in a 3400x1900 window, its cuts heeded | 1 | 1 | 17 slips on a cut, the made picture seen |
+
+EchoFG took 5.7 ms there on the 4K film, 5.3 on the 1080p film enlarged to 3840x1600 and 2.2 in the
+window; no slip went on a 3. The DXGI fault came 6.6 s after a made picture and not on one: from that
+moment until the end of the run, the refresh counts DXGI gave with its times no longer matched them
+(two counts in 50 ms, then three in 50 ms), which looks like the reset VSync smoothing found behind the
+23 Hz stutter (*A refresh chosen for every picture*), though this one was not traced with ETW. The
+schedule took a second to find the cadence again and the screen was right after it. One run in twelve
+that day.
 
 ### A video delay, for a sound that arrives late
 
@@ -2769,7 +2799,8 @@ dlssnr_harness.exe --tcadencemade the picture made for a slip: EchoStorm's own s
                                   of 2 and of 4 (with EchoStorm's code in external\framegen\echostorm),
                                   and what each part costs
 dlssnr_harness.exe --techoperf    EchoFG on the GPU pass by pass, the port against EchoStorm's own
-                                  Direct3D 12 code run in turn with it, and what might make it cheaper,
+                                  Direct3D 12 code run in turn with it, and the other ways it can be
+                                  run (cells of 1, 2, 4; the motion at a quarter and at the full size),
                                   each with its picture against the one truly between the two
                                   (--techotriplet <prefix> [--hdr]: <prefix>_1.png .. _3.png, three
                                   pictures of a film in a row, the second the one to make)
