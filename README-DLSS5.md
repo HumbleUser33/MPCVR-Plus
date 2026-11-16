@@ -2261,16 +2261,38 @@ run, its times exact all along: the screen had gone on refreshing every 16.667 m
 missed five. The schedule took a count that disagrees with its time for another count altogether,
 a new swap chain or another display mode, and started again: five times in that second it forgot
 its cadence, the depth of the queue it had learnt and the pictures it was waiting to hear of, and
-the screen showed it. Now a time a whole number of refreshes on is believed over the count, and
-only a count that goes back, or a time that falls on no refresh, starts the schedule again; the
-pacing trace notes each refresh the count lost or gained. Every pacing trace of those three days,
-read again: the count went astray in five runs of forty-three, four times by refreshes it
-lost and kept lost (full screen), once by two it lost and took back on one refresh, its time not
-moving (in a window); once the times themselves went half a refresh off for a third of a second,
-which is the refreshes moving and still starts the schedule again. `dlssnr_harness --tcadence`
-has the count lose five refreshes in a second, and two and take them back: the same pictures on
-the same refreshes as with a count that keeps up, where before the screen of the simulation had
-three pictures held four refreshes and one shown 20.8 ms early.
+the screen showed it.
+
+**And its times going astray, in a window.** A first answer believed the time over the count, and
+the statistics' graph stayed irregular in a window on the user's screen, full screen being right.
+The pacing trace from that screen said why: in a window the desktop composes, a third of the times DXGI gave were
+1 to 16 ms after the refresh their count named, in runs of up to forty readings -- the moment the
+desktop composed, not the refresh -- and the count was right. Taken as the grid, each moved the
+refreshes the schedule aimed at by as much; one more than half a refresh late was taken for a
+count that had lost one (105 notes in 50 s), and pictures went on the wrong refresh: 23.843
+pictures a second drawn for 23.975. The graph, which plots where DXGI says each picture went, showed
+it. The same window size and settings here gave none of those times, nor did any other run of those
+days.
+
+So now each reading is held against the grid of refreshes found so far, and the one of the two that
+agrees with it is believed: a time off the grid (by more than 5 % of a refresh, 0.83 ms at 60 Hz)
+is left out, the count followed and the grid kept; a count off a time on the grid by the same
+refreshes twice in a row is the count astray, and the times are followed; once, the reading waits.
+Eight times in a row off the grid by the same amount are the refreshes truly moved, and the grid
+moves with them; a count that goes back, or a time neither on the grid nor where its count puts
+it give or take a refresh, starts the schedule again. A reading in doubt teaches nothing of the
+queue's depth nor of a picture shown late. The pacing trace notes each refresh the count lost or
+gained, and the times off the grid, the first and then one in a hundred.
+
+Every pacing trace of those three days, read again: the count went astray in five runs of
+forty-three, four times by refreshes it lost and kept lost (full screen), once by two it lost and
+took back on one refresh, its time not moving (in a window); once the times went half a refresh
+off for a third of a second. `dlssnr_harness --tcadence` has the count lose five refreshes in a
+second, and two and take them back; a third of the times 1 to 16 ms late, in runs; and the
+refreshes themselves moved by 5 ms. The first three show the same pictures on the same refreshes
+as a DXGI that keeps time, and the last neither a picture repeated nor one dropped. With the
+schedule of the morning, the late times gave 126 pictures held one refresh and 163 held four,
+pictures shown from 35.6 ms early to 21.4 ms late: the window as the user saw it.
 
 ### A video delay, for a sound that arrives late
 

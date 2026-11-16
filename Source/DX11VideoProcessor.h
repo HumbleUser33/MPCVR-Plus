@@ -383,6 +383,7 @@ private:
 	void DrawNotice(ID3D11Texture2D* pRenderTarget);
 	UINT     m_uPresentQueue = 0;
 	uint64_t m_tickOnScreen = 0;        // GetPreciseTick() scale; 0 when DXGI would not say
+	unsigned m_offGridNoted = 0;        // DXGI's times off the refreshes, as last noted in the trace
 	REFERENCE_TIME m_rtOnScreenOffset = 0;
 	bool     m_bOnScreenKnown = false;
 	uint64_t m_tickPresentCall = 0;     // GetPreciseTick() just before Present was called

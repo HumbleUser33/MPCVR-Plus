@@ -64,9 +64,12 @@ struct CadenceResult {
 // refresh after its call, pictures due every frameMs on a clock that may drift against the
 // screen's, scene cuts at the pictures given. astray: from each refresh given, DXGI's count
 // that many refreshes more (or fewer) than there were, its times staying right, as Windows
-// was seen to do.
+// was seen to do. late: the refreshes whose time DXGI gives that many ms late, its count
+// right, as a window composed by the desktop had it. shiftAt, shiftMs: from that refresh on,
+// the screen's refreshes themselves that much later.
 CadenceResult RunSchedule(double frameMs, double periodMs, int mode, const std::set<int>& cuts, int pictures, double clockPpm = 0,
-	double madeMs = 0, const std::map<long long, int>& astray = {})
+	double madeMs = 0, const std::map<long long, int>& astray = {}, const std::map<long long, double>& late = {},
+	long long shiftAt = -1, double shiftMs = 0)
 {
 	CPresentSchedule s;
 	s.SetCadenceSlips(mode);
@@ -75,8 +78,12 @@ CadenceResult RunSchedule(double frameMs, double periodMs, int mode, const std::
 	QueryPerformanceFrequency(&f);
 	const double tpm = f.QuadPart / 1000.0;
 	const long long t0 = 10000000000LL;
-	auto refreshTime = [&](long long r) { return t0 + (long long)(r * periodMs * tpm); };
-	auto refreshIndex = [&](long long tick) { return (double)(tick - t0) / (periodMs * tpm); };
+	const long long shiftTicks = (long long)(shiftMs * tpm);
+	auto refreshTime = [&](long long r) { return t0 + (long long)(r * periodMs * tpm) + (shiftAt >= 0 && r >= shiftAt ? shiftTicks : 0); };
+	auto refreshIndex = [&](long long tick) {
+		const double i = (double)(tick - t0) / (periodMs * tpm);
+		return shiftAt >= 0 && i - shiftMs / periodMs >= (double)shiftAt ? i - shiftMs / periodMs : i;
+	};
 	const unsigned sync0 = 1000;
 	unsigned id = 0;
 	struct Shown { unsigned id; long long refresh; };
@@ -104,7 +111,8 @@ CadenceResult RunSchedule(double frameMs, double periodMs, int mode, const std::
 			st.PresentCount = lastShownId;
 			st.PresentRefreshCount = counted(lastShownRefresh);
 			st.SyncRefreshCount = counted(r);
-			st.SyncQPCTime.QuadPart = refreshTime(r);
+			const auto lateIt = late.find(r);
+			st.SyncQPCTime.QuadPart = refreshTime(r) + (lateIt != late.end() ? (long long)(lateIt->second * tpm) : 0);
 			s.Seen(lastShownId, st, periodMs);
 			reported = r;
 		}
@@ -474,6 +482,31 @@ static int RunCadence()
 				&& astray.made == kept.made && astray.repeated == 0 && astray.dropped == 0
 				&& astray.worstEarlyMs > -13.0 && astray.worstLateMs < 13.0);
 		}
+	}
+	{
+		// DXGI's times late, its count right, as a window composed by the desktop gave them:
+		// a third of them 1 to 16 ms after their refresh, in runs. And the refreshes
+		// themselves moved by 5 ms, which the grid has to follow.
+		std::map<long long, double> late;
+		unsigned h = 12345;
+		for (long long r = 600; r < 7000; r++) {
+			h = h * 1103515245u + 12345u;
+			if ((h >> 16) % 10 < 3) {
+				late[r] = 1.0 + (double)((h >> 8) % 1500) / 100.0;
+			}
+		}
+		const CadenceResult kept = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, rareCuts, n);
+		const CadenceResult r = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, rareCuts, n, 0, 0, {}, late);
+		bool same = true;
+		for (int g = 0; g < 8; g++) {
+			same = same && kept.gaps[g] == r.gaps[g];
+		}
+		ReportSchedule("23.976@60 else made, DXGI's times late, its count right", r, same
+			&& r.slipsOnCut == kept.slipsOnCut && r.slipsForced == kept.slipsForced && r.made == kept.made
+			&& r.repeated == 0 && r.dropped == 0 && r.worstEarlyMs > -13.0 && r.worstLateMs < 13.0);
+		const CadenceResult moved = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, rareCuts, n, 0, 0, {}, {}, 3000, 5.0);
+		ReportSchedule("23.976@60 else made, the refreshes moved by 5 ms", moved,
+			moved.repeated == 0 && moved.dropped <= 1 && moved.gaps[1] == 0 && moved.worstLateMs < 18.0 && moved.worstEarlyMs > -18.0);
 	}
 	{
 		// A count that goes back is another count: the schedule starts again (Reset), and the

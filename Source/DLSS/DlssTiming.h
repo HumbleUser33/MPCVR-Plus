@@ -175,6 +175,12 @@ public:
 	// A Present later than this before a refresh is not counted on to make it.
 	static constexpr double kGuardPhase = 0.3;
 	static constexpr double kGuardMaxMs = 12.0;
+	// DXGI's refresh times are good to a few microseconds; one this far from the refreshes'
+	// grid is not a refresh's (Seen). kRegrid times in a row off it by the same amount are
+	// the refreshes moved.
+	static constexpr double kOnGridPhase = 0.05;
+	static constexpr double kOnGridMinMs = 0.5;
+	static constexpr int kRegrid = 8;
 	// How far a picture may sit from its own time, in refreshes, before the step is broken.
 	static constexpr double kRelock = 0.75;
 	// A swap chain whose flips the system has begun to hold back. Measured in MPC-HC at
@@ -321,9 +327,11 @@ public:
 
 	// DXGI's account of the swap chain, as often as it is read. nominalPeriodMs is the
 	// display mode's, until the refreshes themselves have said better. Returns how many
-	// refreshes DXGI's count was found off its own time by and gone by the time instead
+	// refreshes DXGI's count was found off its own times by and gone by the times instead
 	// (negative: refreshes it did not count); 0 almost always.
 	int Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& stats, double nominalPeriodMs);
+	// How many times DXGI gave off its refreshes' grid so far, its count gone by instead.
+	unsigned TimesOffGrid() const { return m_timesOffGrid; }
 	bool Ready(long long tickNow) const;
 
 	// tickStamp: when the reference clock reaches the picture's stamp, on the performance
@@ -390,6 +398,14 @@ private:
 	double m_period = 0;           // ticks
 	double m_nominalMs = 0;
 	unsigned m_lastSync = 0;
+	// Seen: a count that disagreed with a time on the grid, by this many refreshes, once;
+	// a second time alike and the count is the one astray.
+	bool m_bCountDoubt = false;
+	long long m_countDoubtBy = 0;
+	// Seen: times off the grid in a row, and how far off the first of them was (refreshes).
+	int m_offGridRun = 0;
+	double m_offGridPhase = 0;
+	unsigned m_timesOffGrid = 0;   // all of them, for the trace (kept across Reset)
 
 	// What was presented and is not yet known to be on the screen.
 	struct Pending {

@@ -72,6 +72,9 @@ def read(path):
                 qpf = float(text.split(",")[-1].split()[0])
             elif text.startswith("n,"):
                 pass
+            elif text.startswith("DXGI's ") or text.startswith("cadence slips:"):
+                # Said while the film plays, of the film as it plays: not a stretch of its own.
+                notes.append(text)
             else:
                 if rows:
                     stretches.append((notes, rows))

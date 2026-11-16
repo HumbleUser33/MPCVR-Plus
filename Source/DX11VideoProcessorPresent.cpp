@@ -81,6 +81,13 @@ void CDX11VideoProcessor::ReadPresentSchedule()
 			m_PacingTrace.Note(std::format(L"DXGI's refresh count {} {} refresh(es) against its own times: gone by the times",
 				astray < 0 ? L"lost" : L"gained", std::abs(astray)));
 		}
+		// Times off the refreshes come in the hundreds in a window: the first is noted, then
+		// one in a hundred.
+		const unsigned offGrid = m_PresentSchedule.TimesOffGrid();
+		if (offGrid && (m_offGridNoted == 0 || offGrid >= m_offGridNoted + 100) && m_PacingTrace.Enabled()) {
+			m_offGridNoted = offGrid;
+			m_PacingTrace.Note(std::format(L"DXGI's refresh times off the refreshes' grid {} time(s) so far: gone by the count", offGrid));
+		}
 	}
 }
 

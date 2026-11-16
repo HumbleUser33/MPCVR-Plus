@@ -139,8 +139,10 @@ static double TicksPerMs()
 void CPresentSchedule::Reset()
 {
 	const int cadenceSlips = m_cadenceSlips;
+	const unsigned timesOffGrid = m_timesOffGrid;
 	*this = CPresentSchedule();
 	m_cadenceSlips = cadenceSlips;
+	m_timesOffGrid = timesOffGrid;
 }
 
 void CPresentSchedule::Flush()
@@ -219,36 +221,86 @@ int CPresentSchedule::Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& st
 	if (m_bClock && nominalPeriodMs != m_nominalMs) {
 		Reset(); // another display mode
 	}
+	bool bShownSure = true;   // the refresh this reading puts the last Present on can be relied on
 	if (m_bClock && stats.SyncRefreshCount != m_lastSync) {
-		int step = (int)(stats.SyncRefreshCount - m_lastSync);
-		// A count that goes backwards, or a time that is not where that many refreshes put
-		// it nor on any refresh, is another count altogether. A time a whole number of
-		// refreshes on where the count says otherwise is the count gone astray, the screen
-		// going on as before: in MPC-HC at 60 Hz on an RTX 4060 the count lost a refresh five
-		// times in one second, its times exact all along, and kept that offset for the
-		// minute and a half that followed. Each one taken for another count reset the
-		// schedule, its cadence and the queue's depth with it, and the screen showed a
-		// second of 3,3s and 2,2s; going by the time, nothing moves. In a window it has lost
-		// two and taken them back on the same refresh, its time not moving: none gone by.
-		// A time half a refresh off its grid, seen once, is the refreshes themselves moved,
-		// and still starts the schedule again.
-		const double since = (double)(tick - m_anchorTick);
-		if (step >= 0 && std::abs(since - step * m_period) > 0.5 * m_period) {
-			const double periods = since / m_period;
-			const long long whole = std::llround(periods);
-			if (whole >= 0 && std::abs(periods - (double)whole) < 0.25 && since < 2000.0 * TicksPerMs()) {
-				astray = step - (int)whole;
-				step = (int)whole;
+		// The refresh count and its time, each against the grid of refreshes found so far.
+		// Either can go astray on its own, and the one that agrees with the grid is gone by:
+		//
+		// - The count, its time on the grid. In MPC-HC at 60 Hz on an RTX 4060, full screen,
+		//   it lost a refresh five times in one second and kept that offset for the minute
+		//   and a half that followed, its times exact all along. Taken for another count
+		//   altogether, each reset the schedule, its cadence and the queue's depth with it,
+		//   and the screen showed a second of 3,3s and 2,2s. A count off the grid by the same
+		//   refreshes twice in a row is taken as astray and the times are gone by; once, it
+		//   may be a time that happens to fall a whole refresh late.
+		// - The time, its count right. In a window composed by the desktop, the same machine
+		//   gave a third of its times 1 to 16 ms after the refresh its count named, in runs
+		//   of up to forty readings: the moment the desktop composed, not the refresh. Each
+		//   taken as the grid moved the refreshes the schedule aims at by as much, pictures
+		//   went on the wrong refresh, and the statistics' graph showed it. Such a time is
+		//   left out, the count followed and the grid kept; kRegrid in a row off it by the
+		//   same amount are the refreshes truly moved, and the grid moves with them.
+		//
+		// A count that goes back, or a time neither on the grid nor where its count puts it
+		// give or take a refresh, is another count altogether: the schedule starts again.
+		const long long step = (long long)(int)(stats.SyncRefreshCount - m_lastSync);
+		const double periods = (double)(tick - m_anchorTick) / m_period;
+		const long long whole = std::llround(periods);
+		const double phase = periods - (double)whole;
+		const double tol = std::max(kOnGridPhase, kOnGridMinMs * TicksPerMs() / m_period);
+		const bool bOnGrid = std::abs(phase) < tol;
+		long long advance = -1;   // refreshes the anchor moves on; -1: start again
+		bool bTimed = false;      // the anchor takes this reading's time
+		if (step < 0) {
+			advance = -1;
+		} else if (bOnGrid && whole == step) {
+			advance = step;
+			bTimed = true;
+			m_bCountDoubt = false;
+			m_offGridRun = 0;
+		} else if (bOnGrid) {
+			m_offGridRun = 0;
+			if (m_bCountDoubt && whole - step == m_countDoubtBy) {
+				advance = whole;
+				bTimed = true;
+				astray = (int)(step - whole);
+				m_bCountDoubt = false;
 			} else {
-				step = -1;
+				// Once: the anchor stays where it was, the count is not taken yet.
+				m_bCountDoubt = true;
+				m_countDoubtBy = whole - step;
+				advance = 0;
+				bShownSure = false;
+			}
+		} else if (periods - (double)step > -0.5 && periods - (double)step < 1.5) {
+			m_bCountDoubt = false;
+			m_timesOffGrid++;
+			if (m_offGridRun > 0 && std::abs(phase - m_offGridPhase) < tol) {
+				m_offGridRun++;
+			} else {
+				m_offGridRun = 1;
+				m_offGridPhase = phase;
+			}
+			advance = step;
+			bTimed = m_offGridRun >= kRegrid;   // the refreshes moved: the grid follows
+			if (bTimed) {
+				advance = whole;
+				m_offGridRun = 0;
 			}
 		}
-		if (step < 0) {
+		if (advance < 0) {
 			Reset();
+		} else if (advance == 0 && !bTimed) {
+			// The count not taken: read again from the same anchor.
 		} else {
-			m_anchorIndex += step;
-			m_anchorTick = tick;
+			m_anchorIndex += advance;
+			m_anchorTick = bTimed ? tick : m_anchorTick + std::llround((double)advance * m_period);
 			m_lastSync = stats.SyncRefreshCount;
+			if (bTimed && m_offGridRun == 0 && std::abs(phase) >= tol) {
+				// A grid moved: the period is measured afresh from here.
+				m_baseIndex = m_midIndex = m_anchorIndex;
+				m_baseTick = m_midTick = m_anchorTick;
+			}
 			// The period, over the last four to eight seconds of refreshes: successive
 			// times are good to a few microseconds, and the display mode's own figure
 			// is off by tens of parts in a million.
@@ -278,9 +330,9 @@ int CPresentSchedule::Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& st
 		m_lastSync = stats.SyncRefreshCount;
 	}
 
-	// Which Present reached the screen, and on which refresh.
+	// Which Present reached the screen, and on which refresh: not from a count in doubt.
 	const long long shownOn = m_anchorIndex + (int)(stats.PresentRefreshCount - stats.SyncRefreshCount);
-	for (int i = 0; i < m_nPending; i++) {
+	for (int i = 0; i < m_nPending && bShownSure; i++) {
 		if (m_pending[i].id != stats.PresentCount) {
 			continue;
 		}
