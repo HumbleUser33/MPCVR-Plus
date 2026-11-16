@@ -1,9 +1,10 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 5 November 2026, on an
-RTX 4060 (driver 32.0.16.1742) with the Windows desktop in HDR and Windows' hardware-accelerated
-GPU scheduling on, all thirty-one steps green. The filter and the tools are the code of
-`c86cfba`, as the report's commit line says, both built by MSVC 14.44. `run_all.cmd` masks
+`run_all_report.txt` here is what the whole battery measured on 16 November 2026, on an
+RTX 4060 (driver 621.14) with the Windows desktop in HDR, Windows' hardware-accelerated GPU
+scheduling on and NVIDIA's *Prefer maximum performance* set in the driver's global settings,
+all thirty-four steps green. The filter and the tools are the code of `5e8e7124`, as the
+report's commit line says, both built by MSVC 14.44. `run_all.cmd` masks
 the working folder and the user's profile in it (`<repo>`, `%USERPROFILE%`). It is the thing a
 merge from upstream is compared against, at step 8 of
 [MERGING-UPSTREAM.md](../../../MERGING-UPSTREAM.md):
@@ -37,6 +38,58 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## 16 November 2026: the machine installed afresh, and the 60 Hz cadence
+
+Against the report it replaces (`c86cfba`, 5 November), 3155 rows compared, 22 moved, none gone
+and 77 new, no failure in either.
+
+The machine is the same HTPC with Windows installed again (11 November): the NVIDIA driver 621.14
+in place of 32.0.16.1742, hardware-accelerated GPU scheduling on, the desktop in HDR at 3840x2160
+and 60 Hz. Under that driver a card playing a film is left in its video states, P3 and P5, 450
+to 570 MHz of its 2865, and every GPU time is five or six times what it is at full clock:
+*Prefer maximum performance* holds it at P0, set in the driver's global settings (set for
+MPC-HC alone it did not hold). The code since: the swap chain renewed when Windows holds its
+flips back, the cadence slips with their scene cut detector and EchoFG's made picture, the
+Workarounds box, the statistics' *Hiccups* and *Cadence* lines, and the schedule going by
+DXGI's times where its refresh count goes astray (`697190c8`).
+
+It was taken with the settings exported before the reinstall, imported for the run and put
+back after: those of the report before. The settings that came since are at their defaults,
+the cadence slips off and the swap chain renewal on.
+
+The 77 new rows are the steps that came with the cadence slips: 50 of "the cadence slips'
+schedule", 25 of "the Settings page, Presentation", 2 of "the picture made for a cadence
+slip". None of the 22 that moved is a measurement of the code. A battery run on this machine
+on 11 November, at `c9dc91b3`, the 2.8 release and before any of the code above, tells the
+machine's part from the code's; that report is not kept, its logo step having found no
+`ffprobe` on the path:
+
+- 13 rows of the logo step, through x264, which does not encode the film the same from one run
+  to the next (the sections below): between two batteries of this day on the same code, 11 of
+  its rows moved by more than 0.1, the largest 45.37 to 44.86 dB;
+- two rows of "the stabilizer against the harness", a percentage of 120 now 115, and one of
+  "the processor enlarging after DLSS 5 NR", a still's shift of 0.61 now 0.50: the same on
+  11 November, so the reinstall's;
+- four rows of the two chroma steps, the hardware processor with RTX Video HDR on, with and
+  without the 4:4:4 pre-pass: in 10 bits 30.15 / 29.15 / 23.73 now 29.86 / 28.77 / 22.54
+  (psnr-c, psnr-e, psnr-rgb), and 30.08 / 29.05 / 23.11 on 11 November. With RTX Video HDR
+  off the rows are the same to 0.01 in all three reports, and the two batteries of the 16th
+  give the same rows with it on, to 0.01. The 2.8 filter (2818) and this one (2839), run in
+  turn on the step in 10 bits that afternoon, gave the same figures to 0.01, 29.86 / 28.80 /
+  22.45: what moved the picture since the 11th is the driver's RTX Video HDR on this machine,
+  under the same driver -- its own settings or the display's, not traced further -- and not the
+  filter;
+- two rows of "the pipeline", its times printed bare.
+
+The letterboxed upscalers through the filter counted 1 to 54 pictures shown late in each of
+eleven runs on 11 November; none now, the card held at P0, as on 5 November.
+
+The first battery of the 16th, at `697190c8`, passed every check and had one step end on
+0xC0000005: "the picture made for a cadence slip" released its WIC factory after
+`CoUninitialize`, on its way out of the suite, as `--techoperf` did too. `5e8e7124` releases it
+first, as the clean suite does, and that is the only difference between the two batteries'
+code: of their 3232 rows, 12 moved, 11 of the logo through x264 and the pipeline's bare time.
 
 ## With AMD CAS, a settings key of its own, and no hang on a Dolby Vision film
 
