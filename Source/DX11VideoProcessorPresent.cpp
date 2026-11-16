@@ -76,7 +76,11 @@ void CDX11VideoProcessor::ReadPresentSchedule()
 	if (hr == DXGI_ERROR_FRAME_STATISTICS_DISJOINT) {
 		m_PresentSchedule.Reset(); // the counts start again: a mode change, a new output
 	} else if (SUCCEEDED(hr)) {
-		m_PresentSchedule.Seen(last, stats, m_dRefreshPeriodMs);
+		const int astray = m_PresentSchedule.Seen(last, stats, m_dRefreshPeriodMs);
+		if (astray && m_PacingTrace.Enabled()) {
+			m_PacingTrace.Note(std::format(L"DXGI's refresh count {} {} refresh(es) against its own times: gone by the times",
+				astray < 0 ? L"lost" : L"gained", std::abs(astray)));
+		}
 	}
 }
 

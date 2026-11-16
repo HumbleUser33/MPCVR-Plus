@@ -2246,17 +2246,31 @@ on the same films at 60 Hz:
 | film | slips forced | covered by a made picture | the screen |
 |---|---|---|---|
 | 4K HEVC HDR, the shaders, a minute of fade and tracking shot, its cuts heeded | 4 | 4, each on a 2 | 4 made pictures, 3 slips on a cut, no 3,3 |
-| the same film, every cut ignored, 2 min | 16 | 16 | made pictures every 8.3 s; once, a second of 3,3s and 2,2s where DXGI's refresh counts stopped matching their times (Windows', below) |
+| the same film, every cut ignored, 2 min | 16 | 16 | made pictures every 8.3 s; once, a second of 3,3s and 2,2s where DXGI's refresh count lost five refreshes (below, since mended) |
 | 1080p AV1 enlarged by RTX Video Super Resolution, every cut ignored | 18 | 18 | 14 made pictures seen as pictures of their own, the 15th on a nearly still stretch |
 | the same in a 3400x1900 window, its cuts heeded | 1 | 1 | 17 slips on a cut, the made picture seen |
 
 EchoFG took 5.7 ms there on the 4K film, 5.3 on the 1080p film enlarged to 3840x1600 and 2.2 in the
-window; no slip went on a 3. The DXGI fault came 6.6 s after a made picture and not on one: from that
-moment until the end of the run, the refresh counts DXGI gave with its times no longer matched them
-(two counts in 50 ms, then three in 50 ms), which looks like the reset VSync smoothing found behind the
-23 Hz stutter (*A refresh chosen for every picture*), though this one was not traced with ETW. The
-schedule took a second to find the cadence again and the screen was right after it. One run in twelve
-that day.
+window; no slip went on a 3.
+
+**DXGI's refresh count going astray.** The second of 3,3s and 2,2s came 6.6 s after a made picture and
+not on one. The frame statistics DXGI gives with each `Present` pair a refresh count with that
+refresh's time; there, five times in one second, the count went on by two where three refreshes had
+gone by (49.9 to 50.0 ms between its times), and kept those five refreshes short until the end of the
+run, its times exact all along: the screen had gone on refreshing every 16.667 ms, and the count had
+missed five. The schedule took a count that disagrees with its time for another count altogether,
+a new swap chain or another display mode, and started again: five times in that second it forgot
+its cadence, the depth of the queue it had learnt and the pictures it was waiting to hear of, and
+the screen showed it. Now a time a whole number of refreshes on is believed over the count, and
+only a count that goes back, or a time that falls on no refresh, starts the schedule again; the
+pacing trace notes each refresh the count lost or gained. Every pacing trace of those three days,
+read again: the count went astray in five runs of forty-three, four times by refreshes it
+lost and kept lost (full screen), once by two it lost and took back on one refresh, its time not
+moving (in a window); once the times themselves went half a refresh off for a third of a second,
+which is the refreshes moving and still starts the schedule again. `dlssnr_harness --tcadence`
+has the count lose five refreshes in a second, and two and take them back: the same pictures on
+the same refreshes as with a count that keeps up, where before the screen of the simulation had
+three pictures held four refreshes and one shown 20.8 ms early.
 
 ### A video delay, for a sound that arrives late
 
@@ -2791,7 +2805,8 @@ dlssnr_harness.exe --tcutscan <film> the cut detection alone over minutes of a f
 dlssnr_harness.exe --tcadence     the cadence slips' schedule against a simulated screen: 23.976, 29.97
                                   and 59.94 at 60 Hz with cuts every 4 s, every 29 s and none, 24, 25
                                   and 30 left alone, a film at the screen's own rate drifting both ways,
-                                  a made picture too long for a 2 put on a 3
+                                  a made picture too long for a 2 put on a 3, DXGI's refresh count
+                                  losing refreshes against its times
 dlssnr_harness.exe --tcadencecut <film>   the cadence slips' own cut detector over a stretch of a film,
                                   beside ffmpeg's scene score (--cutfrom, --cutfor; --hdr: as PQ)
 dlssnr_harness.exe --tcadencemade the picture made for a slip: EchoStorm's own synthesis and the

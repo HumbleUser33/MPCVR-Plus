@@ -207,22 +207,43 @@ bool CPresentSchedule::Ready(long long tickNow) const
 	return m_bClock && m_period > 0 && tickNow - m_anchorTick < (long long)(2000.0 * TicksPerMs());
 }
 
-void CPresentSchedule::Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& stats, double nominalPeriodMs)
+int CPresentSchedule::Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& stats, double nominalPeriodMs)
 {
 	if (!stats.SyncQPCTime.QuadPart || nominalPeriodMs <= 0) {
-		return;
+		return 0;
 	}
 	const double nominal = nominalPeriodMs * TicksPerMs();
 	const long long tick = stats.SyncQPCTime.QuadPart;
+	int astray = 0;
 
 	if (m_bClock && nominalPeriodMs != m_nominalMs) {
 		Reset(); // another display mode
 	}
 	if (m_bClock && stats.SyncRefreshCount != m_lastSync) {
-		const int step = (int)(stats.SyncRefreshCount - m_lastSync);
-		// A count that goes backwards, or a time that is not where that many refreshes
-		// put it, is another count altogether.
-		if (step < 0 || std::abs((double)(tick - m_anchorTick) - step * m_period) > 0.5 * m_period) {
+		int step = (int)(stats.SyncRefreshCount - m_lastSync);
+		// A count that goes backwards, or a time that is not where that many refreshes put
+		// it nor on any refresh, is another count altogether. A time a whole number of
+		// refreshes on where the count says otherwise is the count gone astray, the screen
+		// going on as before: in MPC-HC at 60 Hz on an RTX 4060 the count lost a refresh five
+		// times in one second, its times exact all along, and kept that offset for the
+		// minute and a half that followed. Each one taken for another count reset the
+		// schedule, its cadence and the queue's depth with it, and the screen showed a
+		// second of 3,3s and 2,2s; going by the time, nothing moves. In a window it has lost
+		// two and taken them back on the same refresh, its time not moving: none gone by.
+		// A time half a refresh off its grid, seen once, is the refreshes themselves moved,
+		// and still starts the schedule again.
+		const double since = (double)(tick - m_anchorTick);
+		if (step >= 0 && std::abs(since - step * m_period) > 0.5 * m_period) {
+			const double periods = since / m_period;
+			const long long whole = std::llround(periods);
+			if (whole >= 0 && std::abs(periods - (double)whole) < 0.25 && since < 2000.0 * TicksPerMs()) {
+				astray = step - (int)whole;
+				step = (int)whole;
+			} else {
+				step = -1;
+			}
+		}
+		if (step < 0) {
 			Reset();
 		} else {
 			m_anchorIndex += step;
@@ -293,6 +314,7 @@ void CPresentSchedule::Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& s
 		break;
 	}
 	(void)lastPresent;
+	return astray;
 }
 
 CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tickStamp, double frameMs, double drawMs)

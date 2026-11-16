@@ -20,6 +20,7 @@
 //                    picture truly between them, beside the plain blend; and what the detector,
 //                    the motion and the synthesis cost the GPU at 1080p and 4K
 
+#include <map>
 #include <set>
 #include <wincodec.h>
 #include "DLSS/DlssTiming.h"
@@ -61,9 +62,11 @@ struct CadenceResult {
 
 // The filter's CPresentSchedule against a screen of periodMs, Present shown on the first
 // refresh after its call, pictures due every frameMs on a clock that may drift against the
-// screen's, scene cuts at the pictures given.
+// screen's, scene cuts at the pictures given. astray: from each refresh given, DXGI's count
+// that many refreshes more (or fewer) than there were, its times staying right, as Windows
+// was seen to do.
 CadenceResult RunSchedule(double frameMs, double periodMs, int mode, const std::set<int>& cuts, int pictures, double clockPpm = 0,
-	double madeMs = 0)
+	double madeMs = 0, const std::map<long long, int>& astray = {})
 {
 	CPresentSchedule s;
 	s.SetCadenceSlips(mode);
@@ -90,10 +93,17 @@ CadenceResult RunSchedule(double frameMs, double periodMs, int mode, const std::
 					lastShownRefresh = r;
 				}
 			}
+			auto counted = [&](long long refresh) {
+				long long off = 0;
+				for (auto it = astray.begin(); it != astray.end() && it->first <= refresh; ++it) {
+					off += it->second;
+				}
+				return sync0 + (unsigned)(refresh + off);
+			};
 			DXGI_FRAME_STATISTICS st = {};
 			st.PresentCount = lastShownId;
-			st.PresentRefreshCount = sync0 + (unsigned)lastShownRefresh;
-			st.SyncRefreshCount = sync0 + (unsigned)r;
+			st.PresentRefreshCount = counted(lastShownRefresh);
+			st.SyncRefreshCount = counted(r);
 			st.SyncQPCTime.QuadPart = refreshTime(r);
 			s.Seen(lastShownId, st, periodMs);
 			reported = r;
@@ -121,17 +131,19 @@ CadenceResult RunSchedule(double frameMs, double periodMs, int mode, const std::
 			double t = 0;
 			const CPresentSchedule::Plan made = s.MadePlan(now, plan, t);
 			if (made.bValid) {
+				// As the renderer has it: DXGI read before a picture is chosen and after it is
+				// presented, never between, where a count that starts again would have the
+				// picture presented on a refresh of the count before.
 				now = std::max(now, made.tickCall);
-				seeUntil(now);
 				s.Presented(++id, made, now, 0.07, true);
 				shown.push_back({ id, (long long)std::ceil(refreshIndex(now)) });
 			}
 		}
 		now = std::max(now, plan.tickCall);
-		seeUntil(now);
 		s.Presented(++id, plan, now, 0.07, true);
 		const long long on = (long long)std::ceil(refreshIndex(now));
 		shown.push_back({ id, on });
+		seeUntil(now);
 		res.pictures++;
 		const double offMs = (double)(refreshTime(on) - due) / tpm;
 		if (k > 40) {
@@ -443,6 +455,33 @@ static int RunCadence()
 	const CadenceResult m3 = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, none, n, 0, 40.0);
 	ReportSchedule("23.976@60 else made, 40 ms: on a 3", m3, m3.slipsForced >= 6 && m3.made == m3.slipsForced
 		&& m3.gaps[4] == m3.made && m3.worstEarlyMs > -13.0 && m3.worstLateMs < 13.0);
+	// DXGI's count going astray, its times right, as it did in MPC-HC at 60 Hz: losing a
+	// refresh five times in a second and keeping the offset (full screen), losing two and
+	// taking them back on one refresh (a window). The same pictures on the same refreshes
+	// as with a count that keeps up.
+	{
+		const CadenceResult kept = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, rareCuts, n);
+		const std::map<long long, int> lost = { { 3000, -1 }, { 3018, -1 }, { 3038, -1 }, { 3047, -1 }, { 3063, -1 } };
+		const std::map<long long, int> back = { { 3000, -1 }, { 3001, -1 }, { 3240, 2 } };
+		for (const auto& [name, glitch] : { std::pair{ "23.976@60 else made, DXGI's count losing 5 refreshes", &lost },
+				std::pair{ "23.976@60 else made, DXGI's count losing 2 and back", &back } }) {
+			const CadenceResult astray = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, rareCuts, n, 0, 0, *glitch);
+			bool same = true;
+			for (int g = 0; g < 8; g++) {
+				same = same && kept.gaps[g] == astray.gaps[g];
+			}
+			ReportSchedule(name, astray, same && astray.slipsOnCut == kept.slipsOnCut && astray.slipsForced == kept.slipsForced
+				&& astray.made == kept.made && astray.repeated == 0 && astray.dropped == 0
+				&& astray.worstEarlyMs > -13.0 && astray.worstLateMs < 13.0);
+		}
+	}
+	{
+		// A count that goes back is another count: the schedule starts again (Reset), and the
+		// film has to go on from there.
+		const std::map<long long, int> backwards = { { 3000, -2 } };
+		const CadenceResult r = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, rareCuts, n, 0, 0, backwards);
+		ReportSchedule("23.976@60 else made, DXGI's count going back 1", r, r.dropped <= 2 && r.worstLateMs < 30.0);
+	}
 	// One that a 3 would not see ready either: the slips on a 2, as ever.
 	const CadenceResult m9 = RunSchedule(f23, p60, CS::CadenceSlipsOnCutOrMade, none, n, 0, 60.0);
 	ReportSchedule("23.976@60 else made, 60 ms: on a 2", m9, m9.slipsForced >= 10 && m9.gaps[4] == 0);

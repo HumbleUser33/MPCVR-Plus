@@ -320,8 +320,10 @@ public:
 	void SetMadeMs(double ms) { m_madeMs = ms; }
 
 	// DXGI's account of the swap chain, as often as it is read. nominalPeriodMs is the
-	// display mode's, until the refreshes themselves have said better.
-	void Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& stats, double nominalPeriodMs);
+	// display mode's, until the refreshes themselves have said better. Returns how many
+	// refreshes DXGI's count was found off its own time by and gone by the time instead
+	// (negative: refreshes it did not count); 0 almost always.
+	int Seen(unsigned lastPresent, const DXGI_FRAME_STATISTICS& stats, double nominalPeriodMs);
 	bool Ready(long long tickNow) const;
 
 	// tickStamp: when the reference clock reaches the picture's stamp, on the performance
