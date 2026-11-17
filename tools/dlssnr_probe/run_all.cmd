@@ -97,6 +97,7 @@ REM one. Nothing above reaches it -- the bench's own film is RGB, which never br
 REM hardware processor in. It needs the film, and the LAV Filters of an installed player.
 CALL :Run "the processor enlarging after DLSS 5 NR" "playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --file" "%FILM%"
 CALL :Run "the processor after DLSS 5 NR, PQ picture" "playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --hdrout 1 --rtxhdr 1 --file" "%FILM%"
+CALL :Run "a snapshot leaves RTX Video HDR's picture as it was" "playback_test.exe --aftergrab --seek 1740 --seconds 4 --rtxhdr 1 --hdrtm 1 --measurepeak 1 --stats 1 --only 0 --file" "%FILM%"
 
 REM Every step named above has to be in the report: one left out prints no verdict, so
 REM nothing below would say it. Counted, and given a verdict of its own. Counted here

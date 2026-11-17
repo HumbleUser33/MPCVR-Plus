@@ -407,6 +407,30 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 			: std::min(m_fHdrSmoothedPeakNits, 10000.0f);
 		Line(L"  HDR measured", std::format(L"frame peak {:.0f}, used {:.0f} nits", m_fHdrMeasuredPeakNits, usedNits), -1, false);
 	}
+	// RTX Video is the driver's, applied as the NVIDIA app has it set, and Direct3D says
+	// nothing of either: what the app is set to, then what the driver really wrote --
+	// the brightest picture's peak, the peak over the window and the mean, beside the
+	// peak the display reports. A renderer that tone maps the driver's output to the
+	// display's peak changes the picture where the first goes past the last.
+	if (m_VendorId == PCIV_NVIDIA && (m_bVPRTXVideoHDR || m_iVPSuperRes != SUPERRES_Disable)) {
+		const auto& app = m_NvidiaApp.Get();
+		Line(L"  NVIDIA app", CNvidiaAppSettings::DescribeSwitches(app), -1, false);
+		if (m_bVPRTXVideoHDR) {
+			if (const std::wstring hdr = CNvidiaAppSettings::DescribeHdr(app); !hdr.empty()) {
+				Line(L"  RTX HDR set", hdr, -1, false);
+			}
+		}
+	}
+	if (m_bRtxHdrMeasureActive && m_fHdrMeasuredPeakNits > 0.0f) {
+		const std::wstring over = m_iSdrPeakWindowMs > 0
+			? std::format(L"over {:g} s", m_iSdrPeakWindowMs / 1000.0) : std::wstring(L"smoothed");
+		std::wstring text = std::format(L"peak {:.0f}, {} {:.0f}, mean {:.0f} nits",
+			m_fHdrMeasuredPeakNits, over, m_fHdrSmoothedPeakNits, m_fHdrMeasuredAvgNits);
+		if (m_MaxDisplayLuminance >= 100) {
+			text += std::format(L"; display {} nits", m_MaxDisplayLuminance);
+		}
+		Line(L"  RTX HDR out", text, -1, false);
+	}
 
 	// -- How the picture reaches the screen, in the order it happens.
 	Rule(L"Timing", nullptr);

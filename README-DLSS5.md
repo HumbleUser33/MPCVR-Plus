@@ -1255,6 +1255,37 @@ space it was asked for, and the SDR swap chain showed a dim, grey picture, every
 115 nits. The processor is then given eight bits to write, and writes what it was asked. A
 10-bit source was never affected.
 
+### What the driver is set to, and what it writes
+
+RTX Video is the driver's, and Direct3D accepts the request whatever the driver then does
+with it: Super Resolution and RTX Video HDR apply only when the NVIDIA app has them on, and
+RTX Video HDR makes the picture as bright as the app says. The app keeps these as driver
+values of the display adapter (`_User_Global_VAL_SuperResolution`, `_User_Global_VAL_TrueHDR`
+and RTX HDR's sliders beside it, `_P`, `_M`, `_C` and `_S`: peak, middle grey, contrast,
+saturation), which no public interface exposes; the renderer reads them, as FrankyRenderer
+does, and decides nothing on them. With the statistics shown and an NVIDIA card:
+
+- **NVIDIA app** says what the app has the driver do: `Super Resolution 4, RTX Video HDR on`.
+- **RTX HDR set**, while RTX Video HDR is ticked, gives the sliders:
+  `peak 750 nits, mid grey 42, contrast 120, saturation 85`.
+- **RTX HDR out**, while the driver runs it, is what it really wrote, measured on the
+  processor's output before anything of the renderer's touches it, with the GPU histogram the
+  tone mapping uses: the last picture's peak, the peak over the window, the mean, and the peak
+  the display reports to Windows -- `peak 239, over 3 s 426, mean 11 nits; display 8300 nits`
+  on the film the battery plays, paused on a dark scene. Its two dispatches run only while the
+  statistics are shown, and are in none of the steps' times.
+
+The last two numbers need not agree: Windows reports what the display's EDID or its HDR
+calibration says, 8300 nits for the television these were measured on, and the driver goes
+by the app's peak. A renderer that maps the driver's output into the display's peak changes
+the picture wherever the driver writes past it; this one passes it through untouched, and
+neither *Measured peak* nor a tone map method applies to it. Neither did, except after a
+snapshot: with a tone map method chosen, the player's *Save image* (`GetCurrentImage`) left the
+HDR10 tone mapping behind on RTX Video HDR's output with none of its parameters, and the
+picture went black until the film was opened again -- upstream's code, which rebuilds that
+shader after a snapshot for any HDR output. It is rebuilt now for an HDR source only, and
+`playback_test --aftergrab` reads the screen on the same paused picture before and after one.
+
 ---
 
 ## Deblocking and debanding
@@ -2515,7 +2546,7 @@ key, both DLL paths, and the working size, which is what the card can carry.
 | Convert to SDR | on | HDR video not output in HDR is converted to SDR, so that it does not look washed out |
 | Method | Metadata | How that conversion is done. *Fixed*: one curve for every film, the only one up to upstream 0.10.9. *Metadata*: a curve made for the content's peak (MaxCLL, else the mastering display's, else 1000 nits) and the SDR brightness. *Measured*: the same curve, from the peak of each picture, measured on the GPU and smoothed. Where the shaders convert the picture rather than the video processor (Dolby Vision among them), *Measured* works as *Metadata*. Its window, its floor and whether it starts over at a cut are upstream's registry-only values (`SdrPeakWindowMs`, 3000; `SdrPeakFloorNits`, 640; `SdrPeakSceneCuts`, off), which no preset holds |
 | SDR brightness | 125 nits | The target of that conversion, 25 to 400. Applies as the slider is dragged |
-| RTX Video HDR | off | The NVIDIA driver turns SDR video into HDR. Needs HDR output on Passthrough or a tone map method, an HDR display with Windows HDR on, an RTX card, the 64-bit filter, a bit depth other than 8-bit and a format the video processor converts. The statistics star it (`RTX Video HDR*`) while it runs. The driver leaves out a picture the processor writes in fewer than 640x360 pixels, and the line then adds `left out by the driver under 640x360`; where the shaders resize, the processor first enlarges such a picture just past that, which the Processor step says (`to 740x312 for RTX Video HDR`) -- see *RTX Video HDR on a small picture* |
+| RTX Video HDR | off | The NVIDIA driver turns SDR video into HDR. Needs HDR output on Passthrough or a tone map method, an HDR display with Windows HDR on, an RTX card, the 64-bit filter, a bit depth other than 8-bit and a format the video processor converts. The statistics star it (`RTX Video HDR*`) while it runs. The driver leaves out a picture the processor writes in fewer than 640x360 pixels, and the line then adds `left out by the driver under 640x360`; where the shaders resize, the processor first enlarges such a picture just past that, which the Processor step says (`to 740x312 for RTX Video HDR`) -- see *RTX Video HDR on a small picture*. The driver applies it only when the NVIDIA app has it on, as bright as the app says: the statistics give both, and what the driver wrote (*What the driver is set to, and what it writes*) |
 
 ### Presentation
 
@@ -2643,6 +2674,8 @@ to SDR is in Finish's. **HDR measured** follows it while the peak is measured (*
 or the *Measured* method of the conversion to SDR): the brightest of the last picture measured
 and the peak the curve was given, smoothed over the window. The GPU measures the picture just
 before the correction or the tone mapping reads it, so that time is in Finish's too.
+**NVIDIA app**, **RTX HDR set** and **RTX HDR out** say what the NVIDIA app has the driver do
+with RTX Video and what the driver wrote (see *What the driver is set to, and what it writes*).
 
 **The timing**, in the order it happens to a picture. Its figures change with every picture,
 so each keeps its width -- the offsets to a tenth of a millisecond -- and a line does not move
@@ -3078,6 +3111,7 @@ playback_test.exe --greying       what the page greys, for every state the rende
 playback_test.exe --afternr --file <mkv> --seek 1740   who enlarges after DLSS 5 NR, on one still of a real film
 playback_test.exe --vpturns --file <film> --rtxhdr 1 --hdrout 1   the shaders, the processor, the processor with Super Resolution: one still each, read off the desktop unclipped (vpturns_N.pfm)
 playback_test.exe --file <film> --hdrtm 7 --measurepeak 1   HDR output: -1 off, 0 passthrough, 1..7 a tone mapping; --dovitm 0|6, --sdrtm 0..2, --tosdr, --prefdovi
+playback_test.exe --file <film> --aftergrab   the same paused picture on the screen before and after GetCurrentImage (a player's Save image)
 playback_test.exe --hz 30 --fps 30 --jolt   a film at the screen's own rate, and the queue it builds
 playback_test.exe --presets     two presets saved, each recalled by its key while it plays
 playback_test.exe --rewindow    the video window made again from another thread, and whose it is
@@ -3161,7 +3195,12 @@ MPC Video Renderer is by **Aleksoid1978** and contributors and is licensed **GPL
 
 **OSD Plus**, the statistics' source, audio and hardware lines and their colours
 (`Source/OsdPlus/`), is by **rampageX** (`github.com/rampageX/MPCVR-Plus`, GPLv3), taken from
-his release 1.0.5 with thanks.
+his release 1.0.5 with thanks. The settings page's dark theme in MPC-BE
+(`Source/SettingsPage/HostDialogTheme.h`) is his too, from his pull request #6.
+
+Where the NVIDIA app keeps RTX Video's switches and sliders (`Source/NvidiaAppSettings.h`) was
+learnt from **FrankyRenderer** by **mryx007** (`github.com/mryx007/FrankyRenderer`,
+GPL-3.0-or-later), which reads them the same way.
 
 The NGX ABI declarations in `Source/DLSS/NGXTypes.h` are hand-written from the publicly
 documented shape of the interface. NVIDIA DLSS, NGX and the `nvngx_*` / `_nvngx.dll`

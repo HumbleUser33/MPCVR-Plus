@@ -458,7 +458,9 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"HDR on, an NVIDIA RTX card, the 64-bit filter, Direct3D 11, a bit depth other than "
 		"8-bit (Source tab), and a format converted by the video processor. Applies to SDR "
 		"video only.\n"
-		"The statistics show a star (*) when it is really running." },
+		"The driver applies it only while the NVIDIA app has RTX Video HDR on, as bright as "
+		"the app's peak. The statistics show a star (*) when it is really running, what the "
+		"app is set to, and the peak the driver wrote." },
 	{ IDC_CHECK14,
 		L"When HDR video is not output in HDR (SDR display, Windows HDR off, or HDR output set to "
 		"Off), converts it to SDR so that it doesn't look washed out." },

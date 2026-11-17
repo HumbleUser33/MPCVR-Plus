@@ -42,6 +42,9 @@
 //                                     blocks, fed in NV12, cleaned by each path that converts it;
 //                                     --clean10 the same in P010. --file <film> --deblock N --deband N
 //                                     plays a film with the artifact removal at those levels (0 off)
+//   playback_test.exe --file <film> --aftergrab   the screen on the same paused picture, statistics
+//                                     off, before the first snapshot and after the last: a snapshot
+//                                     must leave the renderer as it found it
 //   playback_test.exe --file <film> --cadence N   the cadence slips: 0 where they fall, 1 on a scene
 //                                     cut, 2 on a cut or else a made picture (with MPCVR_PACING_TRACE,
 //                                     pacing_report.py counts them)
@@ -149,6 +152,7 @@ static bool g_bThemedHost = false;     // --themed: and a player that paints it
 static bool g_bDlaa = false;           // --dlaa: let DLSS SR run without enlarging
 static bool g_bAfterNR = false;        // --afternr: who enlarges what DLSS 5 NR leaves, on a real film (--file)
 static bool g_bVPTurns = false;        // --vpturns: who enlarges, without DLSS, the desktop read unclipped (--file)
+static bool g_bAfterGrab = false;      // --aftergrab: the screen on the same paused picture before and after a snapshot (--file)
 static bool g_bLogo = false;           // --logo: the channel's logo found and hidden on a real film (--file)
 static int g_smallUpscaling = -1;      // --small N: another method under 5 %
 static int g_videoDelay = 0;           // --delay N: every picture N ms after its time (the Video delay setting)
@@ -978,6 +982,7 @@ struct Result {
 	double stillMean = 0, stillP99 = 0, stillPeak = 0, stillColour = 0, stillAbove = 0, stillDetail = 0;
 	DXGI_FORMAT stillFormat = DXGI_FORMAT_UNKNOWN;  // what the desktop frame came in
 	double stopSeconds[3] = {};
+	bool bSnapshotChanged = false;  // --aftergrab: the screen was not the same after a snapshot
 	std::string error;
 };
 
@@ -1917,6 +1922,28 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		SeekTo(pGraph, g_filmSeek);
 		Pump(2500);
 	}
+	// A snapshot (GetCurrentImage, the player's "save image") renders the picture again
+	// into a target of its own, and puts the renderer back as it found it. Whether it
+	// does is read on the screen: the same paused picture, statistics off, before the
+	// first snapshot and after the last one.
+	std::wstring screenBeforeGrab;
+	const auto ReadPausedScreen = [&]() {
+		SeekTo(pGraph, g_filmSeek);
+		Pump(2500);
+		SetForegroundWindow(hwnd);
+		BringWindowToTop(hwnd);
+		Pump(600);
+		const CScreenWatch::Reading s = watch.Measure(hwnd);
+		return s.ok
+			? std::format(L"mean {:.4f}, p99 {:.4f}, peak {:.3f}, colour {:.4f}, past SDR white {:.2f}%",
+				s.mean, s.p99, s.peak, s.colour, s.aboveWhite)
+			: std::wstring(L"could not be read");
+	};
+	if (g_bAfterGrab && g_filmFile && watch.Ready()) {
+		sets.bShowStats = false;
+		pVR->SetSettings(sets);
+		screenBeforeGrab = ReadPausedScreen();
+	}
 	if (g_bScalers || g_bChroma || g_filmFile) {
 		// One picture with the statistics over it, for the look of the box.
 		GrabDisplayed(pRenderer, result.statsPicture, result.pictureW, result.pictureH);
@@ -1957,6 +1984,24 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 				Pump(250);
 			}
 		}
+	}
+	if (!screenBeforeGrab.empty()) {
+		// The pictures above are the back buffer as it is ("displayedImage"); a player's
+		// "save image" asks IBasicVideo::GetCurrentImage instead, which renders the
+		// picture again (GetCurentImage) and is the path that rebuilds the renderer's
+		// HDR shaders around it.
+		CComQIPtr<IBasicVideo> pBasicVideo(pRenderer.p);
+		long imageSize = 0;
+		HRESULT hrImage = pBasicVideo ? pBasicVideo->GetCurrentImage(&imageSize, nullptr) : E_NOINTERFACE;
+		if (SUCCEEDED(hrImage) && imageSize > 0) {
+			std::vector<BYTE> image(imageSize);
+			hrImage = pBasicVideo->GetCurrentImage(&imageSize, reinterpret_cast<long*>(image.data()));
+		}
+		printf("   GetCurrentImage  : 0x%08lX, %ld bytes\n", hrImage, imageSize);
+		const std::wstring after = ReadPausedScreen();
+		wprintf(L"   before a snapshot: %s\n   after a snapshot : %s\n   %s\n", screenBeforeGrab.c_str(), after.c_str(),
+			after == screenBeforeGrab ? L"the snapshot left the picture as it was" : L"FAIL: the picture changed after a snapshot");
+		result.bSnapshotChanged = after != screenBeforeGrab;
 	}
 	if ((g_bAfterNR || g_bVPTurns) && watch.Ready()) {
 		// The same still under every run, as the desktop shows it. The filter's own
@@ -2838,6 +2883,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bGreying = true;
 		} else if (!wcscmp(argv[i], L"--afternr")) {
 			g_bAfterNR = true;
+		} else if (!wcscmp(argv[i], L"--aftergrab")) {
+			g_bAfterGrab = true;
 		} else if (!wcscmp(argv[i], L"--vpturns")) {
 			g_bVPTurns = true;
 		} else if (!wcscmp(argv[i], L"--dlaa")) {
@@ -3133,6 +3180,9 @@ int wmain(int argc, wchar_t* argv[])
 			printf("   FAILED: %s\n", r.error.c_str());
 			failures++;
 			continue;
+		}
+		if (r.bSnapshotChanged) {
+			failures++;
 		}
 		if (g_bSharpenCal) {
 			if (r.picture.empty()) {

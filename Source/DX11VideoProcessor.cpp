@@ -1254,9 +1254,11 @@ void CDX11VideoProcessor::ReleaseHdrMeasure()
 {
 	m_bSdrMeasureActive = false;
 	m_bHdrLocalMeasureActive = false;
+	m_bRtxHdrMeasureActive = false;
 	m_bHdrStatsCopyPending = false;
 	m_fHdrMeasuredPeakNits = 0.0f;
 	m_fHdrSmoothedPeakNits = 0.0f;
+	m_fHdrMeasuredAvgNits = 0.0f;
 
 	m_pHdrStateStaging.Release();
 	m_pHdrResolveConstants.Release();
@@ -1274,9 +1276,12 @@ void CDX11VideoProcessor::ReleaseHdrMeasure()
 // m_pHdrStateBuffer, where the measuring variant of the conversion shader picks it up.
 HRESULT CDX11VideoProcessor::MeasureHdrPeak(const Tex2D_t& tex, const CRect& rect)
 {
-	if (!(m_bSdrMeasureActive || m_bHdrLocalMeasureActive) || !m_pHdrStateBuffer || !tex.pShaderResource) {
+	if (!(m_bSdrMeasureActive || m_bHdrLocalMeasureActive || m_bRtxHdrMeasureActive) || !m_pHdrStateBuffer || !tex.pShaderResource) {
 		return E_ABORT;
 	}
+	// RTX Video HDR's output is only reported, and a floor would report a peak the driver
+	// never wrote.
+	const bool bForCurve = m_bSdrMeasureActive || m_bHdrLocalMeasureActive;
 
 	CRect r;
 	r.IntersectRect(rect, CRect(0, 0, tex.desc.Width, tex.desc.Height));
@@ -1298,7 +1303,7 @@ HRESULT CDX11VideoProcessor::MeasureHdrPeak(const Tex2D_t& tex, const CRect& rec
 	// that is wanted.  madVR never restarts it, so off is what matches madVR.
 	const HdrResolveConstants_t resolveConstants = {
 		frameTime, kHdrReleaseSeconds, m_bSdrPeakSceneCuts ? kHdrSceneCutPQ : kHdrNoSceneCutPQ, kHdrPeakFraction,
-		m_iSdrPeakWindowMs / 1000.0f, static_cast<float>(m_iSdrPeakFloorNits)
+		m_iSdrPeakWindowMs / 1000.0f, bForCurve ? static_cast<float>(m_iSdrPeakFloorNits) : 0.0f
 	};
 	m_pDeviceContext->UpdateSubresource(m_pHdrMeasureConstants, 0, nullptr, &measureConstants, 0, 0);
 	m_pDeviceContext->UpdateSubresource(m_pHdrResolveConstants, 0, nullptr, &resolveConstants, 0, 0);
@@ -1346,6 +1351,7 @@ void CDX11VideoProcessor::ReadHdrMeasureStats()
 			const float* p = static_cast<const float*>(mr.pData); // see the layout in cs_hdr_resolve.hlsl
 			m_fHdrMeasuredPeakNits = p[4];
 			m_fHdrSmoothedPeakNits = p[6];
+			m_fHdrMeasuredAvgNits = p[7];
 			m_pDeviceContext->Unmap(m_pHdrStateStaging, 0);
 			m_bHdrStatsCopyPending = false;
 		} else if (hr != DXGI_ERROR_WAS_STILL_DRAWING) {
@@ -2621,6 +2627,7 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 	// Tex Video Processor
 	if (FAILED(hr) && FmtParams.DX11Format != DXGI_FORMAT_UNKNOWN) {
 		m_bVPUseRTXVideoHDR = false;
+		m_bRtxHdrMeasureActive = false;
 		hr = InitializeTexVP(FmtParams, origW, origH);
 		if (SUCCEEDED(hr)) {
 			SetShaderConvertColorParams();
@@ -2693,6 +2700,10 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 
 	auto rtxHDR = m_bVPRTXVideoHDR && m_bHdrPassthroughSupport && (m_bHdrPassthrough || m_bHdrLocalToneMapping) && m_iTexFormat != TEXFMT_8INT && !SourceIsHDR();
 	m_bVPUseRTXVideoHDR = (m_D3D11VP.SetRTXVideoHDR(rtxHDR) == S_OK);
+	// What the driver then writes is measured for the statistics (see Process). Two
+	// small buffers and two compute shaders, shared with the HDR measurements, which a
+	// source the driver tone maps (SDR) never needs at the same time.
+	m_bRtxHdrMeasureActive = m_bVPUseRTXVideoHDR && HdrMeasureSupported() && SUCCEEDED(InitHdrMeasure());
 
 	// The 4:4:4 pre-pass used to switch it off here, which cost a capability the
 	// original has for an option of ours; the driver is left to answer for itself.
@@ -4559,6 +4570,18 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 		pInputTexture = &m_TexConvertOutput;
 		rSrc = rect;
 		rotation = 0;
+
+		// RTX Video HDR: how bright the driver really made the picture, read where it
+		// wrote it, before anything of ours touches it. The NVIDIA app sets a peak, and
+		// the display reports one of its own; a renderer that tone maps the driver's
+		// output to the second changes the picture wherever the driver goes past it.
+		// For the statistics only, while they are shown: nothing reads the result, and
+		// its two dispatches are in none of the steps' times.
+		if (m_bRtxHdrMeasureActive && m_bShowStats && bAllowDlss) {
+			if (MeasureHdrPeak(m_TexConvertOutput, rect) == S_OK) {
+				ReadHdrMeasureStats();
+			}
+		}
 	}
 	else if (m_PSConvColorData.bEnable) {
 		// An mpv prescaler's chroma included: the statistics give the step one figure.
@@ -5026,7 +5049,13 @@ HRESULT CDX11VideoProcessor::GetCurentImage(long *pDIBImage)
 			UpdateConvertColorShader();
 		}
 
-		if (m_bHdrPassthroughSupport && m_bHdrLocalToneMapping) {
+		// Only for an HDR source, the one the tone mapping was released from above. HDR
+		// output also comes from RTX Video HDR on an SDR source, which has no tone mapping
+		// and never gets its constants (SetHDR10ShaderParams reads the source's HDR10 or
+		// Dolby Vision metadata): with a tone map method chosen, a snapshot used to leave
+		// the shader behind for the rest of the film, run on the driver's output with its
+		// parameters all zero.
+		if (m_bHdrPassthroughSupport && m_bHdrLocalToneMapping && SourceIsHDR()) {
 			EXECUTE_ASSERT(S_OK == CreateHDR10ToneMappingShader());
 			DLogIf(m_pPSHDR10ToneMapping, L"CDX11VideoProcessor::InitMediaType() m_pPSHDR10ToneMapping(type: '{}') created", m_iHdrLocalToneMappingType);
 		}

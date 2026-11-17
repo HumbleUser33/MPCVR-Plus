@@ -42,6 +42,7 @@
 #include "FrameGen/echo/EchoFlow.h"
 #include "FrameGen/echo/EchoSynth11.h"
 #include "Upscale/MpvShader.h"
+#include "NvidiaAppSettings.h"
 #include "VideoProcessor.h"
 #include "SubPic/DX11SubPic.h"
 
@@ -117,9 +118,14 @@ private:
 	CComPtr<ID3D11Buffer>               m_pHdrStateStaging; // for the statistics only
 	bool  m_bSdrMeasureActive     = false; // the measuring variant of the correction shader is in use
 	bool  m_bHdrLocalMeasureActive = false; // the measuring variant of the local tone mapping shader is in use
+	// RTX Video HDR's output is measured for the statistics, while they are shown: what
+	// the driver wrote, which nothing else in the renderer reads.
+	bool  m_bRtxHdrMeasureActive  = false;
 	bool  m_bHdrStatsCopyPending  = false;
 	float m_fHdrMeasuredPeakNits  = 0.0f;
 	float m_fHdrSmoothedPeakNits  = 0.0f;
+	float m_fHdrMeasuredAvgNits   = 0.0f;
+	CNvidiaAppSettings m_NvidiaApp; // what the NVIDIA app has the driver do with RTX Video
 
 	struct HdrMeasureConstants_t {
 		UINT rectOrigin[2];

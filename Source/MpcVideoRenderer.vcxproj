@@ -157,6 +157,7 @@
     <ClInclude Include="Helper.h" />
     <ClInclude Include="IVideoRenderer.h" />
     <ClInclude Include="MediaSampleSideData.h" />
+    <ClInclude Include="NvidiaAppSettings.h" />
     <ClInclude Include="PropPage.h" />
     <ClInclude Include="SettingsPage\SettingsPage.h" />
     <ClInclude Include="Clean\CleanParams.h" />
