@@ -60,6 +60,7 @@ cbuffer PS_SHARPEN : register(b0)
     float  param2;   // PASS 2 and 4: how far the clamp may pull back
 #ifdef QUANTIZATION
     float2 ditherCoordScale; // what ps_final_pass.hlsl is given
+    float2 ditherOffset;     // the same
 #endif
 };
 
@@ -106,7 +107,7 @@ float4 main(PS_INPUT input) : SV_Target
 {
 #ifdef QUANTIZATION
     // ps_final_pass.hlsl's dither, read at the same place.
-    const float4 ditherValue = texDither.Sample(sampDither, input.Tex * ditherCoordScale);
+    const float4 ditherValue = texDither.Sample(sampDither, input.Tex * ditherCoordScale + ditherOffset);
     return floor(Sharpened(input.Tex) * QUANTIZATION + ditherValue) / QUANTIZATION;
 #else
     return Sharpened(input.Tex);

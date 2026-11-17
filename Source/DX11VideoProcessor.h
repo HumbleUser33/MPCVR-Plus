@@ -272,6 +272,11 @@ private:
 	}
 	void UpdateSharpenDitherShader();
 
+	// Where the dither's pattern starts for the picture being finished: the pattern
+	// moved each picture with Settings_t::bDitherMoving, where it is otherwise.
+	UINT m_nDitherPicture = 0;
+	void NextDitherOffset(float& x, float& y);
+
 	bool m_bVPReplaceChroma = false;    // the setting
 	bool m_bChromaReplacedVP = false;   // and the shaders rebuild this source's chroma
 	DXGI_FORMAT m_VPInputFmt = DXGI_FORMAT_UNKNOWN;   // what the processor reads: the source, or packed 4:4:4

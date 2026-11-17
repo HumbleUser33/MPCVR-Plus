@@ -181,7 +181,8 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Direct3D 11." },
 	{ IDC_COMBO1,
 		L"Bit depth of the pictures the renderer works on.\n"
-		"Auto: 10-bit for sources above 8 bits and with RTX Video HDR, 8-bit otherwise.\n"
+		"Auto: 16-bit float for HDR output (HDR video sent in HDR, and RTX Video HDR), 10-bit for "
+		"other sources above 8 bits, 8-bit otherwise.\n"
 		"DLSS 5 NR always works in 16-bit float, whatever is chosen here. RTX Video HDR does not "
 		"run in 8-bit." },
 	{ IDC_STATIC1,
@@ -308,6 +309,11 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		L"Adds a very fine noise before output so that smooth gradients (skies, fades to black) "
 		"don't show banding.\n"
 		"Negligible cost: leave it on." },
+	{ IDC_DITHER_MOVING,
+		L"Moves that noise every picture instead of leaving it in place. The eye averages "
+		"several pictures, so a gradient then looks smoother still, with no fixed pattern; on a "
+		"still picture the noise can be seen to move up close.\n"
+		"Direct3D 11. Off by default." },
 	{ IDC_DEBLOCK,
 		L"Removes the 8x8 blocks and the ringing that strong compression leaves (DVDs, standard-"
 		"definition TV, XviD and DivX files), on the decoded picture before it is converted or resized.\n"
@@ -476,6 +482,14 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_SLIDER2,
 		L"Target brightness of that conversion, in nits (25 to 400). Applies while you drag, so "
 		"you can judge it on the picture." },
+	{ IDC_SDR_PEAK_CUTS,
+		L"The measured peak (Measured peak above, and the Measured method of the conversion to "
+		"SDR) is smoothed over three seconds so that the picture does not pump. With this, a "
+		"jump in the picture's mean brightness is taken for a scene cut and the smoothing starts "
+		"over: the new scene's peak is used from its first picture instead of after about 60, and "
+		"its highlights are not clipped meanwhile. A flash or a fast fade can be taken for a cut "
+		"too.\n"
+		"Available while one of the two is in use. Not carried by the presets." },
 
 	// Presentation
 	{ IDC_COMBO4,
@@ -689,7 +703,7 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_COMBO6, CB_ADDSTRING, 0, (LPARAM)L"Fixed size");
 	Send(IDC_COMBO6, CB_ADDSTRING, 0, (LPARAM)L"Grow with the window");
 
-	Combo_AddData(Item(IDC_COMBO1), L"Auto (8 or 10-bit)",  0);
+	Combo_AddData(Item(IDC_COMBO1), L"Auto",                0);
 	Combo_AddData(Item(IDC_COMBO1), L"8-bit",               8);
 	Combo_AddData(Item(IDC_COMBO1), L"10-bit",             10);
 	Combo_AddData(Item(IDC_COMBO1), L"16-bit float",       16);
@@ -890,6 +904,7 @@ void CVRSettingsPPage::SetControls()
 	Send(IDC_SHARPEN_LEVEL, TBM_SETPOS, 1, m_SetsPP.iSharpenLevel);
 	SetText(IDC_SHARPEN_LEVEL_TEXT, std::to_wstring(m_SetsPP.iSharpenLevel).c_str());
 	SetCheck(IDC_CHECK10, m_SetsPP.bUseDither);
+	SetCheck(IDC_DITHER_MOVING, m_SetsPP.bDitherMoving);
 	Combo_SelectData(Item(IDC_DEBLOCK), m_SetsPP.iDeblock);
 	Send(IDC_DEBLOCK_LEVEL, TBM_SETPOS, 1, m_SetsPP.iDeblockLevel);
 	SetText(IDC_DEBLOCK_LEVEL_TEXT, std::to_wstring(m_SetsPP.iDeblockLevel).c_str());
@@ -912,6 +927,7 @@ void CVRSettingsPPage::SetControls()
 	SetCheck(IDC_CHECK18, m_SetsPP.bHdrPreferDoVi);
 	SetCheck(IDC_CHECK14, m_SetsPP.bConvertToSdr);
 	Combo_SelectData(Item(IDC_COMBO_SDRTM), m_SetsPP.iSdrToneMappingType);
+	SetCheck(IDC_SDR_PEAK_CUTS, m_SetsPP.bSdrPeakSceneCuts);
 	SetCheck(IDC_CHECK19, m_SetsPP.bVPRTXVideoHDR);
 	Send(IDC_COMBO7, CB_SETCURSEL, m_SetsPP.iHdrToggleDisplay, 0);
 	Send(IDC_SLIDER1, TBM_SETPOS, 1, m_SetsPP.iHdrOsdBrightness);
@@ -996,7 +1012,13 @@ void CVRSettingsPPage::EnableControls()
 		for (const int id : { IDC_CHECK20, IDC_STATIC_DVTM, IDC_COMBO_DVTM }) {
 			Enable(id, bLocal);
 		}
+		// The start over at a scene cut serves both measurements: the tone mapping's, and
+		// the conversion to SDR's, which Direct3D 9 has as well.
+		Enable(IDC_SDR_PEAK_CUTS, (bLocal && m_SetsPP.bHdrLocalMeasurePeak)
+			|| (m_SetsPP.bConvertToSdr && m_SetsPP.iSdrToneMappingType == SDRTM_Measured));
 	}
+	// Moving the dither's pattern is the Direct3D 11 final pass's.
+	Enable(IDC_DITHER_MOVING, m_SetsPP.bUseD3D11 && m_SetsPP.bUseDither);
 
 	// The ones that decide each other, worked out in Greying.h so the bench can put
 	// the same question to them without a film and without a page.
@@ -1378,7 +1400,8 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK7,  &m_SetsPP.VPFmts.bNV12,         true  },
 				{ IDC_CHECK8,  &m_SetsPP.VPFmts.bP01x,         true  },
 				{ IDC_CHECK9,  &m_SetsPP.VPFmts.bYUY2,         true  },
-				{ IDC_CHECK10, &m_SetsPP.bUseDither,           false },
+				{ IDC_CHECK10, &m_SetsPP.bUseDither,           true  },
+				{ IDC_DITHER_MOVING, &m_SetsPP.bDitherMoving,  false },
 				{ IDC_DEBAND,  &m_SetsPP.bDeband,              true  },
 				{ IDC_HIDE_LOGO, &m_SetsPP.bHideLogo,          true  },
 				{ IDC_CHECK11, &m_SetsPP.bExclusiveFS,         false },
@@ -1389,7 +1412,8 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_CHECK17, &m_SetsPP.bDeintBlend,          false },
 				{ IDC_CHECK18, &m_SetsPP.bHdrPreferDoVi,       false },
 				{ IDC_CHECK19, &m_SetsPP.bVPRTXVideoHDR,       false },
-				{ IDC_CHECK20, &m_SetsPP.bHdrLocalMeasurePeak, false },
+				{ IDC_CHECK20, &m_SetsPP.bHdrLocalMeasurePeak, true  },
+				{ IDC_SDR_PEAK_CUTS, &m_SetsPP.bSdrPeakSceneCuts, false },
 				{ IDC_DLSSNR_ENABLE, &m_SetsPP.bDlssNR,        true  },
 				{ IDC_CHECK21, &m_SetsPP.bDlssNRAutoMask,      false },
 				{ IDC_CHECK23, &m_SetsPP.bDlssNRAfterUpscale,  false },
@@ -1511,7 +1535,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_COMBO13, &m_SetsPP.iDlssNRToggleKey, false },
 				{ IDC_COMBO15, &m_SetsPP.iDlssSRPreset,    false },
 				{ IDC_COMBO_DVTM,  &m_SetsPP.iHdrDoviToneMappingType, false },
-				{ IDC_COMBO_SDRTM, &m_SetsPP.iSdrToneMappingType,     false },
+				{ IDC_COMBO_SDRTM, &m_SetsPP.iSdrToneMappingType,     true  },
 				{ IDC_DEBLOCK,     &m_SetsPP.iDeblock,                true  },
 			};
 			for (const auto& c : byData) {

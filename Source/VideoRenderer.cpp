@@ -106,10 +106,12 @@
 #define OPT_VideoDelay                     L"VideoDelay"
 #define OPT_CadenceSlips                   L"CadenceSlips"
 #define OPT_SwapChainRenew                 L"SwapChainRenew"
+#define OPT_DitherMoving                   L"DitherMoving"
 #define OPT_SdrToneMappingType             L"SdrToneMappingType"
 // registry only, not saved
 #define OPT_SdrPeakWindowMs                L"SdrPeakWindowMs"
 #define OPT_SdrPeakFloorNits               L"SdrPeakFloorNits"
+// upstream's name, saved here: it is on the HDR tab
 #define OPT_SdrPeakSceneCuts               L"SdrPeakSceneCuts"
 
 static std::atomic_int g_nInstance = 0;
@@ -361,6 +363,9 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SwapChainRenew, dw)) {
 		sets.bSwapChainRenew = !!dw;
 	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DitherMoving, dw)) {
+		sets.bDitherMoving = !!dw;
+	}
 }
 
 static void WriteSettings(CRegKey& key, const Settings_t& sets)
@@ -438,6 +443,7 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_VideoDelay,          (DWORD)sets.iVideoDelay);
 	key.SetDWORDValue(OPT_CadenceSlips,        sets.iCadenceSlips);
 	key.SetDWORDValue(OPT_SwapChainRenew,      sets.bSwapChainRenew);
+	key.SetDWORDValue(OPT_DitherMoving,        sets.bDitherMoving);
 }
 
 // The settings are this renderer's own. The original is often on the same machine -- MPC-HC
@@ -588,7 +594,8 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 	if (ERROR_SUCCESS == key.Open(HKEY_CURRENT_USER, OPT_REGKEY_VIDEORENDERER, KEY_READ)) {
 		ReadSettings(key, m_Sets);
 		// Upstream's registry-only tuning of the Measured method: read here and nowhere
-		// else, never written, never in a preset.
+		// else, never in a preset. The window and the floor are never written either;
+		// the start over at a scene cut is on the HDR tab, and SaveSettings writes it.
 		DWORD dw;
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SdrPeakWindowMs, dw)) {
 			m_Sets.iSdrPeakWindowMs = discard<int>(dw, SDR_PEAK_WINDOW_DEF, SDR_PEAK_WINDOW_MIN, SDR_PEAK_WINDOW_MAX);
@@ -2118,6 +2125,8 @@ STDMETHODIMP CMpcVideoRenderer::SaveSettings()
 	CRegKey key;
 	if (ERROR_SUCCESS == key.Create(HKEY_CURRENT_USER, OPT_REGKEY_VIDEORENDERER)) {
 		WriteSettings(key, m_Sets);
+		// Here and not in WriteSettings, which writes the presets too: none carries it.
+		key.SetDWORDValue(OPT_SdrPeakSceneCuts, m_Sets.bSdrPeakSceneCuts);
 	}
 
 	return S_OK;

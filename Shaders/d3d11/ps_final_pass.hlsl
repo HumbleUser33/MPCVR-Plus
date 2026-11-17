@@ -12,6 +12,9 @@ SamplerState sampDither : register(s1);
 cbuffer PS_CONSTANTS : register(b0)
 {
     float2 ditherCoordScale;
+    // Where the pattern starts, in whole cells of it: (0, 0) unless it is moved each
+    // picture (Settings_t::bDitherMoving).
+    float2 ditherOffset;
 };
 
 struct PS_INPUT
@@ -24,7 +27,7 @@ float4 main(PS_INPUT input) : SV_Target
 {
     float4 pixel = tex.Sample(samp, input.Tex);
 
-    float4 ditherValue = texDither.Sample(sampDither, input.Tex * ditherCoordScale);
+    float4 ditherValue = texDither.Sample(sampDither, input.Tex * ditherCoordScale + ditherOffset);
     pixel = floor(pixel * QUANTIZATION + ditherValue) / QUANTIZATION;
 
     return pixel;

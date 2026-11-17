@@ -115,7 +115,8 @@ enum :int {
 	SDRTM_COUNT
 };
 
-// Tuning of SDRTM_Measured. Registry only: SdrPeakWindowMs, SdrPeakFloorNits and SdrPeakSceneCuts.
+// Tuning of SDRTM_Measured. Registry only: SdrPeakWindowMs and SdrPeakFloorNits. SdrPeakSceneCuts,
+// registry only upstream, is on the HDR tab here; none of the three is carried by a preset.
 #define SDR_PEAK_WINDOW_DEF 3000 // ms
 #define SDR_PEAK_WINDOW_MIN    0
 #define SDR_PEAK_WINDOW_MAX 10000
@@ -375,6 +376,11 @@ struct Settings_t {
 	// the swap chain rebuilt when pictures ready in time are shown late. Render ahead.
 	bool bSwapChainRenew;
 
+	// The dither's pattern moved each picture rather than left where it is, so that a
+	// still gradient is averaged by the eye over several thresholds at every pixel.
+	// Direct3D 11.
+	bool bDitherMoving;
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -471,6 +477,7 @@ struct Settings_t {
 		iLogoMargin                     = LOGO_MARGIN_DEF;
 		iCadenceSlips                   = CADENCE_SLIPS_Off;
 		bSwapChainRenew                 = true;
+		bDitherMoving                   = false;
 	}
 };
 
@@ -503,7 +510,9 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 
 // What a preset does not carry, because it belongs to the installation, the room or the
 // screen rather than to a taste: where the two DLLs are, the DLSS toggle key, how late the
-// room's sound is, the Measured method's tuning (registry only, as upstream has it),
+// room's sound is, the Measured method's tuning (registry only, as upstream has it, but
+// for the start over at a scene cut, which is on the HDR tab: a preset saved before it
+// was there would turn it off),
 // whether the statistics are up, and the whole of the Presentation tab. Presets saved by
 // earlier versions hold a Discard swap effect and the wait for a vertical blank, and
 // recalling one turned the scheduled presentation off for every SDR picture.

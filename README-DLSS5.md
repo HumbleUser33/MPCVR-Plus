@@ -1791,11 +1791,23 @@ Netflix's CAMBI agrees on 8 bits -- 12.1 rounded, 0.16 dithered (`--tdither --st
 ramp (0.17 at most): it judges code values with an SDR model of the eye, which says nothing of
 PQ.
 
-The matrix is the same in every picture. A pattern that moved from one picture to the next
-would leave the eye, which averages a still picture over several, less of the noise: averaged
-over eight pictures, pixel by pixel, 0.40 of a step with the pattern that ships against 0.16
-with one that moves (the shadows' ramp; 0.41 against 0.15 on 8 bits). Whether a moving pattern
-shows as a shimmer at 24 pictures a second is not measured, and the filter does not offer it.
+The matrix is the same in every picture, unless **A new pattern each picture** is ticked (Detail
+tab, off by default, Direct3D 11): the pattern then starts 11 cells further across and 19 further
+down at each picture, so that every pixel meets another threshold. The eye, which averages a
+still picture over several, sees less of the noise: averaged over eight pictures, pixel by pixel,
+0.40 of a step with the pattern held still against 0.16 with it moving (the shadows' ramp; 0.41
+against 0.15 on 8 bits, 0.45 against 0.21 in the highlights). `--tdither` runs the final pass
+that ships with the filter's first eight positions and checks each picture against the same sum
+on the CPU: not one pixel differs. Whether the moving pattern shows as a shimmer at 24 pictures
+a second is not measured, which is for the eye to judge and why it is off by default.
+
+**Since 3.0, *Bit depth: Auto* takes half floats for HDR output** -- HDR video sent in HDR, and
+RTX Video HDR -- so that an HDR picture goes the way of the table's last column rather than the
+one before it. What it costs, measured by the same bench on a film frame (`upscale_refs\4K1.png`
+reduced to 1080p) enlarged to 4K by Catmull-Rom on an RTX 4060: 0.24 ms a picture straight into
+the 10-bit back buffer, 0.47 ms through half floats and the dither, 0.23 ms more. The video
+processor's own write, in half floats rather than ten bits, is not in that figure. SDR keeps
+10-bit textures for a source above 8 bits and 8-bit otherwise.
 
 ---
 
@@ -1807,8 +1819,9 @@ it are cut flat, too high and they are pressed down for nothing. The measurement
 brightest pixels but one in 10 000 of each picture, and the curve is given the mean of those
 peaks over the last three seconds (`SdrPeakWindowMs`), never under 640 nits (`SdrPeakFloorNits`);
 by default the window does not start over at a cut, which is upstream's choice (`SdrPeakSceneCuts`,
-off, "what matches madVR"). libplacebo -- what FrankyRenderer and mpv use -- follows a low-pass
-of 20 pictures that a change in the mean brightness opens at once.
+off, "what matches madVR"; on the HDR tab since 3.0, *Start over at each scene cut*).
+libplacebo -- what FrankyRenderer and mpv use -- follows a low-pass of 20 pictures that a
+change in the mean brightness opens at once.
 
 `dlssnr_harness --ttonemap` puts the two side by side: four scenes cut together, three reference
 pictures made HDR with known peaks (1000, 4000, 300 and again 1000 nits, the brightest pixels but
@@ -1824,14 +1837,15 @@ nits):
 | | peak used, off by | 36 % | 34 % |
 | | highlights cut flat | 10.0 % | 0.2 % |
 | | highlights off by | 14.0 nits | 6.0 nits |
-| The filter, `SdrPeakSceneCuts` on | settles in | 1 picture | 1 picture |
+| The filter, *Start over at each scene cut* | settles in | 1 picture | 1 picture |
 | | highlights off by | 0.5 nits | 0.2 nits |
 | libplacebo, its default | settles in | 0 | 0 |
 | | highlights off by | 0.6 nits | 0.1 nits |
 
 So the measurement is right and the window is slow: within a scene the filter's peak is within
 0.4 % of the picture's, and a cut takes the window's three seconds to come through, where the
-setting that is already there, `SdrPeakSceneCuts`, brings it to one picture -- what libplacebo
+setting that was already there, `SdrPeakSceneCuts` -- now the HDR tab's *Start over at each
+scene cut* -- brings it to one picture: what libplacebo
 does with its hysteresis. The 300-nit scene is left out of the comparison: the floor holds the
 filter's peak at 640 there, and below the display's 750 the curve does nothing whatever the peak.
 What a cut-restart does on a flash or a slow fade, where it could pump, is not in these pictures.
@@ -2582,7 +2596,7 @@ presets.
 | Setting | Default | What it does |
 |---|---|---|
 | Use Direct3D 11 (recommended) | on (Windows 8 and later) | Renders with Direct3D 11 instead of Direct3D 9. Everything this fork adds needs it: DLSS, the neural upscalers, the chroma replacement, sharpening, HDR output and render ahead. On Windows 7 the video processor is not available with it |
-| Bit depth | Auto (8 or 10-bit) | The textures the renderer works in. Auto takes 10-bit for a source above 8 bits and with RTX Video HDR, 8-bit otherwise. DLSS 5 NR works in 16-bit float whatever this says; RTX Video HDR does not run in 8-bit |
+| Bit depth | Auto | The textures the renderer works in. Auto takes 16-bit float for HDR output (HDR video sent in HDR, and RTX Video HDR), 10-bit for another source above 8 bits, 8-bit otherwise: in HDR, 10-bit textures round at every step and leave two to five times the banding (see *Dithering*). Before 3.0 Auto took 10-bit for HDR output. DLSS 5 NR works in 16-bit float whatever this says; RTX Video HDR does not run in 8-bit |
 | GPU video processor: NV12, P010/P016, YUY2, Other supported formats | all ticked | The formats the hardware video processor converts. Hardware deinterlacing, RTX Video Super Resolution and RTX Video HDR work on these only. A format left unticked is converted and resized by the shaders, with the methods of the Chroma and Scaling tabs |
 | Deinterlacing: Hardware | On | The video processor's deinterlacing, for an interlaced source in a format it converts. *On, with future frames* is a workaround for drivers on which interlaced video judders |
 | Double the frame rate when deinterlacing | on | One picture a field: 50i plays as 50p, with twice the pictures to process. Needs hardware deinterlacing |
@@ -2624,6 +2638,7 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 | Sharpening: Method | Off | *Adaptive-Sharpen*, *Unsharp + Clamp* or *AMD CAS*, run after the resize, so it also reaches a film already at the screen's size. See *Sharpening* for what each is worth. Needs Direct3D 11 |
 | Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen: Adaptive-Sharpen's +4, +8, +13, +20 and +28 per cent of mean gradient, the other two set to give the same, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Off |
 | Use dithering | on | A very fine noise before output, so that skies and fades to black show no banding. Only where the textures are deeper than the swap chain: with 10-bit integer textures and a 10-bit swap chain nothing dithers (see *Dithering*) |
+| A new pattern each picture | off | The dither's pattern moved every picture instead of held in place: the eye averages several pictures and sees less of the noise, and no fixed pattern. Direct3D 11; greyed while *Use dithering* is off (see *Dithering*) |
 | Hide the channel logo | off | Hides a TV channel's logo, worked out from under it where it is see-through and filled in from round it where it is opaque, before anything else touches the picture. Each logo found is kept, and recognised on the next films of the same size. See *Hiding a channel's logo*. Stays on with RTX Video Super Resolution; needs Direct3D 11 |
 | Margin | 1 px | The pixels round the logo worked with it, 0 to 3, for an edge the encoder smeared. Greyed while the box is unticked |
 | Find the logo | | Looks for the logo on the film playing and hides it: found in about 15 seconds of the film, hidden from about 30, finished in two minutes. Ticks the box and takes effect at once, with no Apply. The line under it says what it is doing |
@@ -2666,9 +2681,10 @@ key, both DLL paths, and the working size, which is what the card can carry.
 | Windows HDR | Don't change | Whether the filter may turn Windows HDR on by itself when HDR video, or RTX Video HDR, starts: in fullscreen only, or always. *On/off* turns it back off afterwards |
 | Subtitle and OSD brightness | the leftmost | How bright subtitles, the player's messages and the statistics are drawn over an HDR picture |
 | Convert to SDR | on | HDR video not output in HDR is converted to SDR, so that it does not look washed out |
-| Method | Metadata | How that conversion is done. *Fixed*: one curve for every film, the only one up to upstream 0.10.9. *Metadata*: a curve made for the content's peak (MaxCLL, else the mastering display's, else 1000 nits) and the SDR brightness. *Measured*: the same curve, from the peak of each picture, measured on the GPU and smoothed. Where the shaders convert the picture rather than the video processor (Dolby Vision among them), *Measured* works as *Metadata*. Its window, its floor and whether it starts over at a cut are upstream's registry-only values (`SdrPeakWindowMs`, 3000; `SdrPeakFloorNits`, 640; `SdrPeakSceneCuts`, off), which no preset holds |
+| Method | Metadata | How that conversion is done. *Fixed*: one curve for every film, the only one up to upstream 0.10.9. *Metadata*: a curve made for the content's peak (MaxCLL, else the mastering display's, else 1000 nits) and the SDR brightness. *Measured*: the same curve, from the peak of each picture, measured on the GPU and smoothed. Where the shaders convert the picture rather than the video processor (Dolby Vision among them), *Measured* works as *Metadata*. Its window and its floor are upstream's registry-only values (`SdrPeakWindowMs`, 3000; `SdrPeakFloorNits`, 640), which no preset holds; whether it starts over at a cut is the box below |
 | SDR brightness | 125 nits | The target of that conversion, 25 to 400. Applies as the slider is dragged |
 | RTX Video HDR | off | The NVIDIA driver turns SDR video into HDR. Needs HDR output on Passthrough or a tone map method, an HDR display with Windows HDR on, an RTX card, the 64-bit filter, a bit depth other than 8-bit and a format the video processor converts. The statistics star it (`RTX Video HDR*`) while it runs. The driver leaves out a picture the processor writes in fewer than 640x360 pixels, and the line then adds `left out by the driver under 640x360`; where the shaders resize, the processor first enlarges such a picture just past that, which the Processor step says (`to 740x312 for RTX Video HDR`) -- see *RTX Video HDR on a small picture*. The driver applies it only when the NVIDIA app has it on, as bright as the app says: the statistics give both, and what the driver wrote (*What the driver is set to, and what it writes*) |
+| Measured peak: Start over at each scene cut | off | The measured peak, of the tone mapping (*Measured peak*) and of the conversion to SDR (*Measured*), is smoothed over three seconds; with this, a jump in the mean brightness is taken for a cut and the smoothing starts over, so that the new scene's peak is used from its first picture (`SdrPeakSceneCuts`, upstream's registry-only value, on the page since 3.0). A flash or a fast fade can be taken for a cut too. Available while one of the two measurements is in use; not carried by a preset (see *Following the peak*) |
 
 ### Presentation
 
@@ -3241,8 +3257,9 @@ mpchc_drive.exe <mpc-hc64.exe> <film>   a real MPC-HC taken through the options;
 mpchc_drive.exe --attach 40     watch a running MPC-HC: windows made or lost, pointer shown or hidden, each timed
 dlssnr_harness.exe --tdownscale  what each downscaler keeps and what it lets fold back
 dlssnr_harness.exe --tdownport   and that those shaders are the kernels they are written from
-dlssnr_harness.exe --tdither     the dither before output: the final passes that ship against their sum, and what
-                                 rounding, the dither and ten-bit textures leave of a ramp (--study: pictures for CAMBI)
+dlssnr_harness.exe --tdither     the dither before output: the final passes that ship against their sum, held still and
+                                 moved, what rounding, the dither and ten-bit textures leave of a ramp, and what half
+                                 floats cost at 4K (--study: pictures for CAMBI)
 dlssnr_harness.exe --ttonemap    the measured peak HDR tone mapping follows, against libplacebo's, across cuts
 dlssnr_harness.exe --tupscale|--tdownscale --mpvextra <dir>   more mpv shaders, translated by mpv_shaders.py, beside
                                  the ones measured: candidates kept out of upscalers\hlsl and of the battery

@@ -1,5 +1,5 @@
 // --tdither: the dither before output, the shader that ships against its arithmetic, and
-// what it is worth.
+// what it is worth, and what half floats cost where Auto takes them (HDR output).
 //
 // The filter dithers in one place, ps_final_pass.hlsl (and the same ending in the
 // sharpening passes that take it on): floor(value * Q + threshold) / Q, the threshold
@@ -13,7 +13,8 @@
 // against the same sum on the CPU -- and then, on smooth ramps the swap chain cannot
 // hold, what the dither buys over rounding, what ten-bit textures cost against half
 // floats on the way to a 10-bit output, and what a pattern that moves from one picture
-// to the next would add. Banding is error at the scale of a band, not of a pixel: it is
+// to the next adds -- the filter's pattern moved the way the filter moves it. Banding is
+// error at the scale of a band, not of a pixel: it is
 // read as the error averaged over 16x16 blocks, where a dither's noise has gone and a
 // step has not. --study also writes every picture for CAMBI (clean_refs.py --cambi
 // --listing dither_out\cambi.txt).
@@ -138,10 +139,11 @@ bool LoadPixelShaderObject(ID3D11Device* dev, const wchar_t* file, CComPtr<ID3D1
 }
 
 // The final pass as the filter runs it, on a half-float picture, into the swap chain's
-// format; the codes read back.
+// format; the codes read back. (ox, oy): where the matrix starts, in whole cells, as the
+// filter moves it each picture (CDX11VideoProcessor::NextDitherOffset).
 bool FinalPassOnGpu(ID3D11Device* dev, ID3D11DeviceContext* ctx, CUpscalePasses& passes, ID3D11PixelShader* ps,
                     ID3D11ShaderResourceView* matrix, ID3D11SamplerState* matrixSampler,
-                    const std::vector<uint16_t>& picture, int Q, std::vector<int>& codes)
+                    const std::vector<uint16_t>& picture, int Q, std::vector<int>& codes, int ox = 0, int oy = 0)
 {
 	D3D11_TEXTURE2D_DESC d = {};
 	d.Width = kDitherW;
@@ -167,8 +169,9 @@ bool FinalPassOnGpu(ID3D11Device* dev, ID3D11DeviceContext* ctx, CUpscalePasses&
 	bd.ByteWidth = 16;
 	bd.Usage = D3D11_USAGE_DEFAULT;
 	bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-	// The filter's own block: the matrix's scale over the picture it reads.
-	const float constants[4] = { (float)kDitherW / kDitherSize, (float)kDitherH / kDitherSize, 0, 0 };
+	// The filter's own block: the matrix's scale over the picture it reads, and where it starts.
+	const float constants[4] = { (float)kDitherW / kDitherSize, (float)kDitherH / kDitherSize,
+		(float)ox / kDitherSize, (float)oy / kDitherSize };
 	const D3D11_SUBRESOURCE_DATA cbInit = { constants, 0, 0 };
 	CComPtr<ID3D11Buffer> cb;
 	if (FAILED(dev->CreateBuffer(&bd, &cbInit, &cb))) {
@@ -412,25 +415,161 @@ int RunDither(ID3D11Device* dev, ID3D11DeviceContext* ctx, bool study)
 
 		// 3. A pattern that moves: what eight pictures in a row average to, pixel by
 		// pixel, which is what the eye sees of a still ramp at 24 to 60 pictures a
-		// second. The pattern that ships is the same in all eight.
+		// second. Held still, the pattern is the same in all eight; moved, it is the
+		// shader that ships run with the filter's first eight offsets, and each picture
+		// must be the sum it claims there too.
 		std::vector<double> still(count), moving(count, 0.0);
-		for (int frame = 0; frame < 8; frame++) {
+		size_t movedMismatches = 0;
+		bool movedRan = true;
+		for (int frame = 0; frame < 8 && movedRan; frame++) {
 			const int ox = (frame * 11) % kDitherSize, oy = (frame * 19) % kDitherSize;
-			for (int y = 0; y < kDitherH; y++) {
+			std::vector<int> moved;
+			movedRan = FinalPassOnGpu(dev, ctx, passes, Q == 1023 ? ps10 : ps8, matrixSrv, matrixSampler, picture, Q,
+				moved, ox, oy);
+			for (int y = 0; y < kDitherH && movedRan; y++) {
 				for (int x = 0; x < kDitherW; x++) {
 					const size_t i = (size_t)y * kDitherW + x;
 					const float threshold = matrix[((y + oy) % kDitherSize) * kDitherSize + ((x + ox) % kDitherSize)];
-					moving[i] += DitherCode(asHalf[i], threshold, Q) / 8.0;
+					movedMismatches += DitherCode(asHalf[i], threshold, Q) != moved[i];
+					moving[i] += moved[i] / 8.0;
 				}
 			}
 		}
+		Check(movedRan, "the final pass runs with the pattern moved");
+		printf("    the same, its pattern moved as the filter moves it, eight pictures: %zu of %zu pixels differ\n",
+			movedMismatches, count * 8);
+		Check(movedMismatches * 10000 <= count * 8, "the moved pattern is the sum it claims");
 		for (size_t i = 0; i < count; i++) {
 			still[i] = dithered[i];
 		}
 		const DitherScore sStill = ScoreDither(still, truth), sMoving = ScoreDither(moving, truth);
-		printf("    eight pictures averaged, pixel by pixel: rms %.4f with the pattern that ships, %.4f with one\n"
-			"    that moves each picture\n", sStill.rms, sMoving.rms);
+		printf("    eight pictures averaged, pixel by pixel: rms %.4f with the pattern held still, %.4f with it\n"
+			"    moved each picture\n", sStill.rms, sMoving.rms);
 	}
+
+	// 4. What the half floats cost where Auto takes them, HDR output: a 1080p picture
+	// enlarged to 4K by Catmull-Rom, as the filter does it. In 10-bit textures it goes
+	// straight into the 10-bit back buffer; in half floats it goes into one more texture
+	// and the dither takes it from there to the back buffer. GPU time, the mean of 60
+	// runs after 10. The video processor's own write is not in it. The picture is a film
+	// frame, upscale_refs\4K1.png reduced by two: a flat one is compressed by the GPU in
+	// memory and costs next to nothing to read, whatever its format.
+	{
+		const UINT sw = 1920, sh = 1080, dw = 3840, dh = 2160;
+		int catmull = -1;
+		for (int m = 0; m < passes.MethodCount(); m++) {
+			if (!strcmp(passes.GetMethod(m).name, "Catmull-Rom")) {
+				catmull = m;
+			}
+		}
+		Target src10, srcHalf, mid, back;
+		bool ok = catmull >= 0
+			&& MakeTarget(dev, sw, sh, false, src10, DXGI_FORMAT_R10G10B10A2_UNORM)
+			&& MakeTarget(dev, sw, sh, false, srcHalf, DXGI_FORMAT_R16G16B16A16_FLOAT)
+			&& MakeTarget(dev, dw, dh, false, mid, DXGI_FORMAT_R16G16B16A16_FLOAT)
+			&& MakeTarget(dev, dw, dh, false, back, DXGI_FORMAT_R10G10B10A2_UNORM);
+		CComPtr<ID3D11Buffer> cb;
+		bool film = false;
+		if (ok) {
+			const HRESULT coInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+			UpscaleRef ref;
+			std::string loadError;
+			std::vector<float> low;
+			bool loaded = false;
+			{
+				// Gone before COM is: released after CoUninitialize, it crashed.
+				CComPtr<IWICImagingFactory> factory;
+				loaded = SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))
+					&& LoadReference(factory, L"upscale_refs\\4K1.png", ref, loadError);
+			}
+			if (loaded && ref.W >= 2 && ref.H >= 2) {
+				DownscaleBox(ref.rgba, ref.W, ref.H, 2, low);
+				const int lw = ref.W / 2, lh = ref.H / 2;
+				std::vector<uint16_t> halfs((size_t)sw * sh * 4);
+				std::vector<uint32_t> packed((size_t)sw * sh);
+				for (UINT y = 0; y < sh; y++) {
+					for (UINT x = 0; x < sw; x++) {
+						const float* p = &low[4 * ((size_t)(y % lh) * lw + (x % lw))];
+						const size_t i = (size_t)y * sw + x;
+						uint32_t word = 3u << 30;
+						for (int c = 0; c < 3; c++) {
+							const float v = std::clamp(p[c], 0.0f, 1.0f);
+							halfs[i * 4 + c] = DirectX::PackedVector::XMConvertFloatToHalf(v);
+							word |= (uint32_t)std::lround(v * 1023.0f) << (10 * c);
+						}
+						halfs[i * 4 + 3] = DirectX::PackedVector::XMConvertFloatToHalf(1.0f);
+						packed[i] = word;
+					}
+				}
+				ctx->UpdateSubresource(srcHalf.tex, 0, nullptr, halfs.data(), sw * 4 * sizeof(uint16_t), 0);
+				ctx->UpdateSubresource(src10.tex, 0, nullptr, packed.data(), sw * sizeof(uint32_t), 0);
+				film = true;
+			}
+			if (SUCCEEDED(coInit)) {
+				CoUninitialize();
+			}
+			D3D11_BUFFER_DESC bd = {};
+			bd.ByteWidth = 16;
+			bd.Usage = D3D11_USAGE_DEFAULT;
+			bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+			const float constants[4] = { (float)dw / kDitherSize, (float)dh / kDitherSize, 0, 0 };
+			const D3D11_SUBRESOURCE_DATA cbInit = { constants, 0, 0 };
+			ok = film && SUCCEEDED(dev->CreateBuffer(&bd, &cbInit, &cb));
+		}
+		CComPtr<ID3D11Query> disjoint, t0, t1;
+		if (ok) {
+			D3D11_QUERY_DESC qd = { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
+			ok = SUCCEEDED(dev->CreateQuery(&qd, &disjoint));
+			qd.Query = D3D11_QUERY_TIMESTAMP;
+			ok = ok && SUCCEEDED(dev->CreateQuery(&qd, &t0)) && SUCCEEDED(dev->CreateQuery(&qd, &t1));
+		}
+		const auto timed = [&](const std::function<void()>& work) {
+			for (int i = 0; i < 10; i++) {
+				work();
+			}
+			ctx->Begin(disjoint);
+			ctx->End(t0);
+			for (int i = 0; i < 60; i++) {
+				work();
+			}
+			ctx->End(t1);
+			ctx->End(disjoint);
+			D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj = {};
+			UINT64 a = 0, b = 0;
+			while (ctx->GetData(disjoint, &dj, sizeof(dj), 0) == S_FALSE) {
+				Sleep(0);
+			}
+			while (ctx->GetData(t0, &a, sizeof(a), 0) == S_FALSE) {
+				Sleep(0);
+			}
+			while (ctx->GetData(t1, &b, sizeof(b), 0) == S_FALSE) {
+				Sleep(0);
+			}
+			return (!dj.Disjoint && dj.Frequency) ? double(b - a) * 1000.0 / dj.Frequency / 60.0 : -1.0;
+		};
+		double ms10 = -1, msHalf = -1;
+		if (ok) {
+			const auto& method = passes.GetMethod(catmull);
+			ms10 = timed([&]() {
+				passes.Resize(dev, ctx, method, src10.srv, sw, sh, back.rtv, dw, dh);
+			});
+			msHalf = timed([&]() {
+				passes.Resize(dev, ctx, method, srcHalf.srv, sw, sh, mid.rtv, dw, dh);
+				ctx->PSSetShaderResources(1, 1, &matrixSrv.p);
+				ctx->PSSetSamplers(1, 1, &matrixSampler.p);
+				passes.Apply(ctx, ps10, mid.srv, back.rtv, dw, dh, cb);
+				ID3D11ShaderResourceView* none = nullptr;
+				ctx->PSSetShaderResources(1, 1, &none);
+			});
+		}
+		Check(ok && ms10 > 0 && msHalf > 0, "the cost of half floats is measured (upscale_refs\\4K1.png)");
+		if (ok && ms10 > 0 && msHalf > 0) {
+			printf("\n  What half floats cost for HDR output, a film frame from 1080p to 4K by Catmull-Rom, GPU per picture:\n"
+				"    10-bit textures, straight to the 10-bit back buffer   %6.3f ms\n"
+				"    half floats, then the dither to the back buffer       %6.3f ms (%+.3f)\n", ms10, msHalf, msHalf - ms10);
+		}
+	}
+
 	if (listing) {
 		fclose(listing);
 		printf("\n  pictures and dither_out\\cambi.txt written: python clean_refs.py --cambi --listing dither_out\\cambi.txt\n");

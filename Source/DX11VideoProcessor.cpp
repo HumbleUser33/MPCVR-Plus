@@ -433,6 +433,7 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_iUpscalingInUse      = config.iUpscaling;
 	m_iDownscaling         = config.iDownscaling;
 	m_bUseDither           = config.bUseDither;
+	m_bDitherMoving        = config.bDitherMoving;
 	m_bDeintBlend          = config.bDeintBlend;
 	m_iSwapEffect          = config.iSwapEffect;
 	m_bVBlankBeforePresent = config.bVBlankBeforePresent;
@@ -1114,6 +1115,24 @@ void CDX11VideoProcessor::UpdateSharpenDitherShader()
 	}
 }
 
+// The dither's pattern moved by whole cells, 11 across and 19 down more each picture, so
+// that every pixel meets another threshold of the matrix from one picture to the next.
+// A still gradient is then seen as the average of several, which is nearer the value
+// the picture had than any one of them: over eight pictures, 0.40 of a step off with
+// the pattern held still and 0.16 with it moving (dlssnr_harness --tdither, which runs
+// this same sequence through the shipped shader). Asked once per picture finished, by
+// the step that dithers it.
+void CDX11VideoProcessor::NextDitherOffset(float& x, float& y)
+{
+	if (!m_bDitherMoving) {
+		x = y = 0.0f;
+		return;
+	}
+	x = (float)((m_nDitherPicture * 11) % dither_size) / dither_size;
+	y = (float)((m_nDitherPicture * 19) % dither_size) / dither_size;
+	m_nDitherPicture++;
+}
+
 // The peak that the HDR to SDR conversion maps onto the display's white: what the file claims,
 // clamped to something usable.  0 means the Fixed method, which leaves the fixed curve in place.
 float CDX11VideoProcessor::GetSdrToneMappingPeak() const
@@ -1650,6 +1669,15 @@ void CDX11VideoProcessor::UpdateTexParams(int cdepth)
 
 	switch (m_iTexFormat) {
 	case TEXFMT_AUTOINT:
+		// HDR output in half floats. Every step that writes a 10-bit texture rounds the
+		// picture again, and the rounding is not dithered: a 10-bit chain of a few steps
+		// leaves two to five times the banding of half floats dithered once on the way
+		// to the 10-bit swap chain (dlssnr_harness --tdither, on PQ ramps in the shadows
+		// and in the highlights). The same test as the swap chain's (InitSwapChain).
+		if (m_bHdrPassthroughSupport && (m_bHdrPassthrough || m_bHdrLocalToneMapping) && (SourceIsHDR() || m_bVPUseRTXVideoHDR)) {
+			m_InternalTexFmt = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			break;
+		}
 		m_InternalTexFmt = (cdepth > 8 || m_bVPUseRTXVideoHDR) ? DXGI_FORMAT_R10G10B10A2_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM;
 		break;
 	case TEXFMT_8INT:    m_InternalTexFmt = DXGI_FORMAT_B8G8R8A8_UNORM;     break;
@@ -4452,7 +4480,8 @@ HRESULT CDX11VideoProcessor::FinalPass(const Tex2D_t& Tex, ID3D11Texture2D* pRen
 		return hr;
 	}
 
-	const FLOAT constants[4] = { (float)Tex.desc.Width / dither_size, (float)Tex.desc.Height / dither_size, 0, 0 };
+	FLOAT constants[4] = { (float)Tex.desc.Width / dither_size, (float)Tex.desc.Height / dither_size, 0, 0 };
+	NextDitherOffset(constants[2], constants[3]);
 	D3D11_MAPPED_SUBRESOURCE mr;
 	hr = m_pDeviceContext->Map(m_pFinalPassConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr);
 	if (FAILED(hr)) {
@@ -4778,13 +4807,16 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 			// Taking the dither on, it reads the dither where FinalPass would: the scale
 			// FinalPass is given, for the picture it reads, at the same coordinates.
 			const bool bDither = SharpenTakesDither();
-			const FLOAT constants[12] = {
+			FLOAT constants[12] = {
 				(float)pTex->desc.Width, (float)pTex->desc.Height,
 				1.0f / pTex->desc.Width, 1.0f / pTex->desc.Height,
 				1.0f, 1.0f,
 				m_fSharpenTestStrength > 0 ? m_fSharpenTestStrength : s_SharpenStrength[method][level - 1], s_SharpenClamp,
 				(float)pTex->desc.Width / dither_size, (float)pTex->desc.Height / dither_size, 0, 0
 			};
+			if (bDither) {
+				NextDitherOffset(constants[10], constants[11]);
+			}
 			D3D11_MAPPED_SUBRESOURCE mr = {};
 			if (SUCCEEDED(m_pDeviceContext->Map(m_pSharpenConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr))) {
 				memcpy(mr.pData, constants, sizeof(constants));
@@ -5542,6 +5574,8 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		m_bUseDither = config.bUseDither;
 		changeNumTextures = m_InternalTexFmt != DXGI_FORMAT_B8G8R8A8_UNORM;
 	}
+	// read with each picture, nothing to rebuild
+	m_bDitherMoving = config.bDitherMoving;
 
 	if (config.iSwapEffect != m_iSwapEffect) {
 		m_iSwapEffect = config.iSwapEffect;
