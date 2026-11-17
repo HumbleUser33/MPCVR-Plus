@@ -26,6 +26,7 @@
 #include <uxtheme.h>
 #include "SettingsPage.h"
 #include "Greying.h"
+#include "HostDialogTheme.h"
 
 #pragma comment(lib, "uxtheme.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -563,6 +564,9 @@ INT_PTR CALLBACK CVRSettingsPPage::SectionProc(HWND hDlg, UINT uMsg, WPARAM wPar
 		return TRUE;
 	}
 	auto* page = (CVRSettingsPPage*)::GetWindowLongPtrW(hDlg, GWLP_USERDATA);
+	if (const auto themed = HostDialogTheme::SectionMessage(hDlg, uMsg, wParam, lParam)) {
+		return themed;
+	}
 	return page ? page->OnSectionMessage(hDlg, uMsg, wParam, lParam) : (INT_PTR)FALSE;
 }
 
@@ -1103,6 +1107,9 @@ HRESULT CVRSettingsPPage::OnActivate()
 	m_bDoViByShaders = (m_pVideoRenderer->GetVideoProcessorUse() & VPUSE_DoViByShaders) != 0;
 
 	HWND hTabs = ::GetDlgItem(m_hwnd, IDC_SECTION_TABS);
+	if (hTabs) {
+		SetWindowSubclass(hTabs, HostDialogTheme::PaintTabs, 1, 0);
+	}
 
 	int tab = 0;
 	for (const auto& s : g_sections) {
