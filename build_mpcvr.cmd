@@ -117,6 +117,8 @@ IF DEFINED SEVENZIP (
     IF EXIST "_bin\%PCKG_NAME%.zip" DEL "_bin\%PCKG_NAME%.zip"
 
     TITLE Creating archive %PCKG_NAME%.zip...
+    REM EchoStorm-LICENSE.txt: the frame interpolation built into the filter is
+    REM EchoStorm's, under the MIT licence, whose text has to go with every copy.
     START "7z" /B /WAIT "%SEVENZIP%" a -tzip -mx9 "_bin\%PCKG_NAME%.zip" ^
 .\_bin\Filter_x86%SUFFIX%\%PROJECT%.ax ^
 .\_bin\Filter_x64%SUFFIX%\%PROJECT%64.ax ^
@@ -128,7 +130,8 @@ IF DEFINED SEVENZIP (
 .\Readme.md ^
 .\history.txt ^
 .\LICENSE.txt ^
-.\README-DLSS5.md
+.\README-DLSS5.md ^
+.\Source\FrameGen\echo\EchoStorm-LICENSE.txt
     IF %ERRORLEVEL% NEQ 0 CALL :SubMsg "ERROR" "Unable to create %PCKG_NAME%.zip!"
 
     REM The NGX caller-validation shim. It lives in dlss\ rather than beside the
@@ -172,9 +175,12 @@ IF EXIST "%SEVENZIP_PATH%" (SET "SEVENZIP=%SEVENZIP_PATH%" & EXIT /B)
 FOR %%G IN (7za.exe) DO (SET "SEVENZIP_PATH=%%~$PATH:G")
 IF EXIST "%SEVENZIP_PATH%" (SET "SEVENZIP=%SEVENZIP_PATH%" & EXIT /B)
 
+REM Windows' own FIND, by its path. Where Git's Unix tools come before System32 on
+REM PATH, as Git for Windows offers and a Claude Code shell has, FIND is Git's
+REM find.exe: the query then finds nothing and no zip is made, without a word.
 FOR /F "tokens=2*" %%A IN (
-  'REG QUERY "HKLM\SOFTWARE\7-Zip" /v "Path" 2^>NUL ^| FIND "REG_SZ" ^|^|
-   REG QUERY "HKLM\SOFTWARE\Wow6432Node\7-Zip" /v "Path" 2^>NUL ^| FIND "REG_SZ"') DO SET "SEVENZIP=%%B\7z.exe"
+  'REG QUERY "HKLM\SOFTWARE\7-Zip" /v "Path" 2^>NUL ^| %SystemRoot%\System32\find.exe "REG_SZ" ^|^|
+   REG QUERY "HKLM\SOFTWARE\Wow6432Node\7-Zip" /v "Path" 2^>NUL ^| %SystemRoot%\System32\find.exe "REG_SZ"') DO SET "SEVENZIP=%%B\7z.exe"
 EXIT /B
 
 :SubCompiling
