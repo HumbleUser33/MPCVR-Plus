@@ -1,7 +1,9 @@
 // The passes around the mpv prescalers (Shaders/mpv), which enlarge one plane:
 // the renderer hands them that plane and puts the colour back itself.
 //
-//   PASS 1  luma of the picture, for FSRCNNX and RAVU-zoom
+//   PASS 1  luma of the picture, for the luma prescalers, as grey: FSRCNNX, RAVU-zoom
+//           and ArtCNN read red, and Anime4K, written for mpv's RGB picture, reads
+//           all three and leaves a grey picture grey
 //   PASS 2  colour: the picture enlarged by Catmull-Rom (t0) with its luma
 //           replaced by the prescaler's (t1), both at the same size. The
 //           difference goes to R, G and B alike, which moves luma and leaves
@@ -67,7 +69,8 @@ float4 main(PS_INPUT input) : SV_Target
 {
 #if PASS == 1
 	float3 rgb = tex0.Sample(samp, input.Tex).rgb;
-	return float4(dot(rgb, kLuma), 0, 0, 1);
+	float y = dot(rgb, kLuma);
+	return float4(y, y, y, 1);
 #elif PASS == 2
 	float4 color = tex0.Sample(samp, input.Tex);
 	float y = tex1.Sample(samp, input.Tex).r;

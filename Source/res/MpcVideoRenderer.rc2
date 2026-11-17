@@ -239,6 +239,15 @@ IDF_CS_11_ECHO_SYNTH_GRAINSTAT  FILE                    "..\\_bin\\shaders\\cs_e
 2048                            FILE                    "..\\_bin\\shaders\\mpv_ArtCNN_C4F16_DS_pass05.cso"
 2049                            FILE                    "..\\_bin\\shaders\\mpv_ArtCNN_C4F16_DS_pass06.cso"
 2050                            FILE                    "..\\_bin\\shaders\\mpv_ArtCNN_C4F16_DS_pass07.cso"
+2051                            FILE                    "..\\_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass00.cso"
+2052                            FILE                    "..\\_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass01.cso"
+2053                            FILE                    "..\\_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass02.cso"
+2054                            FILE                    "..\\_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass03.cso"
+2055                            FILE                    "..\\_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass04.cso"
+2056                            FILE                    "..\\_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass05.cso"
+2057                            FILE                    "..\\_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass06.cso"
+2058                            FILE                    "..\\_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass07.cso"
+2059                            FILE                    "..\\_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass08.cso"
 // end of the mpv prescalers
 
 //IDF_PS_11_TEST                  FILE                    "..\\_bin\\shaders\\ps_TEST.cso"

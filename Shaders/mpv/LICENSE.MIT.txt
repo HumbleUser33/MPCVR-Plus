@@ -1,5 +1,10 @@
 MIT License
 
+Anime4K (github.com/bloc97/Anime4K):
+Copyright (c) 2019-2021 bloc97
+All rights reserved.
+
+ArtCNN (github.com/Artoriuz/ArtCNN):
 Copyright (c) 2024 João Chrisóstomo
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

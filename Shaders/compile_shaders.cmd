@@ -258,6 +258,16 @@ SET fxc_cs5=%fxcexe% /nologo /O2 /T cs_5_0
 %fxc_cs5% /Fo "%workdir%\mpv_ArtCNN_C4F16_DS_pass05.cso" "mpv\ArtCNN_C4F16_DS\pass05.hlsl"
 %fxc_cs5% /Fo "%workdir%\mpv_ArtCNN_C4F16_DS_pass06.cso" "mpv\ArtCNN_C4F16_DS\pass06.hlsl"
 %fxc_cs5% /Fo "%workdir%\mpv_ArtCNN_C4F16_DS_pass07.cso" "mpv\ArtCNN_C4F16_DS\pass07.hlsl"
+
+%fxc_ps5% /Fo "%workdir%\mpv_Anime4K_Upscale_CNN_x2_M_pass00.cso" "mpv\Anime4K_Upscale_CNN_x2_M\pass00.hlsl"
+%fxc_ps5% /Fo "%workdir%\mpv_Anime4K_Upscale_CNN_x2_M_pass01.cso" "mpv\Anime4K_Upscale_CNN_x2_M\pass01.hlsl"
+%fxc_ps5% /Fo "%workdir%\mpv_Anime4K_Upscale_CNN_x2_M_pass02.cso" "mpv\Anime4K_Upscale_CNN_x2_M\pass02.hlsl"
+%fxc_ps5% /Fo "%workdir%\mpv_Anime4K_Upscale_CNN_x2_M_pass03.cso" "mpv\Anime4K_Upscale_CNN_x2_M\pass03.hlsl"
+%fxc_ps5% /Fo "%workdir%\mpv_Anime4K_Upscale_CNN_x2_M_pass04.cso" "mpv\Anime4K_Upscale_CNN_x2_M\pass04.hlsl"
+%fxc_ps5% /Fo "%workdir%\mpv_Anime4K_Upscale_CNN_x2_M_pass05.cso" "mpv\Anime4K_Upscale_CNN_x2_M\pass05.hlsl"
+%fxc_ps5% /Fo "%workdir%\mpv_Anime4K_Upscale_CNN_x2_M_pass06.cso" "mpv\Anime4K_Upscale_CNN_x2_M\pass06.hlsl"
+%fxc_ps5% /Fo "%workdir%\mpv_Anime4K_Upscale_CNN_x2_M_pass07.cso" "mpv\Anime4K_Upscale_CNN_x2_M\pass07.hlsl"
+%fxc_ps5% /Fo "%workdir%\mpv_Anime4K_Upscale_CNN_x2_M_pass08.cso" "mpv\Anime4K_Upscale_CNN_x2_M\pass08.hlsl"
 REM end of the mpv prescalers
 
 EXIT /B

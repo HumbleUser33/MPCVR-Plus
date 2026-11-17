@@ -108,7 +108,9 @@ static const ScalingShaderResId s_Upscaling11ResIDs[UPSCALE_COUNT] = {
 	{IDF_PS_11_INTERP_CATMULL4_X,  IDF_PS_11_INTERP_CATMULL4_Y,  L"FSRCNNX 8 AR"      },
 	{IDF_PS_11_INTERP_CATMULL4_X,  IDF_PS_11_INTERP_CATMULL4_Y,  L"FSRCNNX 16 AR"     },
 	{IDF_PS_11_INTERP_CATMULL4_X,  IDF_PS_11_INTERP_CATMULL4_Y,  L"ArtCNN C4F16 DS"   },
+	{IDF_PS_11_INTERP_CATMULL4_X,  IDF_PS_11_INTERP_CATMULL4_Y,  L"Anime4K CNN x2 M AR"},
 };
+static_assert(UPSCALE_COUNT == 13, "a line above for each Upscaling method");
 
 static const ScalingShaderResId s_Downscaling11ResIDs[DOWNSCALE_COUNT] = {
 	{IDF_PS_11_CONVOL_BOX_X,       IDF_PS_11_CONVOL_BOX_Y,       L"Box"          },

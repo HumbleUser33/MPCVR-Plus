@@ -739,6 +739,7 @@ void CVRSettingsPPage::FillCombos()
 	// enlargements.
 	for (const int id : { IDC_COMBO2, IDC_COMBO16 }) {
 		Combo_AddData(Item(id), L"ArtCNN C4F16 DS",    UPSCALE_ArtCNN);
+		Combo_AddData(Item(id), L"Anime4K CNN x2 M AR", UPSCALE_Anime4KAR);
 		Combo_AddData(Item(id), L"RAVU-zoom",          UPSCALE_RAVUZoom);
 		Combo_AddData(Item(id), L"FSRCNNX 16 AR",      UPSCALE_FSRCNNX16AR);
 		Combo_AddData(Item(id), L"FSRCNNX 8 AR",       UPSCALE_FSRCNNX8AR);

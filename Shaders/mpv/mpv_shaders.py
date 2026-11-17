@@ -21,8 +21,8 @@ Two uses:
 
     python mpv_shaders.py renderer [--upstream <dir>] [--tools <dir>]
 
-        The prescalers the renderer embeds (FSRCNNX 8 and 16, RAVU-zoom and
-        ArtCNN C4F16 DS): their
+        The prescalers the renderer embeds (FSRCNNX 8 and 16, RAVU-zoom,
+        ArtCNN C4F16 DS and Anime4K CNN x2 M): their
         passes under Shaders/mpv/<shader>/, lookup tables as half floats next to
         them, the tables in Source/Upscale/MpvShaderTables.h, and the generated
         blocks of Shaders/compile_shaders.cmd and Source/res/MpcVideoRenderer.rc2.
@@ -50,6 +50,8 @@ RENDERER_SHADERS = [
     ("FSRCNNX_x2_16-0-4-1.glsl", "FSRCNNX16", "FSRCNNX 16"),
     ("ravu-zoom-ar-r3.hook", "RavuZoomAR3", "RAVU-zoom"),
     ("ArtCNN_C4F16_DS.glsl", "ArtCNNC4F16DS", "ArtCNN C4F16 DS"),
+    # hooke007/mpv_PlayKit's copy (commit 4921c679), which opens on a link to its wiki.
+    ("Anime4K_Upscale_CNN_x2_M.glsl", "Anime4KCNNx2M", "Anime4K CNN x2 M"),
 ]
 FIRST_RESOURCE_ID = 2000
 
@@ -403,8 +405,9 @@ def renderer(upstream, tools):
         "// Both under the GNU Lesser General Public License 3.0 or later: see",
         "// Shaders/mpv/LICENSE.LGPL-3.0.txt.",
         "//",
-        "// ArtCNN: Copyright (c) 2024 Joao Chrisostomo (github.com/Artoriuz/ArtCNN),",
-        "// MIT licence: see Shaders/mpv/LICENSE.MIT.txt.",
+        "// ArtCNN: Copyright (c) 2024 Joao Chrisostomo (github.com/Artoriuz/ArtCNN).",
+        "// Anime4K: Copyright (c) 2019-2021 bloc97 (github.com/bloc97/Anime4K).",
+        "// Both under the MIT licence: see Shaders/mpv/LICENSE.MIT.txt.",
         "",
         "#pragma once",
         "",
@@ -420,6 +423,12 @@ def renderer(upstream, tools):
     for name, symbol, shown in RENDERER_SHADERS:
         src = os.path.join(upstream, name)
         text = open(src, encoding="utf-8").read()
+        if re.search(r"^//!HOOK MAIN\b", text, re.M):
+            # A shader on MAIN, mpv's RGB picture (Anime4K). The renderer gives its
+            # prescalers the luma as grey (ps_mpv_prescale.hlsl, PASS 1), which is what
+            # it was measured on, and the runner calls that plane LUMA: the same plane
+            # under the name the runner knows. It leaves a grey picture grey.
+            text = re.sub(r"\bMAIN(?=\b|_)", "LUMA", text)
         passes, textures, params = parse(text)
         stem = os.path.splitext(name)[0]
         outdir = os.path.join(HERE, stem)

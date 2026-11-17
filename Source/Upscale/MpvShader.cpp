@@ -253,7 +253,12 @@ HRESULT CMpvShader::Load(ID3D11Device* pDevice, const MpvShaderInfo& info, UINT 
 		if (pass.binds.size() > kMaxBinds) {
 			return fail(E_FAIL);
 		}
-		pass.saveSlot = p.save ? slotOf(p.save) : -1;
+		// A pass that saves under the name of the plane it hooks replaces that plane, as
+		// it would with no SAVE at all: Anime4K ends that way. Kept apart, the result
+		// went to a texture nobody read and the shader never counted as having run.
+		const bool bSavesPlane = p.save
+			&& std::find(pass.hooks.begin(), pass.hooks.end(), std::string(p.save)) != pass.hooks.end();
+		pass.saveSlot = (p.save && !bSavesPlane) ? slotOf(p.save) : -1;
 		pass.when = Words(p.when);
 		pass.width = Words(p.width);
 		pass.height = Words(p.height);

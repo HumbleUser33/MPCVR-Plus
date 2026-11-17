@@ -39,11 +39,18 @@ static const ScalingShaderResId s_Upscaling9ResIDs[UPSCALE_COUNT] = {
 	{IDF_PS_9_INTERP_LANCZOS2_X,  IDF_PS_9_INTERP_LANCZOS2_Y,  L"Lanczos2"          },
 	{IDF_PS_9_INTERP_LANCZOS3_X,  IDF_PS_9_INTERP_LANCZOS3_Y,  L"Lanczos3"          },
 	{IDF_PS_9_INTERP_JINC2,       IDF_PS_9_INTERP_JINC2,       L"Jinc2m"            },
-	// The mpv prescalers need Direct3D 11: Catmull-Rom stands in.
-	{IDF_PS_9_INTERP_CATMULL4_X,  IDF_PS_9_INTERP_CATMULL4_Y,  L"Catmull-Rom"       },
-	{IDF_PS_9_INTERP_CATMULL4_X,  IDF_PS_9_INTERP_CATMULL4_Y,  L"Catmull-Rom"       },
-	{IDF_PS_9_INTERP_CATMULL4_X,  IDF_PS_9_INTERP_CATMULL4_Y,  L"Catmull-Rom"       },
+	// The mpv prescalers need Direct3D 11: Catmull-Rom stands in, for each of them. The
+	// table is sized by the list, and an entry without its line here was left with no
+	// shader and no name.
+	{IDF_PS_9_INTERP_CATMULL4_X,  IDF_PS_9_INTERP_CATMULL4_Y,  L"Catmull-Rom"       }, // FSRCNNX 8
+	{IDF_PS_9_INTERP_CATMULL4_X,  IDF_PS_9_INTERP_CATMULL4_Y,  L"Catmull-Rom"       }, // FSRCNNX 16
+	{IDF_PS_9_INTERP_CATMULL4_X,  IDF_PS_9_INTERP_CATMULL4_Y,  L"Catmull-Rom"       }, // RAVU-zoom
+	{IDF_PS_9_INTERP_CATMULL4_X,  IDF_PS_9_INTERP_CATMULL4_Y,  L"Catmull-Rom"       }, // FSRCNNX 8 AR
+	{IDF_PS_9_INTERP_CATMULL4_X,  IDF_PS_9_INTERP_CATMULL4_Y,  L"Catmull-Rom"       }, // FSRCNNX 16 AR
+	{IDF_PS_9_INTERP_CATMULL4_X,  IDF_PS_9_INTERP_CATMULL4_Y,  L"Catmull-Rom"       }, // ArtCNN C4F16 DS
+	{IDF_PS_9_INTERP_CATMULL4_X,  IDF_PS_9_INTERP_CATMULL4_Y,  L"Catmull-Rom"       }, // Anime4K CNN x2 M AR
 };
+static_assert(UPSCALE_COUNT == 13, "a line above for each Upscaling method");
 
 // RAVU-zoom on chroma needs Direct3D 11 as well.
 static int ChromaScaling9(const int chromaScaling)

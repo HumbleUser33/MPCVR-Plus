@@ -6,7 +6,7 @@ rendering is bit-identical to upstream.
 
 | | |
 |---|---|
-| **Scaling** | six upscalers chosen by measurement — ArtCNN C4F16 DS, FSRCNNX 8/16, RAVU-zoom and the anti-ringing versions — with both lists ordered best first |
+| **Scaling** | seven upscalers chosen by measurement — ArtCNN C4F16 DS, Anime4K CNN x2 M, FSRCNNX 8/16, RAVU-zoom and the anti-ringing versions — with both lists ordered best first |
 | **Chroma** | three more methods, and a 4:4:4 pre-pass that hands the hardware video processor a full picture: +7 dB of colour on 10-bit film |
 | **Detail** | deblocking (PP7, or SPP for a powerful GPU) and debanding on the decoded planes, and sharpening after the resize, each with five calibrated levels; a TV channel's logo found and hidden |
 | **DLSS 5 NR** | NVIDIA neural reconstruction (NGX feature 18) with a temporal stabilizer made for video |
@@ -765,15 +765,16 @@ decide whether its cleaner look is worth it on your films.
 
 ---
 
-## Upscaling: FSRCNNX, RAVU-zoom and ArtCNN
+## Upscaling: FSRCNNX, RAVU-zoom, ArtCNN and Anime4K
 
 The **Upscaling** and **Chroma upsampling** lists are ordered by what they measured,
-best first, on 1080p film brought to 4K. Six of the entries enlarge one plane with a small
+best first, on 1080p film brought to 4K. Seven of the entries enlarge one plane with a small
 network instead of a filter kernel, the way mpv's prescalers do:
 
 | Entry | What it is | 1080p→4K luma, RTX 3050 |
 |---|---|---|
 | **ArtCNN C4F16 DS** | ArtCNN C4F16 DS: four convolution layers in compute passes, doubles. Cleans grain and compression as it enlarges | 14.5 ms, 63 MB |
+| **Anime4K CNN x2 M AR** | Anime4K_Upscale_CNN_x2_M, v3.2: seven small convolution layers, doubles, with anti-ringing. Made for animation; on film it measures second on grain and compression and below RAVU-zoom and FSRCNNX on a clean picture (*Three more of mpv's networks* below) | see below |
 | **RAVU-zoom** | RAVU-Zoom-AR r3: trained edge-directed weights, to any size at once, anti-ringing inside the kernel | 3.9 ms, no extra texture |
 | **FSRCNNX 16 AR** | FSRCNNX_x2_16-0-4-1, 16 feature maps, doubles, with anti-ringing | 18.0 ms, 190 MB |
 | **FSRCNNX 8 AR** | FSRCNNX_x2_8-0-4-1, the same with 8, with anti-ringing | 5.9 ms, 95 MB |
@@ -823,9 +824,10 @@ out to +5 s with 18 frames late. The option that used to ask for it, *Use the "U
 method to reduce the frame to 50%*, is gone with it: **the Downscaling method now reduces at
 every ratio**, which is the one thing it can be relied on to say.
 
-Three more of mpv's networks were measured and are **not** offered (`dlssnr_harness --tupscale
---mpvextra <dir>`: luma PSNR, mean of eleven film frames reduced by two, degraded, enlarged
-back; GPU times are the harness's at the reference size on an RTX 4060):
+Three more of mpv's networks were measured (`dlssnr_harness --tupscale --mpvextra <dir>`: luma
+PSNR, mean of eleven film frames reduced by two, degraded, enlarged back; GPU times are the
+harness's at the reference size on an RTX 4060). One of them, **Anime4K**, is in the list since
+3.0; the other two are not:
 
 | | clean | grain | compressed | time |
 |---|---|---|---|---|
@@ -835,13 +837,23 @@ back; GPU times are the harness's at the reference size on an RTX 4060):
 | AiUpscale Fast 2x Photo, with anti-ringing | 50.16 | 40.79 | 41.98 | 4.1 ms |
 | Anime4K CNN x2 M, with anti-ringing | 48.64 | 43.07 | 42.58 | 1.1 ms |
 
+**Anime4K**, made for animation and run on the luma given as grey (it reads RGB), is below
+FSRCNNX and RAVU-zoom on a clean picture and between them and ArtCNN on grain and compression,
+for a fifth of FSRCNNX's time; reduced by three it keeps the same order (44.99 clean, 41.19
+grain, 40.00 compressed, against FSRCNNX 16 AR's 46.14, 40.70 and 39.85). Film has grain or
+compression more often than not, which is how ArtCNN came first, and Anime4K comes second on
+the same grounds: *Anime4K CNN x2 M AR* sits between ArtCNN and RAVU-zoom. The filter gives
+every prescaler its luma as grey now, which changes nothing for the others (they read red), and
+runs Anime4K as the harness does, to the last half float (`--tmpvport`): 1.8 ms from 1080p to
+4K on an RTX 4060, where ArtCNN takes 6.4 ms, in eight textures, 127 MB. It comes with
+anti-ringing only, which at twice the size measured 0.4 dB better on a clean picture and 0.1 on
+a compressed one, and 0.03 worse on grain. Its last pass saves its result under the name of the
+plane it hooks, as mpv allows; the filter's runner took that for a texture of its own, and would
+never have counted the shader as run.
+
 **AiUpscale** comes close to FSRCNNX on a clean picture and falls behind wherever there is
-grain or compression. **Anime4K**, made for animation and run here on the luma given as grey
-(it reads RGB), is below FSRCNNX and RAVU-zoom on a clean picture and between them and ArtCNN
-on grain and compression, for a fifth of FSRCNNX's time; reduced by three it keeps the same
-order (44.99 clean, 41.19 grain, 40.00 compressed, against FSRCNNX 16 AR's 46.14, 40.70 and 39.85).
-Neither beats the entry that ranks first on any kind of picture. **CuNNy 2x12 DS** could not
-be measured: the harness's runner gives a flat picture for it, and why has not been found.
+grain or compression, and is not offered. **CuNNy 2x12 DS** could not be measured: the
+harness's runner gives a flat picture for it, and why has not been found.
 
 ### Spline36, and what a downscaler is for
 
@@ -2619,7 +2631,7 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 |---|---|---|
 | Use the video processor for resizing | on | The video processor resizes instead of the shaders: fast, and below the Upscaling and Downscaling methods, which grey. With DLSS 5 NR on it enlarges what the network leaves. Greyed while a Dolby Vision film plays, which the shaders process whole |
 | Video Super Resolution | Off | The driver's Super Resolution (NVIDIA RTX, or Intel UHD 610 and later) while the video processor enlarges, for sources up to the size chosen. Needs the processor resizing, every format ticked on the Source tab, Windows 10, Direct3D 11 and the 64-bit filter. Greyed while DLSS SR or the chroma replacement is on. With DLSS 5 NR it runs after the network on a 4:2:0 picture, halving the colour resolution again |
-| Upscaling | Jinc2m | Enlarges when the shaders resize. ArtCNN C4F16 DS, RAVU-zoom and the four FSRCNNX entries enlarge the luma with a network; AR holds what it invented to the range the source covers. Ordered best first, each entry keeping its own number. The networks need Direct3D 11; Catmull-Rom stands in elsewhere and while DLSS SR is enlarging |
+| Upscaling | Jinc2m | Enlarges when the shaders resize. ArtCNN C4F16 DS, Anime4K CNN x2 M AR, RAVU-zoom and the four FSRCNNX entries enlarge the luma with a network; AR holds what it invented to the range the source covers. Ordered best first, each entry keeping its own number. The networks need Direct3D 11; Catmull-Rom stands in elsewhere and while DLSS SR is enlarging |
 | Use a lighter filter for small enlargements | off, Jinc2m | Under 5 % on both sides, a slightly cropped 4K film on a 4K screen for instance, the method in the list beside it is used instead: a network costs as much there as for a large enlargement, for nothing visible. The statistics name the method really in use |
 | Downscaling | Hamming | Reduces when the shaders resize. Ordered best first (`--tdownscale`, see *Spline36, and what a downscaler is for*): Lanczos, Bicubic sharp and Spline36 are close |
 | Use DLSS Super Resolution for upscaling | off | Enlarges with DLSS Super Resolution, in place of the video processor and of the Upscaling method, which greys; it cleans grain and compression noise too. Up to 4 times; the Upscaling method finishes a larger enlargement. Works with or without DLSS 5 NR. Experimental (see *DLSS Super Resolution*): moving subjects can still shimmer on grainy film |
@@ -3357,8 +3369,10 @@ authors' notices: **FSRCNNX** is Copyright (C) 2017-2021 **igv**
 (`github.com/bjin/mpv-prescalers`), both under the **GNU Lesser General Public License 3.0 or
 later**, whose text is in `Shaders/mpv/LICENSE.LGPL-3.0.txt`. **ArtCNN** is Copyright (c) 2024
 **João Chrisóstomo** (`github.com/Artoriuz/ArtCNN`) under the **MIT** licence, whose text is in
-`Shaders/mpv/LICENSE.MIT.txt`. Only the shaders are taken; the translation to HLSL and
-everything that runs them is part of this fork and GPLv3 like the rest.
+`Shaders/mpv/LICENSE.MIT.txt`, as is **Anime4K**, Copyright (c) 2019-2021 **bloc97**
+(`github.com/bloc97/Anime4K`), taken at version 3.2 from the copy in hooke007's mpv_PlayKit.
+The release zip carries both licence texts. Only the shaders are taken; the translation to HLSL
+and everything that runs them is part of this fork and GPLv3 like the rest.
 
 The **Adaptive-Sharpen** pass in `Shaders/d3d11/ps_sharpen.hlsl` is translated from
 **bacondither**'s mpv shader, version 2021-10-17 (`github.com/bacondither/Adaptive-sharpen`),

@@ -6,8 +6,10 @@
 // compile_shaders.cmd compiled; it reads them here from _bin\shaders and Shaders\mpv
 // instead of the filter's resources.
 //
-//   luma    FSRCNNX 8, FSRCNNX 16 and RAVU-zoom on the same luma plane through both
-//           runners: the pictures must agree to the last half float.
+//   luma    FSRCNNX 8, FSRCNNX 16, RAVU-zoom, ArtCNN and Anime4K on the same luma plane
+//           through both runners, given as grey as the filter gives it: the pictures
+//           must agree to the last half float. Anime4K hooks MAIN in the harness's
+//           translation and LUMA in the filter's, which is the same plane renamed.
 //   chroma  4:2:0 made the way MPEG-2 (chroma on the even luma columns) and co-sited
 //           video make it, brought back to full size by RAVU-zoom with the shift the
 //           filter gives it, without it, and by Catmull-Rom at the same positions.
@@ -241,6 +243,7 @@ static int RunMpvPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 			{ L"FSRCNNX_x2_16-0-4-1", &kMpvFSRCNNX16     },
 			{ L"ravu-zoom-ar-r3",     &kMpvRavuZoomAR3   },
 			{ L"ArtCNN_C4F16_DS",     &kMpvArtCNNC4F16DS },
+			{ L"Anime4K_Upscale_CNN_x2_M", &kMpvAnime4KCNNx2M },
 		};
 		CMpvFiles resources;
 
@@ -281,13 +284,14 @@ static int RunMpvPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 			Out("\n%S -- %dx%d luma to %dx%d\n", ref.name.c_str(), w, h, W, H);
 			Out("  %-24s %8s %9s %9s\n", "shader", "psnr", "max", "time");
 
-			// The luma plane both runners take.
+			// The luma plane both runners take, as grey: what the filter gives them
+			// (ps_mpv_prescale.hlsl, PASS 1). Anime4K reads all three channels.
 			std::vector<HALF> yHalf(4 * (size_t)w * h);
 			const HALF zero = DirectX::PackedVector::XMConvertFloatToHalf(0.0f);
 			const HALF one = DirectX::PackedVector::XMConvertFloatToHalf(1.0f);
 			for (size_t i = 0; i < (size_t)w * h; i++) {
 				yHalf[4 * i] = DirectX::PackedVector::XMConvertFloatToHalf(Luma(&lowres[4 * i]));
-				yHalf[4 * i + 1] = yHalf[4 * i + 2] = zero;
+				yHalf[4 * i + 1] = yHalf[4 * i + 2] = yHalf[4 * i];
 				yHalf[4 * i + 3] = one;
 			}
 			MpvTexture yPlane;
@@ -340,18 +344,20 @@ static int RunMpvPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 					g_failures++;
 					continue;
 				}
+				// The harness runs mpv's own text, so Anime4K on MAIN there.
+				const char* hook = (harness.Hooks("MAIN") && !harness.Hooks("LUMA")) ? "MAIN" : "LUMA";
 				std::map<std::string, MpvTexture> planes;
-				planes["LUMA"] = yPlane;
+				planes[hook] = yPlane;
 				std::string runError;
-				if (harness.Run(dev, ctx, "LUMA", planes, W, H, runError) < 0) {
+				if (harness.Run(dev, ctx, hook, planes, W, H, runError) < 0) {
 					Out("  %-24S the harness's runner failed: %s\n", shader.dir, runError.c_str());
 					g_failures++;
 					continue;
 				}
 
 				std::vector<float> fromFilter, fromHarness;
-				if (!ReadPlaneRed(dev, ctx, output, fromFilter) || !ReadPlaneRed(dev, ctx, planes["LUMA"], fromHarness)
-						|| output.width != planes["LUMA"].w || output.height != planes["LUMA"].h) {
+				if (!ReadPlaneRed(dev, ctx, output, fromFilter) || !ReadPlaneRed(dev, ctx, planes[hook], fromHarness)
+						|| output.width != planes[hook].w || output.height != planes[hook].h) {
 					Out("  %-24S the two results do not compare\n", shader.dir);
 					g_failures++;
 					continue;

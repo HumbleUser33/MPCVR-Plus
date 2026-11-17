@@ -9,8 +9,9 @@
 // Both under the GNU Lesser General Public License 3.0 or later: see
 // Shaders/mpv/LICENSE.LGPL-3.0.txt.
 //
-// ArtCNN: Copyright (c) 2024 Joao Chrisostomo (github.com/Artoriuz/ArtCNN),
-// MIT licence: see Shaders/mpv/LICENSE.MIT.txt.
+// ArtCNN: Copyright (c) 2024 Joao Chrisostomo (github.com/Artoriuz/ArtCNN).
+// Anime4K: Copyright (c) 2019-2021 bloc97 (github.com/bloc97/Anime4K).
+// Both under the MIT licence: see Shaders/mpv/LICENSE.MIT.txt.
 
 #pragma once
 
@@ -89,6 +90,20 @@ static const MpvPassInfo kMpvArtCNNC4F16DSPasses[] = {
 };
 static const MpvShaderInfo kMpvArtCNNC4F16DS = { L"ArtCNN C4F16 DS", kMpvArtCNNC4F16DSPasses, 8, nullptr, 0 };
 
+// Anime4K_Upscale_CNN_x2_M.glsl: 9 passes
+static const MpvPassInfo kMpvAnime4KCNNx2MPasses[] = {
+	{ "[Anime4K_Upscale_CNN_x2_M][v3.2] Conv-4x3x3x3", "LUMA", "LUMA", "conv2d_tf", "LUMA.w", "LUMA.h", "OUTPUT.w LUMA.w / 1.200 > OUTPUT.h LUMA.h / 1.200 > *", 2051, 0, 0 },
+	{ "[Anime4K_Upscale_CNN_x2_M][v3.2] Conv-4x3x3x8", "LUMA", "conv2d_tf", "conv2d_1_tf", "conv2d_tf.w", "conv2d_tf.h", "OUTPUT.w LUMA.w / 1.200 > OUTPUT.h LUMA.h / 1.200 > *", 2052, 0, 0 },
+	{ "[Anime4K_Upscale_CNN_x2_M][v3.2] Conv-4x3x3x8", "LUMA", "conv2d_1_tf", "conv2d_2_tf", "conv2d_1_tf.w", "conv2d_1_tf.h", "OUTPUT.w LUMA.w / 1.200 > OUTPUT.h LUMA.h / 1.200 > *", 2053, 0, 0 },
+	{ "[Anime4K_Upscale_CNN_x2_M][v3.2] Conv-4x3x3x8", "LUMA", "conv2d_2_tf", "conv2d_3_tf", "conv2d_2_tf.w", "conv2d_2_tf.h", "OUTPUT.w LUMA.w / 1.200 > OUTPUT.h LUMA.h / 1.200 > *", 2054, 0, 0 },
+	{ "[Anime4K_Upscale_CNN_x2_M][v3.2] Conv-4x3x3x8", "LUMA", "conv2d_3_tf", "conv2d_4_tf", "conv2d_3_tf.w", "conv2d_3_tf.h", "OUTPUT.w LUMA.w / 1.200 > OUTPUT.h LUMA.h / 1.200 > *", 2055, 0, 0 },
+	{ "[Anime4K_Upscale_CNN_x2_M][v3.2] Conv-4x3x3x8", "LUMA", "conv2d_4_tf", "conv2d_5_tf", "conv2d_4_tf.w", "conv2d_4_tf.h", "OUTPUT.w LUMA.w / 1.200 > OUTPUT.h LUMA.h / 1.200 > *", 2056, 0, 0 },
+	{ "[Anime4K_Upscale_CNN_x2_M][v3.2] Conv-4x3x3x8", "LUMA", "conv2d_5_tf", "conv2d_6_tf", "conv2d_5_tf.w", "conv2d_5_tf.h", "OUTPUT.w LUMA.w / 1.200 > OUTPUT.h LUMA.h / 1.200 > *", 2057, 0, 0 },
+	{ "[Anime4K_Upscale_CNN_x2_M][v3.2] Conv-4x1x1x56", "LUMA", "conv2d_tf conv2d_1_tf conv2d_2_tf conv2d_3_tf conv2d_4_tf conv2d_5_tf conv2d_6_tf", "conv2d_last_tf", "conv2d_tf.w", "conv2d_tf.h", "OUTPUT.w LUMA.w / 1.200 > OUTPUT.h LUMA.h / 1.200 > *", 2058, 0, 0 },
+	{ "[Anime4K_Upscale_CNN_x2_M][v3.2] Depth-to-Space", "LUMA", "LUMA conv2d_last_tf", "LUMA", "conv2d_last_tf.w 2 *", "conv2d_last_tf.h 2 *", "OUTPUT.w LUMA.w / 1.200 > OUTPUT.h LUMA.h / 1.200 > *", 2059, 0, 0 },
+};
+static const MpvShaderInfo kMpvAnime4KCNNx2M = { L"Anime4K CNN x2 M", kMpvAnime4KCNNx2MPasses, 9, nullptr, 0 };
+
 // The files behind the resources, from the repository root, for the harness.
 #ifdef MPV_SHADER_FILES
 static const struct { UINT resid; const wchar_t* path; } kMpvShaderFiles[] = {
@@ -143,5 +158,14 @@ static const struct { UINT resid; const wchar_t* path; } kMpvShaderFiles[] = {
 	{ 2048, L"_bin\\shaders\\mpv_ArtCNN_C4F16_DS_pass05.cso" },
 	{ 2049, L"_bin\\shaders\\mpv_ArtCNN_C4F16_DS_pass06.cso" },
 	{ 2050, L"_bin\\shaders\\mpv_ArtCNN_C4F16_DS_pass07.cso" },
+	{ 2051, L"_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass00.cso" },
+	{ 2052, L"_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass01.cso" },
+	{ 2053, L"_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass02.cso" },
+	{ 2054, L"_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass03.cso" },
+	{ 2055, L"_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass04.cso" },
+	{ 2056, L"_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass05.cso" },
+	{ 2057, L"_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass06.cso" },
+	{ 2058, L"_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass07.cso" },
+	{ 2059, L"_bin\\shaders\\mpv_Anime4K_Upscale_CNN_x2_M_pass08.cso" },
 };
 #endif

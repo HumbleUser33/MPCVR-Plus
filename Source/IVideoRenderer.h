@@ -71,6 +71,7 @@ enum :int {
 	UPSCALE_FSRCNNX8AR,   // the same networks, held to the range the source covers
 	UPSCALE_FSRCNNX16AR,
 	UPSCALE_ArtCNN,       // ArtCNN C4F16 DS: compute passes, denoises as it enlarges
+	UPSCALE_Anime4KAR,    // Anime4K CNN x2 M on the luma given as grey, held to the source's range
 	UPSCALE_COUNT
 };
 

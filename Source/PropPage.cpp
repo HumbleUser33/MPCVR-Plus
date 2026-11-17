@@ -353,6 +353,7 @@ HRESULT CVRMainPPage::OnActivate()
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO5, L"Nearest-neighbor",   CHROMA_Nearest);
 
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO2, L"ArtCNN C4F16 DS",    UPSCALE_ArtCNN);
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO2, L"Anime4K CNN x2 M AR", UPSCALE_Anime4KAR);
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO2, L"RAVU-zoom",          UPSCALE_RAVUZoom);
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO2, L"FSRCNNX 16 AR",      UPSCALE_FSRCNNX16AR);
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO2, L"FSRCNNX 8 AR",       UPSCALE_FSRCNNX8AR);

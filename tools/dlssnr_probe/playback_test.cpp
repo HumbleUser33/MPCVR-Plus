@@ -3020,6 +3020,7 @@ int wmain(int argc, wchar_t* argv[])
 		{ "FSRCNNX 8 AR, chroma Catmull-Rom", false, false, true, UPSCALE_FSRCNNX8AR, CHROMA_CatmullRom },
 		{ "FSRCNNX 16 AR, chroma Catmull-Rom", false, false, true, UPSCALE_FSRCNNX16AR, CHROMA_CatmullRom },
 		{ "ArtCNN C4F16 DS, chroma Catmull-Rom", false, false, true, UPSCALE_ArtCNN, CHROMA_CatmullRom },
+		{ "Anime4K CNN x2 M AR, chroma Catmull-Rom", false, false, true, UPSCALE_Anime4KAR, CHROMA_CatmullRom },
 		{ "Catmull-Rom, chroma RAVU-zoom",   false, false, true, UPSCALE_CatmullRom, CHROMA_RAVU       },
 		{ "RAVU-zoom, chroma RAVU-zoom",     false, false, true, UPSCALE_RAVUZoom,   CHROMA_RAVU       },
 		{ "ArtCNN C4F16 DS, chroma Jinc",    false, false, true, UPSCALE_ArtCNN,     CHROMA_Jinc       },
