@@ -1722,6 +1722,52 @@ prevents that, and the tooltip says so.
 
 ---
 
+## Dithering
+
+*Use dithering* adds, before output, a threshold from a fixed 32x32 matrix of 1 024 values -- a
+blue noise, its energy in the high frequencies -- and keeps the step below: `floor(value * Q +
+threshold) / Q`, Q 255 for an 8-bit swap chain and 1023 for a 10-bit one. It runs only where
+the picture holds more than the swap chain: an 8-bit swap chain behind deeper textures, or a
+10-bit one behind 16-bit float textures. Behind 10-bit integer textures every step writes ten
+bits and rounds, and nothing dithers. The swap chain is 10-bit for HDR output, and for SDR when
+the display reports ten bits or more and the textures are deeper than eight; it is never more
+than ten, whatever the link to the display carries (twelve bits to a television is the
+driver's affair).
+
+`dlssnr_harness --tdither` runs the compiled final passes the filter embeds, with its own matrix
+and samplers, on 1920x1080 ramps that climb twelve output steps across the width -- the worst
+case, bands 160 pixels wide -- and checks them against the same sum on the CPU: not one pixel
+differs, at 8 or at 10 bits. Errors are in output steps; banding is the error of 16x16 block
+means, where a dither's noise averages out and a step does not:
+
+| Ramp | Rounded | Dithered | A pass in 10-bit textures, no dither | A pass in half floats, dithered |
+|---|---|---|---|---|
+| SDR, 8 bits, from 0.30 | 0.267 | 0.008 | | |
+| PQ, 10 bits, from 0.25 (shadows, about 5 nits) | 0.278 | 0.043 | 0.410 | 0.080 |
+| PQ, 10 bits, from 0.70 (highlights) | 0.250 | 0.104 | 0.390 | 0.182 |
+
+"Rounded" is the half-float picture rounded to the swap chain, which is what a 10-bit target
+does without the dither. The two chains go through one pass that moves every value a little, as
+a resize or a tone curve does (`v * 0.9375 + 0.03`): ten-bit textures round at every write,
+half floats keep more and the final pass dithers. The worst block is 0.91 and 0.86 of a step
+through ten-bit textures, 0.18 and 0.40 through half floats. The dither adds no offset (under
+0.001 of a step); its price is noise, 0.40 to 0.45 of a step per pixel against 0.29 for
+rounding. In the highlights a half float carries one bit more than ten and no more, which is
+why the dither does less there.
+
+Netflix's CAMBI agrees on 8 bits -- 12.1 rounded, 0.16 dithered (`--tdither --study`, then
+`clean_refs.py --cambi --listing dither_out\cambi.txt`) -- and sees next to nothing in any 10-bit
+ramp (0.17 at most): it judges code values with an SDR model of the eye, which says nothing of
+PQ.
+
+The matrix is the same in every picture. A pattern that moved from one picture to the next
+would leave the eye, which averages a still picture over several, less of the noise: averaged
+over eight pictures, pixel by pixel, 0.40 of a step with the pattern that ships against 0.16
+with one that moves (the shadows' ramp; 0.41 against 0.15 on 8 bits). Whether a moving pattern
+shows as a shimmer at 24 pictures a second is not measured, and the filter does not offer it.
+
+---
+
 ## Render ahead
 
 The renderer wakes up 8 ms before a picture's time and only then processes it, so whatever
@@ -2501,7 +2547,7 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 | Strength | 3 | Five levels; see *Deblocking and debanding*. Greyed while Debanding is off |
 | Sharpening: Method | Off | *Adaptive-Sharpen*, *Unsharp + Clamp* or *AMD CAS*, run after the resize, so it also reaches a film already at the screen's size. See *Sharpening* for what each is worth. Needs Direct3D 11 |
 | Intensity | 3 | Five levels, and a level is the same amount of sharpening whichever method is chosen: Adaptive-Sharpen's +4, +8, +13, +20 and +28 per cent of mean gradient, the other two set to give the same, calibrated through the filter. 3 is where the quality measurements settle. Greyed while Sharpening is Off |
-| Use dithering | on | A very fine noise before output, so that skies and fades to black show no banding |
+| Use dithering | on | A very fine noise before output, so that skies and fades to black show no banding. Only where the textures are deeper than the swap chain: with 10-bit integer textures and a 10-bit swap chain nothing dithers (see *Dithering*) |
 | Hide the channel logo | off | Hides a TV channel's logo, worked out from under it where it is see-through and filled in from round it where it is opaque, before anything else touches the picture. Each logo found is kept, and recognised on the next films of the same size. See *Hiding a channel's logo*. Stays on with RTX Video Super Resolution; needs Direct3D 11 |
 | Margin | 1 px | The pixels round the logo worked with it, 0 to 3, for an edge the encoder smeared. Greyed while the box is unticked |
 | Find the logo | | Looks for the logo on the film playing and hides it: found in about 15 seconds of the film, hidden from about 30, finished in two minutes. Ticks the box and takes effect at once, with no Apply. The line under it says what it is doing |
@@ -3119,6 +3165,8 @@ mpchc_drive.exe <mpc-hc64.exe> <film>   a real MPC-HC taken through the options;
 mpchc_drive.exe --attach 40     watch a running MPC-HC: windows made or lost, pointer shown or hidden, each timed
 dlssnr_harness.exe --tdownscale  what each downscaler keeps and what it lets fold back
 dlssnr_harness.exe --tdownport   and that those shaders are the kernels they are written from
+dlssnr_harness.exe --tdither     the dither before output: the final passes that ship against their sum, and what
+                                 rounding, the dither and ten-bit textures leave of a ramp (--study: pictures for CAMBI)
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio
 playback_test.exe --sharpencal --file <film> --window 3200x1334 --vpscale 0 --calup 5   each sharpener's gain in detail against its strength, and its levels read back
 playback_test.exe --scalers --size 3836x2160 --window 3840x2160 --small 5   the stand-in under 5 %

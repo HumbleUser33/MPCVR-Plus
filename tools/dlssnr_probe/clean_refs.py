@@ -2,6 +2,7 @@ r"""Real encodes for the artifact removal study, and FFmpeg's own filters on the
 
     python clean_refs.py [--refs N]       make clean_refs\ (FFmpeg on the path)
     python clean_refs.py --cambi          score what the harness wrote with CAMBI
+    python clean_refs.py --cambi --listing dither_out\cambi.txt   the same for another listing
 
 The harness's --tclean degrades the truth itself, with a model of an MPEG-2 intra
 block. This makes the same truth go through the real encoders instead -- MPEG-2,
@@ -19,7 +20,8 @@ Pictures are raw yuv420p (8 bits) or yuv420p10le (10 bits), BT.709 limited range
 
 --cambi reads clean_refs\out\cambi.txt, which the harness writes (<case> <label>
 <file> <bits> per line), and gives each file Netflix's banding score, CAMBI (libvmaf,
-no reference): 0 is no visible banding, 5 is a lot.
+no reference): 0 is no visible banding, 5 is a lot. --listing names another such list, its
+files relative to this folder: dlssnr_harness --tdither --study writes one.
 """
 import json
 import os
@@ -142,6 +144,8 @@ def make():
 
 def cambi():
     listing = os.path.join(OUT, "out", "cambi.txt")
+    if "--listing" in sys.argv:
+        listing = os.path.join(HERE, sys.argv[sys.argv.index("--listing") + 1])
     rows = []
     for line in open(listing):
         p = line.rstrip("\n").split("\t")
@@ -150,7 +154,7 @@ def cambi():
         case, label, path, W, H, bits = p[0], p[1], p[2], int(p[3]), int(p[4]), int(p[5])
         # Run where the log goes, so that its path needs no drive letter: a colon in a
         # filter's option is an escaping puzzle FFmpeg's graph parser does not need.
-        here = os.path.join(OUT, "out")
+        here = os.path.dirname(listing)
         src = raw_in(W, H, bits) + ["-i", os.path.join(HERE, path)]
         run(["ffmpeg", "-v", "error", "-y"] + src + src + ["-lavfi",
              "[0:v][1:v]libvmaf=feature=name=cambi:log_fmt=json:log_path=cambi_tmp.json",

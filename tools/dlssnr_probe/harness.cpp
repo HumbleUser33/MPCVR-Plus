@@ -1009,6 +1009,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 #include "mpv_port_suite.inl"
 #include "downscale_port_suite.inl"
 #include "downscale_quality_suite.inl"
+#include "dither_suite.inl"
 #include "sr_suite.inl"
 #include "sr_still_suite.inl"
 #include "srclip_suite.inl"
@@ -1114,6 +1115,7 @@ int wmain(int argc, wchar_t** argv)
 	const bool temporalMpvPort = hasArg(L"--tmpvport");
 	const bool temporalDownPort = hasArg(L"--tdownport");
 	const bool temporalDownscale = hasArg(L"--tdownscale");
+	const bool temporalDither = hasArg(L"--tdither");
 	const bool temporalSR = hasArg(L"--tsr");
 	const bool temporalSRQuality = hasArg(L"--tsrq");
 	const bool temporalSRStill = hasArg(L"--tsrstill");
@@ -1208,7 +1210,7 @@ int wmain(int argc, wchar_t** argv)
 	// stabilizer's port check never ran in it. Two named is refused, out loud.
 	const bool suites[] = { temporal, temporalOracle, temporalEffect, temporalFlow, temporalStab || temporalStabPort,
 		temporalStabBench, temporalUpscale, temporalUpscaleCost, temporalChroma, temporalSharpen, temporalClean, temporalMpvPort,
-		temporalDownPort, temporalDownscale, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
+		temporalDownPort, temporalDownscale, temporalDither, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
 		temporalPipeline, temporalNRScale, temporalSRClip, temporalSRCut, temporalCutScan, temporalAutoMask, temporalLogo,
 		temporalCadence, temporalCadenceCut, temporalCadenceMade, temporalEchoPerf };
 	if (std::count(std::begin(suites), std::end(suites), true) > 1) {
@@ -1220,7 +1222,7 @@ int wmain(int argc, wchar_t** argv)
 		return 4;
 	}
 	if (temporal || temporalOracle || temporalEffect || temporalFlow
-			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalClean || temporalMpvPort || temporalDownPort || temporalDownscale || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask || temporalLogo
+			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalClean || temporalMpvPort || temporalDownPort || temporalDownscale || temporalDither || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask || temporalLogo
 			|| temporalCadence || temporalCadenceCut || temporalCadenceMade || temporalEchoPerf) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
@@ -1246,6 +1248,7 @@ int wmain(int argc, wchar_t** argv)
 			: temporalSRQuality ? temporal::RunSRQuality(dev, ctx, srDllPath.c_str(), srRefs)
 			: temporalSR ? temporal::RunSR(dev, ctx, dlss, srDllPath.c_str())
 			: temporalDownscale ? temporal::RunDownscaleQuality(dev, ctx)
+			: temporalDither ? temporal::RunDither(dev, ctx, hasArg(L"--study"))
 			: temporalDownPort ? temporal::RunDownscalePort(dev, ctx)
 			: temporalUpscaleCost ? temporal::RunUpscaleCost(dev, ctx)
 			: temporalMpvPort ? temporal::RunMpvPort(dev, ctx, srRefs)
