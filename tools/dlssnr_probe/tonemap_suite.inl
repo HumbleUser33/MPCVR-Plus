@@ -494,6 +494,9 @@ int RunToneMap(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 	printf("\n  settle: pictures after the cut until the peak used stays within 10%% of the scene's own; the\n"
 		"  filter's floor of %d nits keeps its peak above a scene that is darker than that, and the curve\n"
 		"  does nothing below the display's %.0f nits anyway.\n", SDR_PEAK_FLOOR_DEF, kTmDisplay);
+	// The factory goes before COM does: released after CoUninitialize, it crashed the
+	// harness on its way out (0xC0000005 in the battery, every number already printed).
+	factory.Release();
 	if (SUCCEEDED(coInit)) {
 		CoUninitialize();
 	}
