@@ -1,9 +1,9 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 16 November 2026, on an
+`run_all_report.txt` here is what the whole battery measured on 17 November 2026, on an
 RTX 4060 (driver 621.14) with the Windows desktop in HDR, Windows' hardware-accelerated GPU
 scheduling on and NVIDIA's *Prefer maximum performance* set in the driver's global settings,
-all thirty-four steps green. The filter and the tools are the code of `5e8e7124`, as the
+all thirty-four steps green. The filter and the tools are the code of `8be64abe`, as the
 report's commit line says, both built by MSVC 14.44. `run_all.cmd` masks
 the working folder and the user's profile in it (`<repo>`, `%USERPROFILE%`). It is the thing a
 merge from upstream is compared against, at step 8 of
@@ -38,6 +38,29 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## 17 November 2026: DWM kept composing in a window
+
+Against the report it replaces (`5e8e7124`, 16 November), 3232 rows compared, 25 moved, none
+gone and 4 new, no failure in either. The machine, its driver and the settings are those of the
+section below. The code since: the schedule holding DXGI's count and times against its grid of
+refreshes (`eccf6abb`), `cadence_watch --shotrect`, and DWM kept composing on every refresh
+while the picture plays in a window (`8be64abe`). The run was left alone, nothing else moving on
+the desktop.
+
+- The 4 new rows are the two cases `eccf6abb` added to "the cadence slips' schedule", 23.976
+  at 60 Hz with the made picture, DXGI's times late with its count right and the refreshes moved
+  by 5 ms: a row and a check each, both green. The 13 rows of that step that moved are the ones
+  after them, compared by their place: line for line, the step is the one of the report before
+  with those four lines put in.
+- 11 rows of the logo step, its three logos through x264, which does not encode the film the
+  same from one run to the next (the sections below); the largest in decibels, 49.20 to 48.49.
+- one row of "the pipeline", its times printed bare: its slowest picture from upload to done,
+  16.35 ms in the report before, 8.18 now.
+
+None of them is the keep-alive's: the steps that play in a window are judged on times, which
+the comparison leaves out. What it changes is measured in the manual, under *Why the times went
+astray*.
 
 ## 16 November 2026: the machine installed afresh, and the 60 Hz cadence
 
