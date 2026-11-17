@@ -997,6 +997,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 
 } // namespace temporal
 
+#include <set>
 #include "d3d_targets.inl"
 #include "effect_suite.inl"
 #include "flow_suite.inl"
@@ -1010,6 +1011,7 @@ static int RunOracle(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss,
 #include "downscale_port_suite.inl"
 #include "downscale_quality_suite.inl"
 #include "dither_suite.inl"
+#include "tonemap_suite.inl"
 #include "sr_suite.inl"
 #include "sr_still_suite.inl"
 #include "srclip_suite.inl"
@@ -1116,6 +1118,13 @@ int wmain(int argc, wchar_t** argv)
 	const bool temporalDownPort = hasArg(L"--tdownport");
 	const bool temporalDownscale = hasArg(L"--tdownscale");
 	const bool temporalDither = hasArg(L"--tdither");
+	const bool temporalToneMap = hasArg(L"--ttonemap");
+	std::wstring mpvExtra;   // --mpvextra <dir>: more translated mpv shaders for --tupscale and --tdownscale
+	for (int i = 1; i + 1 < argc; i++) {
+		if (!wcscmp(argv[i], L"--mpvextra")) {
+			mpvExtra = argv[i + 1];
+		}
+	}
 	const bool temporalSR = hasArg(L"--tsr");
 	const bool temporalSRQuality = hasArg(L"--tsrq");
 	const bool temporalSRStill = hasArg(L"--tsrstill");
@@ -1210,7 +1219,7 @@ int wmain(int argc, wchar_t** argv)
 	// stabilizer's port check never ran in it. Two named is refused, out loud.
 	const bool suites[] = { temporal, temporalOracle, temporalEffect, temporalFlow, temporalStab || temporalStabPort,
 		temporalStabBench, temporalUpscale, temporalUpscaleCost, temporalChroma, temporalSharpen, temporalClean, temporalMpvPort,
-		temporalDownPort, temporalDownscale, temporalDither, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
+		temporalDownPort, temporalDownscale, temporalDither, temporalToneMap, temporalSR, temporalSRQuality, temporalSRStill, temporalSRPort,
 		temporalPipeline, temporalNRScale, temporalSRClip, temporalSRCut, temporalCutScan, temporalAutoMask, temporalLogo,
 		temporalCadence, temporalCadenceCut, temporalCadenceMade, temporalEchoPerf };
 	if (std::count(std::begin(suites), std::end(suites), true) > 1) {
@@ -1222,7 +1231,7 @@ int wmain(int argc, wchar_t** argv)
 		return 4;
 	}
 	if (temporal || temporalOracle || temporalEffect || temporalFlow
-			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalClean || temporalMpvPort || temporalDownPort || temporalDownscale || temporalDither || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask || temporalLogo
+			|| temporalStab || temporalStabPort || temporalStabBench || temporalUpscale || temporalUpscaleCost || temporalChroma || temporalSharpen || temporalClean || temporalMpvPort || temporalDownPort || temporalDownscale || temporalDither || temporalToneMap || temporalSR || temporalSRQuality || temporalSRStill || temporalSRPort || temporalPipeline || temporalNRScale || temporalSRClip || temporalSRCut || temporalCutScan || temporalAutoMask || temporalLogo
 			|| temporalCadence || temporalCadenceCut || temporalCadenceMade || temporalEchoPerf) {
 		int srRefs = 0;   // --srrefs N: only the first N references
 		for (int i = 1; i + 1 < argc; i++) {
@@ -1247,8 +1256,9 @@ int wmain(int argc, wchar_t** argv)
 			: temporalSRStill ? temporal::RunSRStill(dev, ctx, srDllPath.c_str(), srRefs)
 			: temporalSRQuality ? temporal::RunSRQuality(dev, ctx, srDllPath.c_str(), srRefs)
 			: temporalSR ? temporal::RunSR(dev, ctx, dlss, srDllPath.c_str())
-			: temporalDownscale ? temporal::RunDownscaleQuality(dev, ctx)
+			: temporalDownscale ? temporal::RunDownscaleQuality(dev, ctx, mpvExtra.c_str())
 			: temporalDither ? temporal::RunDither(dev, ctx, hasArg(L"--study"))
+			: temporalToneMap ? temporal::RunToneMap(dev, ctx)
 			: temporalDownPort ? temporal::RunDownscalePort(dev, ctx)
 			: temporalUpscaleCost ? temporal::RunUpscaleCost(dev, ctx)
 			: temporalMpvPort ? temporal::RunMpvPort(dev, ctx, srRefs)
@@ -1257,7 +1267,7 @@ int wmain(int argc, wchar_t** argv)
 				hasArg(L"--withnr") ? 4 : hasArg(L"--ladder") ? 3 : hasArg(L"--cost") ? 2 : hasArg(L"--study") ? 1 : 0,
 				cleanFiles.c_str(), skipNR ? nullptr : &dlss)
 			: temporalChroma ? temporal::RunChroma(dev, ctx, srRefs)
-			: temporalUpscale ? temporal::RunUpscale(dev, ctx, srRefs, hasArg(L"--nomodels"))
+			: temporalUpscale ? temporal::RunUpscale(dev, ctx, srRefs, hasArg(L"--nomodels"), mpvExtra.c_str())
 			: temporalStabBench ? temporal::RunStabBench(dev, ctx)
 			: (temporalStab || temporalStabPort)
 			? temporal::RunStab(dev, ctx, dlss, temporalImage.c_str(), temporalFrames, temporalStrong, temporalStabPort)

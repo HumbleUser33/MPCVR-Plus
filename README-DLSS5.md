@@ -894,6 +894,17 @@ nowhere near a branch point and the sum barely cancels. It is two orders below a
 mistyped coefficient would do, so the check does not call it a failure -- it prints it, which
 is the honest state of it.
 
+Two of mpv's downscalers were measured the same way and are **not** offered: igv's
+**SSimDownscaler**, which works on what a downscaler made with the source beside it, and
+**DPID**, a detail-preserving downscaler (`--tdownscale --mpvextra <dir>` runs mpv shaders
+translated by `mpv_shaders.py` beside the shipped ones). Both keep what is in band -- 0.976 and
+0.999 at 0.375 cycles, where Lanczos keeps 0.881 -- by letting through almost everything that
+is not: 0.955 to 0.963 of a signal at 0.60 for SSimDownscaler (on Bicubic and on Hamming) and
+0.908 for DPID, against 0.178 for Lanczos and 0.467 for Hamming, the default. SSimDownscaler
+also rings, 0.10 to 0.16 past the edge. By the root mean square of the six errors they come last,
+0.455 to 0.568 against Lanczos's 0.087: sharpness bought with exactly the crawling the table is
+there to catch.
+
 ### Anti-ringing
 
 A network asked to double a picture invents an edge steeper than the one it was given, and
@@ -1765,6 +1776,51 @@ would leave the eye, which averages a still picture over several, less of the no
 over eight pictures, pixel by pixel, 0.40 of a step with the pattern that ships against 0.16
 with one that moves (the shadows' ramp; 0.41 against 0.15 on 8 bits). Whether a moving pattern
 shows as a shimmer at 24 pictures a second is not measured, and the filter does not offer it.
+
+---
+
+## Following the peak
+
+A tone mapping by the measured peak (*Measured peak* on HDR output, the *Measured* method of
+the conversion to SDR) is only as good as the peak it is given: too low and the highlights above
+it are cut flat, too high and they are pressed down for nothing. The measurement keeps the
+brightest pixels but one in 10 000 of each picture, and the curve is given the mean of those
+peaks over the last three seconds (`SdrPeakWindowMs`), never under 640 nits (`SdrPeakFloorNits`);
+by default the window does not start over at a cut, which is upstream's choice (`SdrPeakSceneCuts`,
+off, "what matches madVR"). libplacebo -- what FrankyRenderer and mpv use -- follows a low-pass
+of 20 pictures that a change in the mean brightness opens at once.
+
+`dlssnr_harness --ttonemap` puts the two side by side: four scenes cut together, three reference
+pictures made HDR with known peaks (1000, 4000, 300 and again 1000 nits, the brightest pixels but
+one in 10 000 at that peak) and a grain that changes every picture, 24 a second. The filter's
+measurement runs as its own shaders, `cs_hdr_hist.hlsl` and `cs_hdr_resolve.hlsl` with the
+filter's constants; libplacebo's is written again from `update_peak_buf`. Each is judged against
+the picture's own peak, through BT.2390 to a display of 750 nits, on the highlights (above 200
+nits):
+
+| After the cut | | to 4000 nits | to 1000 nits, from 300 |
+|---|---|---|---|
+| The filter as it ships | settles in | 62 pictures (2.6 s) | not in the scene's 48 |
+| | peak used, off by | 36 % | 34 % |
+| | highlights cut flat | 10.0 % | 0.2 % |
+| | highlights off by | 14.0 nits | 6.0 nits |
+| The filter, `SdrPeakSceneCuts` on | settles in | 1 picture | 1 picture |
+| | highlights off by | 0.5 nits | 0.2 nits |
+| libplacebo, its default | settles in | 0 | 0 |
+| | highlights off by | 0.6 nits | 0.1 nits |
+
+So the measurement is right and the window is slow: within a scene the filter's peak is within
+0.4 % of the picture's, and a cut takes the window's three seconds to come through, where the
+setting that is already there, `SdrPeakSceneCuts`, brings it to one picture -- what libplacebo
+does with its hysteresis. The 300-nit scene is left out of the comparison: the floor holds the
+filter's peak at 640 there, and below the display's 750 the curve does nothing whatever the peak.
+What a cut-restart does on a flash or a slow fade, where it could pump, is not in these pictures.
+
+The rest of what libplacebo adds to its tone mapping was looked at and not taken: a black
+cutoff for the mean brightness (the filter's curves read the peak, never the mean), a knee that
+follows the mean, contrast recovery and a lower exposure on scenes brighter than the display
+(its "dynamic target"). None has a right answer to be measured against, which is what this
+filter asks before it changes a picture.
 
 ---
 
@@ -3167,6 +3223,9 @@ dlssnr_harness.exe --tdownscale  what each downscaler keeps and what it lets fol
 dlssnr_harness.exe --tdownport   and that those shaders are the kernels they are written from
 dlssnr_harness.exe --tdither     the dither before output: the final passes that ship against their sum, and what
                                  rounding, the dither and ten-bit textures leave of a ramp (--study: pictures for CAMBI)
+dlssnr_harness.exe --ttonemap    the measured peak HDR tone mapping follows, against libplacebo's, across cuts
+dlssnr_harness.exe --tupscale|--tdownscale --mpvextra <dir>   more mpv shaders, translated by mpv_shaders.py, beside
+                                 the ones measured: candidates kept out of upscalers\hlsl and of the battery
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio
 playback_test.exe --sharpencal --file <film> --window 3200x1334 --vpscale 0 --calup 5   each sharpener's gain in detail against its strength, and its levels read back
 playback_test.exe --scalers --size 3836x2160 --window 3840x2160 --small 5   the stand-in under 5 %

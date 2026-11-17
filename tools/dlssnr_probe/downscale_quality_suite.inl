@@ -110,7 +110,7 @@ double OvershootAt(const std::vector<float>& rgba, int w, int h, double lo, doub
 
 } // namespace
 
-static int RunDownscaleQuality(ID3D11Device* dev, ID3D11DeviceContext* ctx)
+static int RunDownscaleQuality(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t* extraDir = nullptr)
 {
 	printf("\n=== What each downscaler keeps and what it lets fold (--tdownscale) ===\n");
 
@@ -162,35 +162,124 @@ static int RunDownscaleQuality(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 	static const double kKeep[3] = { 0.125, 0.250, 0.375 };
 	static const double kFold[3] = { 0.600, 0.750, 0.900 };
 
-	std::vector<DownScore> scores;
+	// mpv's downscalers from --mpvextra <dir>, translated by mpv_shaders.py: one on MAIN
+	// that makes the smaller picture itself (DPID), and one on POSTKERNEL that works on
+	// what a downscaler made, with the source beside it (SSimDownscaler) -- run here on
+	// the renderer's default, Hamming, and on Bicubic, the nearest of the shipped ones to
+	// the Mitchell mpv pairs it with.
+	struct Candidate {
+		std::string name;
+		std::function<bool(const std::vector<float>&, std::vector<float>&)> run;
+	};
+	std::vector<std::unique_ptr<CMpvShader>> mpvShaders;
+	std::vector<Candidate> candidates;
+	MpvTexture mpvSrc, mpvPost;
+	if (extraDir && *extraDir && MakeMpvTexture(dev, sw, sh, mpvSrc) && MakeMpvTexture(dev, dw, dh, mpvPost)) {
+		std::vector<std::wstring> dirs;
+		WIN32_FIND_DATAW fd = {};
+		HANDLE h = FindFirstFileW((std::wstring(extraDir) + L"\\*").c_str(), &fd);
+		if (h != INVALID_HANDLE_VALUE) {
+			do {
+				if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && fd.cFileName[0] != L'.') {
+					dirs.push_back(std::wstring(extraDir) + L"\\" + fd.cFileName);
+				}
+			} while (FindNextFileW(h, &fd));
+			FindClose(h);
+		}
+		std::sort(dirs.begin(), dirs.end());
+		const auto upload = [&](const std::vector<float>& src) {
+			std::vector<HALF> half(src.size());
+			DirectX::PackedVector::XMConvertFloatToHalfStream(half.data(), sizeof(HALF), src.data(), sizeof(float), src.size());
+			ctx->UpdateSubresource(texIn.tex, 0, nullptr, half.data(), 4 * sizeof(HALF) * sw, 0);
+			ctx->UpdateSubresource(mpvSrc.tex, 0, nullptr, half.data(), 4 * sizeof(HALF) * sw, 0);
+		};
+		const auto readOut = [&](const MpvTexture& t, std::vector<float>& out) {
+			if (t.w != (UINT)dw || t.h != (UINT)dh) {
+				return false;
+			}
+			ctx->CopyResource(texOut.tex, t.tex);
+			ctx->CopyResource(stage, texOut.tex);
+			return ReadRgbaHalf(ctx, stage, dw, dh, out);
+		};
+		for (const std::wstring& d : dirs) {
+			auto shader = std::make_unique<CMpvShader>();
+			std::string loadError;
+			if (!shader->Load(dev, d, loadError)) {
+				printf("  %S: %s\n", d.c_str(), loadError.c_str());
+				continue;
+			}
+			CMpvShader* mpv = shader.get();
+			if (mpv->Hooks("POSTKERNEL")) {
+				for (int b = 0; b < passes.ShippedCount(); b++) {
+					const CUpscalePasses::Method base = passes.Shipped(b);
+					if (strcmp(base.name, "Hamming") && strcmp(base.name, "Bicubic")) {
+						continue;
+					}
+					candidates.push_back({ std::string(base.name) + " + " + mpv->Name(),
+						[&, mpv, base](const std::vector<float>& src, std::vector<float>& out) {
+							upload(src);
+							if (!passes.Resize(dev, ctx, base, texIn.srv, sw, sh, mpvPost.rtv, dw, dh)) {
+								return false;
+							}
+							std::map<std::string, MpvTexture> planes;
+							planes["LUMA"] = mpvSrc;   // NATIVE's size
+							planes["PREKERNEL"] = mpvSrc;
+							planes["POSTKERNEL"] = mpvPost;
+							std::string runError;
+							return mpv->Run(dev, ctx, "POSTKERNEL", planes, dw, dh, runError) > 0
+								&& readOut(planes["POSTKERNEL"], out);
+						} });
+				}
+			} else if (mpv->Hooks("MAIN")) {
+				candidates.push_back({ mpv->Name(),
+					[&, mpv](const std::vector<float>& src, std::vector<float>& out) {
+						upload(src);
+						std::map<std::string, MpvTexture> planes;
+						planes["LUMA"] = mpvSrc;
+						planes["MAIN"] = mpvSrc;
+						std::string runError;
+						return mpv->Run(dev, ctx, "MAIN", planes, dw, dh, runError) > 0 && readOut(planes["MAIN"], out);
+					} });
+			} else {
+				continue;
+			}
+			printf("  mpv shader %s, %d passes\n", mpv->Name().c_str(), mpv->PassCount());
+			mpvShaders.push_back(std::move(shader));
+		}
+	}
 	for (int i = 0; i < passes.ShippedCount(); i++) {
-		const CUpscalePasses::Method& m = passes.Shipped(i);
+		const CUpscalePasses::Method m = passes.Shipped(i);
+		candidates.push_back({ m.name, [&, m](const std::vector<float>& src, std::vector<float>& out) { return run(m, src, out); } });
+	}
+
+	std::vector<DownScore> scores;
+	for (const Candidate& c : candidates) {
 		DownScore s = {};
-		s.name = m.name;
+		s.name = c.name.c_str();
 		bool ok = true;
 
 		std::vector<float> src, out;
 		for (int f = 0; f < 3 && ok; f++) {
 			SineSource(src, sw, sh, kKeep[f], ratio);
-			ok = run(m, src, out);
+			ok = c.run(src, out);
 			// 0.4 was the amplitude written in.
 			s.keep[f] = ok ? AmplitudeAt(out, dw, dh, kKeep[f]) / 0.4 : 0.0;
 			s.flatness = std::max(s.flatness, fabs(s.keep[f] - 1.0));
 		}
 		for (int f = 0; f < 3 && ok; f++) {
 			SineSource(src, sw, sh, kFold[f], ratio);
-			ok = run(m, src, out);
+			ok = c.run(src, out);
 			// Above the output's Nyquist it comes back folded to 1 - f.
 			s.fold[f] = ok ? AmplitudeAt(out, dw, dh, 1.0 - kFold[f]) / 0.4 : 0.0;
 			s.alias = std::max(s.alias, s.fold[f]);
 		}
 		if (ok) {
 			StepSource(src, sw, sh);
-			ok = run(m, src, out);
+			ok = c.run(src, out);
 			s.halo = ok ? OvershootAt(out, dw, dh, 0.1, 0.9) : 0.0;
 		}
 		if (!ok) {
-			printf("  %-14s could not be run\n", m.name);
+			printf("  %-14s could not be run\n", c.name.c_str());
 			continue;
 		}
 
@@ -199,7 +288,7 @@ static int RunDownscaleQuality(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 		int frames = 0;
 		SineSource(src, sw, sh, 0.25, ratio);
 		for (; GetTickCount() - t0 < 300; frames++) {
-			run(m, src, out);
+			c.run(src, out);
 		}
 		s.ms = frames ? (double)(GetTickCount() - t0) / frames : 0.0;
 

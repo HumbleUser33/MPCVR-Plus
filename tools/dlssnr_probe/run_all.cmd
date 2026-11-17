@@ -52,6 +52,7 @@ CALL :Run "upscalers on film"                  "dlssnr_harness.exe --tupscale --
 CALL :Run "chroma upsamplers on film"          "dlssnr_harness.exe --tchroma --nonr"
 CALL :Run "sharpeners on film"                 "dlssnr_harness.exe --tsharpen --nonr --nomodels"
 CALL :Run "the dither before output"           "dlssnr_harness.exe --tdither --nonr"
+CALL :Run "the peak HDR tone mapping follows"  "dlssnr_harness.exe --ttonemap --nonr"
 REM Deblocking and debanding on the decoded planes, at their five levels, and their
 REM shaders against the reference in double precision.
 CALL :Run "artifact removal on film"           "dlssnr_harness.exe --tclean --nonr --srrefs 4"

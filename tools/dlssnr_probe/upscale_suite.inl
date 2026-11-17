@@ -1005,7 +1005,8 @@ struct Degradation {
 
 // maxRefs limits the run to the first references (--srrefs), noModels leaves out
 // EfRLFN, whose seconds per picture otherwise dominate the run (--nomodels).
-static int RunUpscale(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs = 0, bool noModels = false)
+static int RunUpscale(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs = 0, bool noModels = false,
+                      const wchar_t* extraDir = nullptr)
 {
 	Head("Upscaling suite: what each method rebuilds from a reduced picture");
 
@@ -1053,29 +1054,49 @@ static int RunUpscale(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs =
 		// ones run on the luma of the reduced picture and are measured on luma, which is
 		// all Measure() compares for the renderer's filters too.
 		std::vector<std::unique_ptr<CMpvShader>> lumaShaders;
+		// Those that hook MAIN, the RGB picture, rather than the luma (Anime4K): they are
+		// given the luma as grey and measured on the luma of what they return.
+		std::set<const CMpvShader*> mainShaders;
 		if (!rc) {
+			// upscalers\hlsl, and --mpvextra <dir>: candidates measured without joining
+			// the shaders every battery measures.
 			std::vector<std::wstring> dirs;
-			WIN32_FIND_DATAW fd = {};
-			HANDLE h = FindFirstFileW(L"upscalers\\hlsl\\*", &fd);
-			if (h != INVALID_HANDLE_VALUE) {
-				do {
-					if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && fd.cFileName[0] != L'.') {
-						dirs.push_back(fd.cFileName);
-					}
-				} while (FindNextFileW(h, &fd));
-				FindClose(h);
+			for (const std::wstring root : { std::wstring(L"upscalers\\hlsl"), std::wstring(extraDir ? extraDir : L"") }) {
+				if (root.empty()) {
+					continue;
+				}
+				std::vector<std::wstring> here;
+				WIN32_FIND_DATAW fd = {};
+				HANDLE h = FindFirstFileW((root + L"\\*").c_str(), &fd);
+				if (h != INVALID_HANDLE_VALUE) {
+					do {
+						if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && fd.cFileName[0] != L'.') {
+							here.push_back(root + L"\\" + fd.cFileName);
+						}
+					} while (FindNextFileW(h, &fd));
+					FindClose(h);
+				}
+				std::sort(here.begin(), here.end());
+				dirs.insert(dirs.end(), here.begin(), here.end());
 			}
-			std::sort(dirs.begin(), dirs.end());
 			for (const std::wstring& d : dirs) {
 				auto shader = std::make_unique<CMpvShader>();
 				std::string shaderError;
-				if (!shader->Load(dev, L"upscalers\\hlsl\\" + d, shaderError)) {
+				if (!shader->Load(dev, d, shaderError)) {
 					printf("  %S: %s\n", d.c_str(), shaderError.c_str());
 					g_failures++;
 					continue;
 				}
-				if (!shader->Hooks("LUMA") || shader->Hooks("CHROMA")) {
+				const bool main = shader->Hooks("MAIN") && !shader->Hooks("LUMA");
+				if ((!shader->Hooks("LUMA") && !main) || shader->Hooks("CHROMA")) {
 					continue;   // chroma shaders are --tchroma's
+				}
+				if (main) {
+					mainShaders.insert(shader.get());
+					printf("  mpv shader %s, %d passes, on MAIN: given the luma as grey\n", shader->Name().c_str(),
+						shader->PassCount());
+					lumaShaders.push_back(std::move(shader));
+					continue;
 				}
 				if (shader->HasPixelOffset()) {
 					printf("  mpv shader %s, %d passes, output shifted by %.2f, %.2f pixels (taken back with Catmull-Rom,\n"
@@ -1319,18 +1340,38 @@ static int RunUpscale(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs =
 								Out("  luma plane texture failed\n");
 								g_failures++;
 							}
+							// The same luma as a grey RGB picture, for the shaders on MAIN.
+							MpvTexture greyPlane;
+							if (!mainShaders.empty()) {
+								std::vector<HALF> grey(yHalf);
+								for (size_t i = 0; i < (size_t)lw * lh; i++) {
+									grey[4 * i + 1] = grey[4 * i + 2] = grey[4 * i];
+								}
+								if (!MakeMpvTexture(dev, lw, lh, greyPlane, grey.data(), 4 * sizeof(HALF) * lw)) {
+									Out("  grey picture texture failed\n");
+									g_failures++;
+								}
+							}
 							for (auto& shader : lumaShaders) {
 								if (!yPlane.tex) {
 									break;
 								}
+								const bool onMain = mainShaders.count(shader.get()) != 0;
+								if (onMain && !greyPlane.tex) {
+									continue;
+								}
+								const char* hook = onMain ? "MAIN" : "LUMA";
 								std::string runError;
 								auto runOnce = [&]() {
 									std::map<std::string, MpvTexture> planes;
-									planes["LUMA"] = yPlane;
-									if (shader->Run(dev, ctx, "LUMA", planes, ref.W, ref.H, runError) < 0) {
+									planes["LUMA"] = onMain ? greyPlane : yPlane;
+									if (onMain) {
+										planes["MAIN"] = greyPlane;
+									}
+									if (shader->Run(dev, ctx, hook, planes, ref.W, ref.H, runError) < 0) {
 										return false;
 									}
-									const MpvTexture& y = planes["LUMA"];
+									const MpvTexture& y = planes[hook];
 									if (y.w == (UINT)ref.W && y.h == (UINT)ref.H) {
 										ctx->CopyResource(texHigh.tex, y.tex);
 										return true;
@@ -1382,7 +1423,9 @@ static int RunUpscale(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs =
 									ShiftPlane(upscaled, ref.W, ref.H, shader->PixelOffsetX(), shader->PixelOffsetY());
 								}
 								for (size_t p = 0; p + 3 < upscaled.size(); p += 4) {
-									upscaled[p + 1] = upscaled[p + 2] = upscaled[p];
+									// A shader on MAIN returns RGB: its luma is what is compared.
+									const float y = onMain ? (float)Luma(&upscaled[p]) : upscaled[p];
+									upscaled[p] = upscaled[p + 1] = upscaled[p + 2] = y;
 									upscaled[p + 3] = 1.0f;
 								}
 								const UpscaleMetrics m = Measure(upscaled, ref.rgba, ref.W, ref.H, deg.jpeg > 0 ? 8 * factor : 0);

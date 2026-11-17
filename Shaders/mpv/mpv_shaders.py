@@ -225,6 +225,12 @@ def glsl_for(p, params, textures):
     out.append("#define random (pl_misc.z)")
     out.append("#define frame (int(pl_misc.w))")
     for i, par in enumerate(params):
+        if par["type"].upper() == "DEFINE":
+            # libplacebo makes a //!TYPE DEFINE parameter a preprocessor constant, an
+            # integer, which the shader then tests in #if (AiUpscale's SHARP): a uniform
+            # there stops the preprocessor and the pass loses its main().
+            out.append("#define {} {}".format(par["name"], int(par["value"])))
+            continue
         cast = "int" if par["type"].startswith("int") else ("uint" if par["type"].startswith("uint") else "float")
         out.append("#define {} ({}(pl_params[{}].x))".format(par["name"], cast, i))
 

@@ -504,7 +504,9 @@ int CMpvShader::Run(ID3D11Device* dev, ID3D11DeviceContext* ctx, const char* pla
 			ctx->OMSetRenderTargets(1, &noRtv, nullptr);
 		}
 
-		if (p.save != "-") {
+		// Saved under the hooked plane's own name, as Anime4K's last pass does
+		// (//!SAVE MAIN), the result replaces the plane, as libplacebo has it.
+		if (p.save != "-" && p.save != plane) {
 			saved[p.save] = p.out;
 		} else {
 			planes[plane] = p.out;
