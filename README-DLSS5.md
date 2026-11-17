@@ -823,6 +823,26 @@ out to +5 s with 18 frames late. The option that used to ask for it, *Use the "U
 method to reduce the frame to 50%*, is gone with it: **the Downscaling method now reduces at
 every ratio**, which is the one thing it can be relied on to say.
 
+Three more of mpv's networks were measured and are **not** offered (`dlssnr_harness --tupscale
+--mpvextra <dir>`: luma PSNR, mean of eleven film frames reduced by two, degraded, enlarged
+back; GPU times are the harness's at the reference size on an RTX 4060):
+
+| | clean | grain | compressed | time |
+|---|---|---|---|---|
+| FSRCNNX 16 AR | **50.49** | 42.35 | 42.45 | 6.0 ms |
+| RAVU-zoom | 49.91 | 42.28 | 42.49 | 1.6 ms |
+| ArtCNN C4F16 DS, with anti-ringing | 47.89 | **45.09** | **42.96** | 4.9 ms |
+| AiUpscale Fast 2x Photo, with anti-ringing | 50.16 | 40.79 | 41.98 | 4.1 ms |
+| Anime4K CNN x2 M, with anti-ringing | 48.64 | 43.07 | 42.58 | 1.1 ms |
+
+**AiUpscale** comes close to FSRCNNX on a clean picture and falls behind wherever there is
+grain or compression. **Anime4K**, made for animation and run here on the luma given as grey
+(it reads RGB), is below FSRCNNX and RAVU-zoom on a clean picture and between them and ArtCNN
+on grain and compression, for a fifth of FSRCNNX's time; reduced by three it keeps the same
+order (44.99 clean, 41.19 grain, 40.00 compressed, against FSRCNNX 16 AR's 46.14, 40.70 and 39.85).
+Neither beats the entry that ranks first on any kind of picture. **CuNNy 2x12 DS** could not
+be measured: the harness's runner gives a flat picture for it, and why has not been found.
+
 ### Spline36, and what a downscaler is for
 
 The **Downscaling** list reduces whenever the shaders do the resizing, at every ratio. It
