@@ -281,6 +281,7 @@ private:
 
 	bool m_bVPReplaceChroma = false;    // the setting
 	bool m_bChromaReplacedVP = false;   // and the shaders rebuild this source's chroma
+	bool m_bChromaPassFailed = false;   // asked to and could not: the pass did not compile
 	DXGI_FORMAT m_VPInputFmt = DXGI_FORMAT_UNKNOWN;   // what the processor reads: the source, or packed 4:4:4
 	CComPtr<ID3D11ComputeShader> m_pCSConvertTo444;   // what writes that 4:4:4 picture
 

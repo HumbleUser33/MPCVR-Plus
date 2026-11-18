@@ -2536,6 +2536,8 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 	// Where the user asked for it, the shaders rebuild the chroma and the processor
 	// still takes the picture, in 4:4:4. Read here, so that it means "the option
 	// applies to this picture" and not "the processor was not going to take it".
+	// Whether its pass compiles is known only once the processor is set up.
+	m_bChromaPassFailed = false;
 	m_bChromaReplacedVP = !disableD3D11VP && ChromaToShaders(FmtParams, m_bInterlaced && m_bInterlacedSeen);
 	// The artifact removal for a processor keeping its own chroma: the planes are cleaned
 	// out of the decoder's texture and written back into the processor's own, which is
@@ -2809,8 +2811,17 @@ HRESULT CDX11VideoProcessor::InitializeD3D11VP(const FmtConvParams_t& params, co
 	if (m_bChromaReplacedVP) {
 		hr = UpdateConvertTo444Shader();
 		if (FAILED(hr)) {
-			DLog(L"CDX11VideoProcessor::InitializeD3D11VP() : UpdateConvertTo444Shader() failed with error {}", HR2Str(hr));
-			return hr;
+			// A pass that does not compile must not cost the picture its processor. It
+			// did: the shaders took the whole conversion, which cannot do RTX Video HDR,
+			// into the swap chain made HDR10 for it above, and an SDR picture went out
+			// read as PQ BT.2020 -- far too bright, far too vivid (chroma sited top-left
+			// under Jinc, 3.0). The processor is set up again on the decoder's planes and
+			// rebuilds the chroma itself, as it does with the option off.
+			DLog(L"CDX11VideoProcessor::InitializeD3D11VP() : UpdateConvertTo444Shader() failed with error {}, the processor keeps its chroma", HR2Str(hr));
+			m_bChromaPassFailed = true;
+			m_bChromaReplacedVP = false;
+			m_bCleanVP = CleanVPWanted(params);
+			return InitializeD3D11VP(params, width, height, pmt);
 		}
 	}
 
@@ -5570,6 +5581,11 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		m_bMpvChromaFailed = false;
 		changeConvertShader = (m_PSConvColorData.bEnable || m_bChromaReplacedVP)
 			&& (m_srcParams.Subsampling == 420 || m_srcParams.Subsampling == 422);
+		// A method whose 4:4:4 pass did not compile left the chroma to the processor;
+		// another one may compile, and only InitMediaType hands the chroma over again.
+		if (m_bChromaPassFailed) {
+			changeVP = true;
+		}
 	}
 
 	if (config.iHdrOsdBrightness != m_iHdrOsdBrightness) {
@@ -5781,7 +5797,13 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 
 	if (changeConvertShader) {
 		if (m_bChromaReplacedVP) {
-			UpdateConvertTo444Shader();   // the chroma the video processor no longer does
+			// The chroma the video processor no longer does. A pass that does not compile
+			// leaves nothing to write the processor's picture, which would then show
+			// whatever its texture held: the processor is set up again and does the
+			// chroma itself (InitializeD3D11VP).
+			if (FAILED(UpdateConvertTo444Shader())) {
+				InitMediaType(&m_pFilter->m_inputMT);
+			}
 		} else {
 			UpdateConvertColorShader();
 		}

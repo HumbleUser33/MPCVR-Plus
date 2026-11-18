@@ -276,7 +276,13 @@ static void AppendJincChroma420(const UINT chromaSubsampling, const EwaKernel* p
 					const double d = std::sqrt(dx * dx + dy * dy);
 					const double weight = weightAt(d);
 					w[j + kReach][i + kReach] = weight;
-					arWeights[px + 2 * py][j + kReach][i + kReach] = d <= arRadius ? std::max(weight, 0.0) : 0.0;
+					// Only a kernel that has the anti-ringing reads texels for it. Without
+					// one the radius is 0, and chroma sited top-left puts a texel exactly
+					// on a pixel, at a distance of 0: that one texel had the code below
+					// read ewa_ar, which only an anti-ringing kernel declares, and the pass
+					// did not compile -- for Jinc, EWA Lanczos Sharp and EWA Ginseng on
+					// every source sited so, which UHD and HDR10 ones are.
+					arWeights[px + 2 * py][j + kReach][i + kReach] = (arRadius > 0.0 && d <= arRadius) ? std::max(weight, 0.0) : 0.0;
 					total += weight;
 				}
 			}
