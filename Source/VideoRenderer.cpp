@@ -205,7 +205,7 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 		sets.iLogoMargin = discard<int>(dw, LOGO_MARGIN_DEF, LOGO_MARGIN_MIN, LOGO_MARGIN_MAX);
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_ChromaUpsampling, dw)) {
-		sets.iChromaScaling = discard<int>(dw, CHROMA_CatmullRom, 0, CHROMA_COUNT-1);
+		sets.iChromaScaling = discard<int>(dw, CHROMA_EwaLanczosSharp, 0, CHROMA_COUNT-1);
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_Upscaling, dw)) {
 		sets.iUpscaling = discard<int>(dw, UPSCALE_Jinc2, 0, UPSCALE_COUNT-1);

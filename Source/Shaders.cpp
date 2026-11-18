@@ -132,10 +132,11 @@ static double JincWindowed(const double d)
 	return jinc(d) * jinc(d * kFirstZero / kRadius);
 }
 
-// A test hook, not a setting: MPCVR_CHROMA_EWA=<name> in the player's environment has the
-// Jinc (EWA) entry use another of libplacebo's polar kernels, as its filters.c defines them
-// at 29a56f92 (the commit FrankyRenderer takes), so that playback_test --chroma --ewa can
-// measure them through the filter. Unset or unknown, the entry is the Jinc above, as shipped.
+// libplacebo's polar kernels, as its filters.c defines them at 29a56f92 (the commit
+// FrankyRenderer takes). Three are entries of the list (ChromaListKernel); the others are
+// there for a test hook, not a setting: MPCVR_CHROMA_EWA=<name> in the player's environment
+// has any of the polar entries use that kernel instead, so that playback_test --chroma --ewa
+// can measure them through the filter. Unset or unknown, each entry is its own kernel.
 struct EwaKernel {
 	const wchar_t* name;
 	double radius;     // before the blur
@@ -156,6 +157,24 @@ static const EwaKernel kEwaKernels[] = {
 	{ L"ewa_robidoux",         2.0, 0.0, true, 0, 12 / (19 + 9 * std::numbers::sqrt2), 113 / (58 + 216 * std::numbers::sqrt2), 0.0 },
 	{ L"ewa_robidouxsharp",    2.0, 0.0, true, 0, 6 / (13 + 7 * std::numbers::sqrt2), 7 / (2 + 12 * std::numbers::sqrt2), 0.0 },
 };
+
+// The kernel of a polar entry of the list; nullptr for the Jinc, which keeps its own
+// JincWindowed (its constants are the ones it has always had).
+static const EwaKernel* ChromaListKernel(const int chromaScaling)
+{
+	switch (chromaScaling) {
+	case CHROMA_EwaLanczosSharp:     return &kEwaKernels[1];
+	case CHROMA_EwaLanczos4Sharpest: return &kEwaKernels[2];
+	case CHROMA_EwaGinseng:          return &kEwaKernels[4];
+	}
+	return nullptr;
+}
+
+static bool IsPolarChroma(const int chromaScaling)
+{
+	return chromaScaling == CHROMA_Jinc || chromaScaling == CHROMA_EwaLanczosSharp
+		|| chromaScaling == CHROMA_EwaLanczos4Sharpest || chromaScaling == CHROMA_EwaGinseng;
+}
 
 static const EwaKernel* ChromaEwaKernel()
 {
@@ -221,15 +240,16 @@ static double EwaWeight(const EwaKernel& k, const double d)
 // and 0.36 ms now (RenderDoc). A weight a parity does not use is a zero there, and the
 // sums run in the same order as before; the GPU's compiler still arranges them its own
 // way, and the 8-bit picture differs in 15 of its 8.3 million values, by one level.
-static void AppendJincChroma420(const UINT chromaSubsampling, const char* sample, const char* target,
-	std::string& code)
+static void AppendJincChroma420(const UINT chromaSubsampling, const EwaKernel* pKernel, const char* sample,
+	const char* target, std::string& code)
 {
 	// Where the chroma sample sits, in chroma texels, from the centred position.
 	const double sx = (chromaSubsampling == DXVA2_VideoChromaSubsampling_MPEG1) ? 0.0 : 0.25;
 	const double sy = (chromaSubsampling == DXVA2_VideoChromaSubsampling_Cosited) ? 0.25 : 0.0;
 	constexpr int kReach = 4;
 	constexpr int kSide = 2 * kReach + 1;
-	const EwaKernel* pEwa = ChromaEwaKernel();
+	const EwaKernel* pHook = ChromaEwaKernel();
+	const EwaKernel* pEwa = pHook ? pHook : pKernel;
 	const auto weightAt = [pEwa](const double d) { return pEwa ? EwaWeight(*pEwa, d) : JincWindowed(d); };
 	// libplacebo's anti-ringing for a polar kernel reads the texels nearer than the kernel's
 	// first zero.
@@ -357,10 +377,12 @@ void ShaderGetPixels(
 	// t1 and t2, sited on the luma pixels. The pixel shader then only reads them.
 	const bool chromaPrescaled = bDX11 && chromaScaling == CHROMA_RAVU && fmtParams.Subsampling == 420 && planes >= 2;
 
-	// Jinc is written for 4:2:0 in planes, under Direct3D 11. Catmull-Rom stands in
-	// for it anywhere else, and for a prescaler the renderer could not start.
-	const bool bJinc = bDX11 && chromaScaling == CHROMA_Jinc && fmtParams.Subsampling == 420 && planes >= 2;
-	if (!bJinc && (chromaScaling == CHROMA_Jinc || chromaScaling == CHROMA_FSRCNNX8AR)) {
+	// The polar kernels (Jinc and libplacebo's) are written for 4:2:0 in planes, under
+	// Direct3D 11. Catmull-Rom stands in for them anywhere else, and for a prescaler the
+	// renderer could not start.
+	const bool bJinc = bDX11 && IsPolarChroma(chromaScaling) && fmtParams.Subsampling == 420 && planes >= 2;
+	const EwaKernel* pChromaKernel = bJinc ? ChromaListKernel(chromaScaling) : nullptr;
+	if (!bJinc && (IsPolarChroma(chromaScaling) || chromaScaling == CHROMA_FSRCNNX8AR)) {
 		chromaScaling = CHROMA_CatmullRom;
 	}
 
@@ -525,7 +547,7 @@ void ShaderGetPixels(
 				code.append(code_Bicubic_UV);
 			}
 			else if (bJinc) {
-				AppendJincChroma420(chromaSubsampling, "texUV.Sample(samp, input.Tex, int2({}, {})).rg", "colorUV", code);
+				AppendJincChroma420(chromaSubsampling, pChromaKernel, "texUV.Sample(samp, input.Tex, int2({}, {})).rg", "colorUV", code);
 			}
 			else if (chromaScaling == CHROMA_CatmullRom && fmtParams.Subsampling == 422) {
 				code.append(
@@ -576,7 +598,7 @@ void ShaderGetPixels(
 				code.append(code_Bicubic_UV);
 			}
 			else if (bJinc) {
-				AppendJincChroma420(chromaSubsampling,
+				AppendJincChroma420(chromaSubsampling, pChromaKernel,
 					"float2(texU.Sample(samp, input.Tex, int2({0}, {1})).r, texV.Sample(samp, input.Tex, int2({0}, {1})).r)",
 					"colorUV", code);
 			}

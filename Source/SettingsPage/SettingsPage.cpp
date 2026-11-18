@@ -221,8 +221,12 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		L"Rebuilds the colour (chroma) from 4:2:0 and 4:2:2 video to full resolution.\n"
 		"Used when the shaders convert the picture: formats unticked in Source, Dolby Vision, or "
 		"with the replacement below. Greyed while the video processor converts every format.\n"
-		"Listed from best to simplest. RAVU-zoom and FSRCNNX 8 AR need Direct3D 11 and 4:2:0 "
-		"video; Catmull-Rom is used otherwise." },
+		"Listed from best to simplest, as they measured on film along the edges, where colour "
+		"bleeds. EWA Lanczos Sharp, the default, EWA Ginseng and Jinc are within a few hundredths "
+		"of a decibel of one another; EWA Lanczos4 Sharpest keeps more colour overall and less at "
+		"the edges; RAVU-zoom is the one for drawn lines.\n"
+		"All but Catmull-Rom, Bilinear and Nearest-neighbor need Direct3D 11 and 4:2:0 video; "
+		"Catmull-Rom is used otherwise." },
 	{ IDC_CHECK27,
 		L"The shaders rebuild the colour with the method above, then hand the video processor a "
 		"full-resolution (4:4:4) picture, which it goes on converting and resizing. Better colour "
@@ -728,8 +732,11 @@ void CVRSettingsPPage::FillCombos()
 	// brought from 1080p to 4K (tools/dlssnr_probe, --tchroma and --tupscale, the
 	// tables in README-DLSS5.md). The number each entry carries is what is saved, so
 	// the order can change without moving anybody's setting.
+	Combo_AddData(Item(IDC_COMBO5), L"EWA Lanczos Sharp",  CHROMA_EwaLanczosSharp);
+	Combo_AddData(Item(IDC_COMBO5), L"EWA Ginseng",        CHROMA_EwaGinseng);
 	Combo_AddData(Item(IDC_COMBO5), L"Jinc (EWA)",         CHROMA_Jinc);
 	Combo_AddData(Item(IDC_COMBO5), L"RAVU-zoom",          CHROMA_RAVU);
+	Combo_AddData(Item(IDC_COMBO5), L"EWA Lanczos4 Sharpest", CHROMA_EwaLanczos4Sharpest);
 	Combo_AddData(Item(IDC_COMBO5), L"Catmull-Rom",        CHROMA_CatmullRom);
 	Combo_AddData(Item(IDC_COMBO5), L"FSRCNNX 8 AR",       CHROMA_FSRCNNX8AR);
 	Combo_AddData(Item(IDC_COMBO5), L"Bilinear",           CHROMA_Bilinear);

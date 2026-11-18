@@ -7,7 +7,7 @@ rendering is bit-identical to upstream.
 | | |
 |---|---|
 | **Scaling** | seven upscalers chosen by measurement — ArtCNN C4F16 DS, Anime4K CNN x2 M, FSRCNNX 8/16, RAVU-zoom and the anti-ringing versions — with both lists ordered best first |
-| **Chroma** | three more methods, and a 4:4:4 pre-pass that hands the hardware video processor a full picture: +7 dB of colour on 10-bit film |
+| **Chroma** | six more methods, libplacebo's EWA Lanczos Sharp the default, and a 4:4:4 pre-pass that hands the hardware video processor a full picture: +7 dB of colour on 10-bit film |
 | **Detail** | deblocking (PP7, or SPP for a powerful GPU) and debanding on the decoded planes, and sharpening after the resize, each with five calibrated levels; a TV channel's logo found and hidden |
 | **DLSS 5 NR** | NVIDIA neural reconstruction (NGX feature 18) with a temporal stabilizer made for video |
 | **DLSS SR** | DLSS Super Resolution 4.5 for enlarging, and DLAA at native size (experimental) |
@@ -1056,8 +1056,16 @@ Sharpest** keeps more colour over the whole picture and on drawn lines, and give
 along the edges; on drawn lines RAVU-zoom, in the list already, is above it, +1.78 dB in the
 same run (FSRCNNX 8 AR +0.54, so the September table's line-art column, from another setup,
 does not carry over). The others are below the Jinc, and the unwindowed jinc below
-everything. An 800x450 crop of the same frames ranks them in the same order. Jinc (EWA) stays
-as it is.
+everything. An 800x450 crop of the same frames ranks them in the same order.
+
+Since 3.0 three of them are in the **Chroma upsampling** list beside the Jinc, measured the same
+through the list as through the hook: **EWA Lanczos Sharp**, the default for a fresh
+installation, **EWA Ginseng** and **EWA Lanczos4 Sharpest**, in that order with the Jinc between
+Ginseng and RAVU-zoom and Lanczos4 Sharpest after RAVU-zoom. Like the Jinc they need Direct3D 11
+and 4:2:0 in planes, Catmull-Rom standing in elsewhere. What they cost in the conversion shader,
+a 1920x1080 picture on the RTX 4060: Catmull-Rom 0.2 ms, the Jinc, EWA Lanczos Sharp and EWA
+Ginseng 0.4 ms, EWA Lanczos4 Sharpest 0.5 ms, against RAVU-zoom's 1.2 ms and FSRCNNX 8 AR's 1.4
+ms in passes of their own.
 
 **Enlarged from 1080p to 4K**, as a 1080p film is on a 4K screen, the order holds
 (`playback_test --chroma <png> --size 1920x800 --upscale --ewa`). Each frame is reduced from its
@@ -1090,8 +1098,8 @@ drawn lines, as at 1:1; against the 4K original it loses less on the whole colou
 against the 4:4:4 picture (−0.53), its constant shift of a tenth of a level counting for less
 there. Lanczos4 Sharpest keeps the most colour overall and loses at the edges, as at 1:1.
 
-The **defaults are unchanged**: Upscaling is Jinc2m and Chroma upsampling Catmull-Rom for a
-fresh installation, and settings already saved in the registry are left alone — each entry
+The **defaults**: Upscaling is Jinc2m for a fresh installation, and Chroma upsampling EWA
+Lanczos Sharp since 3.0 (Catmull-Rom before), and settings already saved in the registry are left alone — each entry
 carries its own number, so reordering the lists moved nobody's setting.
 
 The statistics show what they cost on the step they serve, a luma prescaler on *Scaling* with
@@ -2717,7 +2725,7 @@ presets.
 
 | Setting | Default | What it does |
 |---|---|---|
-| Chroma upsampling: Method | Catmull-Rom | Rebuilds the colour of 4:2:0 and 4:2:2 video at full resolution when the shaders convert the picture, or for the replacement below; greyed while the video processor converts every format. Ordered best first, as they measured (see *Upscaling* above), and each entry keeps its own number, so a setting already saved still means what it did. Jinc (EWA) is the best of them on film and stays inside the conversion shader; RAVU-zoom and FSRCNNX 8 AR put Cb and Cr through an mpv prescaler, FSRCNNX being the one for drawn lines. Those two need Direct3D 11 and 4:2:0 in planes; Catmull-Rom stands in elsewhere |
+| Chroma upsampling: Method | EWA Lanczos Sharp | Rebuilds the colour of 4:2:0 and 4:2:2 video at full resolution when the shaders convert the picture, or for the replacement below; greyed while the video processor converts every format. Ordered best first, as they measured on film along the luma's edges (see *libplacebo's other polar kernels*), and each entry keeps its own number, so a setting already saved still means what it did. EWA Lanczos Sharp, EWA Ginseng and Jinc (EWA) are within a few hundredths of a decibel of one another and stay inside the conversion shader, as does EWA Lanczos4 Sharpest, which keeps more colour overall and less along edges; RAVU-zoom and FSRCNNX 8 AR put Cb and Cr through an mpv prescaler, RAVU-zoom being the one for drawn lines. All but Catmull-Rom, Bilinear and Nearest-neighbor need Direct3D 11 and 4:2:0 in planes; Catmull-Rom stands in elsewhere. Catmull-Rom was the default before 3.0 |
 | Use this method instead of the video processor's chroma upsampling | off | The chroma replacement (see *Who resizes while DLSS runs*). The shaders rebuild the chroma of a progressive 4:2:0 or 4:2:2 picture with the method above and hand the video processor a 4:4:4 one, so the processor stays in the chain and RTX Video HDR goes on working. Interlaced pictures keep the processor's chroma; a stream only marked as one that may be interlaced keeps this until a picture really is. It costs RTX Video Super Resolution, which the driver does not apply to a 4:4:4 picture: *Video Super Resolution* greys while this is ticked, and the statistics say `D3D11 (No Super Resolution when chroma by shaders)`. Needs Direct3D 11 |
 
 ### Scaling

@@ -345,6 +345,8 @@ HRESULT CVRMainPPage::OnActivate()
 	// brought from 1080p to 4K (tools/dlssnr_probe, --tchroma and --tupscale, the
 	// tables in README-DLSS5.md). The number each entry carries is what is saved, so
 	// the order can change without moving anybody's setting.
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO5, L"EWA Lanczos Sharp",  CHROMA_EwaLanczosSharp);
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO5, L"EWA Ginseng",        CHROMA_EwaGinseng);
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO5, L"Jinc (EWA)",         CHROMA_Jinc);
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO5, L"RAVU-zoom",          CHROMA_RAVU);
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO5, L"Catmull-Rom",        CHROMA_CatmullRom);

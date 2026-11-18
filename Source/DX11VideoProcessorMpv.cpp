@@ -423,6 +423,9 @@ const wchar_t* CDX11VideoProcessor::ChromaScalingName() const
 	case CHROMA_Bilinear:   return L"Bilinear";
 	case CHROMA_CatmullRom: return L"Catmull-Rom";
 	case CHROMA_Jinc:       return L"Jinc (EWA)";
+	case CHROMA_EwaLanczosSharp:     return L"EWA Lanczos Sharp";
+	case CHROMA_EwaLanczos4Sharpest: return L"EWA Lanczos4 Sharpest";
+	case CHROMA_EwaGinseng:          return L"EWA Ginseng";
 	case CHROMA_RAVU:       return m_bMpvChromaActive ? L"RAVU-zoom" : L"Catmull-Rom";
 	case CHROMA_FSRCNNX8AR: return m_bMpvChromaActive ? L"FSRCNNX 8 AR" : L"Catmull-Rom";
 	}

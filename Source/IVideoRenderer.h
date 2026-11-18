@@ -53,6 +53,11 @@ enum :int {
 	// the property page shows them in is the measured one, not this one.
 	CHROMA_Jinc,       // ewa jinc, radius 3.2383, jinc-windowed: what madVR calls Jinc
 	CHROMA_FSRCNNX8AR, // FSRCNNX 8 on Cb and Cr with anti-ringing; Catmull-Rom elsewhere
+	// Three of libplacebo's polar kernels beside the Jinc, as its filters.c defines them and as
+	// they measured through the filter: Direct3D 11 and 4:2:0 in planes, Catmull-Rom elsewhere.
+	CHROMA_EwaLanczosSharp,     // ewa_lanczossharp: the Jinc blurred by 0.981 (the default)
+	CHROMA_EwaLanczos4Sharpest, // ewa_lanczos4sharpest: four lobes, blurred by 0.885, anti-ringing 0.8
+	CHROMA_EwaGinseng,          // ewa_ginseng: jinc windowed by a sinc
 	CHROMA_COUNT
 };
 
@@ -407,7 +412,7 @@ struct Settings_t {
 		bVPReplaceChroma                = false;
 		iSharpen                        = SHARPEN_Disabled;
 		iSharpenLevel                   = SHARPEN_LEVEL_DEF;
-		iChromaScaling                  = CHROMA_CatmullRom;
+		iChromaScaling                  = CHROMA_EwaLanczosSharp;
 		iUpscaling                      = UPSCALE_Jinc2;
 		iDownscaling                    = DOWNSCALE_Hamming;
 		bInterpolateAt50pct             = true;

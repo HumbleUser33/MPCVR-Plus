@@ -108,6 +108,7 @@ static const Toggle g_toggles[] = {
 	{ "Deblocking and debanding off",           [](Settings_t& s) { s.iDeblock = DEBLOCK_Off; s.bDeband = false; } },
 	{ "Chroma upsampling to RAVU-zoom",         [](Settings_t& s) { s.iChromaScaling = CHROMA_RAVU; } },
 	{ "Chroma upsampling to Jinc (EWA)",        [](Settings_t& s) { s.iChromaScaling = CHROMA_Jinc; } },
+	{ "Chroma upsampling to EWA Lanczos Sharp", [](Settings_t& s) { s.iChromaScaling = CHROMA_EwaLanczosSharp; } },
 	{ "Chroma upsampling to FSRCNNX 8 AR",      [](Settings_t& s) { s.iChromaScaling = CHROMA_FSRCNNX8AR; } },
 	{ "Replace VP chroma upsampling off",       [](Settings_t& s) { s.bVPReplaceChroma = false; } },
 	{ "Upscaling to ArtCNN C4F16 DS",           [](Settings_t& s) { s.iUpscaling = UPSCALE_ArtCNN; } },
