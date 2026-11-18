@@ -28,6 +28,9 @@
 //   playback_test.exe --mainpage N    shows the filter's settings page for N seconds
 //                                     --section K picks which of its sections to show
 //   playback_test.exe --chroma10 <png>  --chroma in ten bits: P010 against a Y410 reference
+//   playback_test.exe --chroma <png> --ewa   libplacebo's polar kernels on the chroma instead of the
+//                                     list's methods, each through the Jinc (EWA) entry
+//                                     (the filter's test hook MPCVR_CHROMA_EWA)
 //   playback_test.exe --chroma <png> --interlaced   the media type says interlaced, to see
 //   playback_test.exe --toggle          settings changed in full playback, as the player does
 //   playback_test.exe --delay N [--delayto M]   the Video delay setting, and moved while it plays;
@@ -101,6 +104,7 @@ static bool g_bHardwareVP = false; // --vp: leave the video processor the format
 // --chroma: one still picture fed as 4:2:0 and as 4:4:4, at 1:1, to see what each
 // chroma upsampler rebuilds -- the hardware video processor included.
 static bool g_bChroma = false;
+static bool g_bEwa = false;       // --ewa: with --chroma, libplacebo's polar kernels
 static bool g_bChroma444 = false;      // this run feeds AYUV, the reference
 // --clean: the same machinery, the 4:2:0 picture's planes coded as MPEG-2 intra blocks at
 // this quantiser_scale_code first, and each run asking for its own artifact removal.
@@ -947,6 +951,7 @@ struct Config {
 	int iSharpen = -1;              // --sharpencal: SHARPEN_*, -1 the saved setting
 	float fSharpenStrength = 0;     // and the strength it is given instead of its level's, 0: none
 	int iSharpenLevel = SHARPEN_LEVEL_DEF;  // the level, when no strength replaces it
+	const wchar_t* ewa = nullptr;   // --ewa: the polar kernel the Jinc entry takes (MPCVR_CHROMA_EWA)
 };
 
 struct Result {
@@ -1402,6 +1407,8 @@ static StillDifference CompareStills(const std::vector<BYTE>& picture, const std
 
 static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE source, SIZE window, int seconds)
 {
+	// Read by the filter as it writes its conversion shader, so before there is a renderer.
+	SetEnvironmentVariableW(L"MPCVR_CHROMA_EWA", config.ewa);
 	Result result;
 	HRESULT hr = S_OK;
 
@@ -2880,6 +2887,9 @@ int wmain(int argc, wchar_t* argv[])
 		}
 	}
 	for (int i = 1; i < argc; i++) {
+		if (!wcscmp(argv[i], L"--ewa")) {
+			g_bEwa = true;
+		}
 		if (!wcscmp(argv[i], L"--scalers")) {
 			g_bScalers = true;
 			source.cx &= ~1; // NV12
@@ -3059,6 +3069,22 @@ int wmain(int argc, wchar_t* argv[])
 		{ "4:2:0, hardware VP, HDR out, RTX Video HDR ON",  false, false, true, -1, -1, true, false, false, true, 1 },
 		{ "4:2:0, VP + 4:4:4 pre-pass, HDR out, RTX Video HDR ON", false, false, true, -1, CHROMA_CatmullRom, true, false, true, true, 1 },
 	};
+	// --ewa: the Jinc (EWA) entry with each of libplacebo's polar kernels (filters.c at
+	// 29a56f92), against the 4:4:4 picture as --chroma has it. The first two are the list's,
+	// for scale; "ewa_lanczos" is the shipped Jinc with libplacebo's exact constants.
+	static const Config ewaConfigs[] = {
+		{ "4:4:4 (AYUV), nothing to upsample", false, false, true, -1, -1,          false, true },
+		{ "Catmull-Rom",                       false, false, true, -1, CHROMA_CatmullRom        },
+		{ "Jinc (EWA), as shipped",            false, false, true, -1, CHROMA_Jinc              },
+		{ .name = "ewa_lanczos",          .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_lanczos"          },
+		{ .name = "ewa_lanczossharp",     .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_lanczossharp"     },
+		{ .name = "ewa_lanczos4sharpest", .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_lanczos4sharpest" },
+		{ .name = "ewa_jinc",             .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_jinc"             },
+		{ .name = "ewa_ginseng",          .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_ginseng"          },
+		{ .name = "ewa_hann",             .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_hann"             },
+		{ .name = "ewa_robidoux",         .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_robidoux"         },
+		{ .name = "ewa_robidouxsharp",    .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_robidouxsharp"    },
+	};
 	// --clean: the same reference, and the picture coded as MPEG-2 intra blocks through
 	// each path that converts it, without the artifact removal and with it. The cleaning
 	// works on the planes before any of them, so each path has to gain alike; and with
@@ -3142,9 +3168,9 @@ int wmain(int argc, wchar_t* argv[])
 		}
 	}
 	const Config* configs = g_bSharpenCal ? calConfigs.data() : g_bLogo ? logoConfigs : g_bAfterNR ? afterNRConfigs : g_bVPTurns ? vpTurnConfigs : g_bClean ? cleanConfigs
-		: g_bChroma ? chromaConfigs : g_bScalers ? scalerConfigs : dlssConfigs;
+		: g_bChroma ? (g_bEwa ? ewaConfigs : chromaConfigs) : g_bScalers ? scalerConfigs : dlssConfigs;
 	const int configCount = (int)(g_bSharpenCal ? calConfigs.size() : g_bLogo ? std::size(logoConfigs) : g_bAfterNR ? std::size(afterNRConfigs) : g_bVPTurns ? std::size(vpTurnConfigs)
-		: g_bClean ? std::size(cleanConfigs) : g_bChroma ? std::size(chromaConfigs)
+		: g_bClean ? std::size(cleanConfigs) : g_bChroma ? (g_bEwa ? std::size(ewaConfigs) : std::size(chromaConfigs))
 		: g_bScalers ? std::size(scalerConfigs) : std::size(dlssConfigs));
 
 	printf("Film %ldx%ld at %.3f fps in a %ldx%ld window, %d s per configuration after 5 s to settle.\n",

@@ -132,6 +132,82 @@ static double JincWindowed(const double d)
 	return jinc(d) * jinc(d * kFirstZero / kRadius);
 }
 
+// A test hook, not a setting: MPCVR_CHROMA_EWA=<name> in the player's environment has the
+// Jinc (EWA) entry use another of libplacebo's polar kernels, as its filters.c defines them
+// at 29a56f92 (the commit FrankyRenderer takes), so that playback_test --chroma --ewa can
+// measure them through the filter. Unset or unknown, the entry is the Jinc above, as shipped.
+struct EwaKernel {
+	const wchar_t* name;
+	double radius;     // before the blur
+	double blur;       // 0: none
+	bool bCubic;       // the kernel: a cubic of b and c, else jinc
+	int window;        // 0 none, 1 jinc, 2 sinc, 3 hann
+	double b, c;
+	double antiring;   // 0: none
+};
+
+static const EwaKernel kEwaKernels[] = {
+	{ L"ewa_lanczos",          3.2383154841662362, 0.0,                       false, 1, 0, 0, 0.0 },
+	{ L"ewa_lanczossharp",     3.2383154841662362, 0.98125058372237073562493, false, 1, 0, 0, 0.0 },
+	{ L"ewa_lanczos4sharpest", 4.2410628637960698, 0.88451209326050047745788, false, 1, 0, 0, 0.8 },
+	{ L"ewa_jinc",             3.2383154841662362, 0.0,                       false, 0, 0, 0, 0.0 },
+	{ L"ewa_ginseng",          3.2383154841662362, 0.0,                       false, 2, 0, 0, 0.0 },
+	{ L"ewa_hann",             3.2383154841662362, 0.0,                       false, 3, 0, 0, 0.0 },
+	{ L"ewa_robidoux",         2.0, 0.0, true, 0, 12 / (19 + 9 * std::numbers::sqrt2), 113 / (58 + 216 * std::numbers::sqrt2), 0.0 },
+	{ L"ewa_robidouxsharp",    2.0, 0.0, true, 0, 6 / (13 + 7 * std::numbers::sqrt2), 7 / (2 + 12 * std::numbers::sqrt2), 0.0 },
+};
+
+static const EwaKernel* ChromaEwaKernel()
+{
+	wchar_t name[64] = {};
+	if (!GetEnvironmentVariableW(L"MPCVR_CHROMA_EWA", name, (DWORD)std::size(name))) {
+		return nullptr;
+	}
+	for (const auto& k : kEwaKernels) {
+		if (!_wcsicmp(k.name, name)) {
+			return &k;
+		}
+	}
+	return nullptr;
+}
+
+// libplacebo's pl_filter_sample: the kernel at d / blur, its window stretched over the
+// radius the blur leaves.
+static double EwaWeight(const EwaKernel& k, const double d)
+{
+	const double bound = k.blur > 0.0 ? k.radius * k.blur : k.radius;
+	if (d > bound) {
+		return 0.0;
+	}
+	const double x = k.blur > 0.0 ? d / k.blur : d;
+	const auto jinc = [](const double v) {
+		if (v < 1e-8) {
+			return 1.0;
+		}
+		const double t = std::numbers::pi * v;
+		return 2.0 * std::cyl_bessel_j(1.0, t) / t;
+	};
+	double w;
+	if (k.bCubic) {
+		const double b = k.b, c = k.c;
+		const double p0 = 6 - 2 * b, p2 = -18 + 12 * b + 6 * c, p3 = 12 - 9 * b - 6 * c;
+		const double q0 = 8 * b + 24 * c, q1 = -12 * b - 48 * c, q2 = 6 * b + 30 * c, q3 = -b - 6 * c;
+		w = x < 1.0 ? (p0 + x * x * (p2 + x * p3)) / p0 : (q0 + x * (q1 + x * (q2 + x * q3))) / p0;
+	} else {
+		w = jinc(x);
+	}
+	switch (k.window) {
+	case 1: w *= jinc(d / bound * 1.2196698912665045); break;
+	case 2: {
+		const double t = std::numbers::pi * (d / bound);
+		w *= t < 1e-8 ? 1.0 : std::sin(t) / t;
+		break;
+	}
+	case 3: w *= 0.5 + 0.5 * std::cos(std::numbers::pi * (d / bound)); break;
+	}
+	return w;
+}
+
 // The same kernel on 4:2:0 chroma, written out. Chroma sits at a fixed place among
 // the luma pixels, so a pixel's position inside its chroma texel depends only on the
 // parity of its coordinates: four sets of weights, known here once and for all, and
@@ -153,9 +229,22 @@ static void AppendJincChroma420(const UINT chromaSubsampling, const char* sample
 	const double sy = (chromaSubsampling == DXVA2_VideoChromaSubsampling_Cosited) ? 0.25 : 0.0;
 	constexpr int kReach = 4;
 	constexpr int kSide = 2 * kReach + 1;
+	const EwaKernel* pEwa = ChromaEwaKernel();
+	const auto weightAt = [pEwa](const double d) { return pEwa ? EwaWeight(*pEwa, d) : JincWindowed(d); };
+	// libplacebo's anti-ringing for a polar kernel reads the texels nearer than the kernel's
+	// first zero.
+	double arRadius = 0.0;
+	if (pEwa && pEwa->antiring > 0.0) {
+		for (double d = 0.0; d < 8.0 && arRadius == 0.0; d += 0.001) {
+			if (EwaWeight(*pEwa, d) <= 0.0) {
+				arRadius = d;
+			}
+		}
+	}
 
 	// [parity: x + 2y][row][column], normalized.
 	double weights[4][kSide][kSide] = {};
+	double arWeights[4][kSide][kSide] = {};
 	for (int py = 0; py < 2; py++) {
 		for (int px = 0; px < 2; px++) {
 			auto& w = weights[px + 2 * py];
@@ -164,8 +253,10 @@ static void AppendJincChroma420(const UINT chromaSubsampling, const char* sample
 				for (int i = -kReach; i <= kReach; i++) {
 					const double dx = i + 0.5 - (px + 0.5) / 2 - sx;
 					const double dy = j + 0.5 - (py + 0.5) / 2 - sy;
-					const double weight = JincWindowed(std::sqrt(dx * dx + dy * dy));
+					const double d = std::sqrt(dx * dx + dy * dy);
+					const double weight = weightAt(d);
 					w[j + kReach][i + kReach] = weight;
+					arWeights[px + 2 * py][j + kReach][i + kReach] = d <= arRadius ? std::max(weight, 0.0) : 0.0;
 					total += weight;
 				}
 			}
@@ -182,15 +273,37 @@ static void AppendJincChroma420(const UINT chromaSubsampling, const char* sample
 		"const float4 jinc_pick = float4(jinc_parity.x == 0u && jinc_parity.y == 0u, jinc_parity.x == 1u && jinc_parity.y == 0u,\n"
 		"                                jinc_parity.x == 0u && jinc_parity.y == 1u, jinc_parity.x == 1u && jinc_parity.y == 1u);\n");
 	code += std::format("{} = 0;\n", target);
+	const bool bAntiring = arRadius > 0.0;
+	if (bAntiring) {
+		code.append("float4 ewa_ar = 0, ewa_wwsum = 0;\n");
+	}
 	for (int j = -kReach; j <= kReach; j++) {
 		for (int i = -kReach; i <= kReach; i++) {
 			const double* w[4] = {};
-			bool bUsed = false;
+			const double* a[4] = {};
+			bool bUsed = false, bAr = false;
 			for (int p = 0; p < 4; p++) {
 				w[p] = &weights[p][j + kReach][i + kReach];
+				a[p] = &arWeights[p][j + kReach][i + kReach];
 				bUsed = bUsed || *w[p] != 0.0;
+				bAr = bAr || *a[p] != 0.0;
 			}
 			if (!bUsed) {
+				continue;
+			}
+			if (bAr) {
+				// libplacebo's soft minimum and maximum (sampling.c, polar): each texel weighed
+				// by its kernel weight and by (1 - c + 0.1)^32 for the low end, (c + 0.1)^32 the high.
+				code += "{\nconst float2 ewa_s = " + std::vformat(sample, std::make_format_args(i, j)) + ";\n";
+				code += std::format("{} += dot(float4({:.8f}, {:.8f}, {:.8f}, {:.8f}), jinc_pick) * ewa_s;\n",
+					target, *w[0], *w[1], *w[2], *w[3]);
+				code += std::format("const float ewa_a = dot(float4({:.8f}, {:.8f}, {:.8f}, {:.8f}), jinc_pick);\n",
+					*a[0], *a[1], *a[2], *a[3]);
+				code.append(
+					"const float4 ewa_cc = float4(1.0 - ewa_s.x, ewa_s.x, 1.0 - ewa_s.y, ewa_s.y);\n"
+					"float4 ewa_ww = ewa_cc + 0.10; ewa_ww *= ewa_ww; ewa_ww *= ewa_ww; ewa_ww *= ewa_ww;\n"
+					"ewa_ww *= ewa_ww; ewa_ww *= ewa_ww; ewa_ww *= ewa_a;\n"
+					"ewa_ar += ewa_ww * ewa_cc; ewa_wwsum += ewa_ww;\n}\n");
 				continue;
 			}
 			code += std::format("{} += dot(float4({:.8f}, {:.8f}, {:.8f}, {:.8f}), jinc_pick) * ",
@@ -198,6 +311,14 @@ static void AppendJincChroma420(const UINT chromaSubsampling, const char* sample
 			code += std::vformat(sample, std::make_format_args(i, j));
 			code.append(";\n");
 		}
+	}
+	if (bAntiring) {
+		code += std::format(
+			"{{\nconst float4 ewa_e = ewa_ar / max(ewa_wwsum, 1e-30);\n"
+			"const float2 ewa_lo = 1.0 - ewa_e.xz, ewa_hi = ewa_e.yw;\n"
+			"float2 ewa_c = clamp({0}, ewa_lo, ewa_hi);\n"
+			"ewa_c = ewa_lo > ewa_hi ? 0.5 * (ewa_lo + ewa_hi) : ewa_c;\n"
+			"{0} = lerp({0}, ewa_c, {1:.3f});\n}}\n", target, pEwa->antiring);
 	}
 }
 

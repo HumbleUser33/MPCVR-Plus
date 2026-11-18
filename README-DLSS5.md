@@ -1030,6 +1030,35 @@ on line art (−6.7 dB) and is under Catmull-Rom on film; **CfL Prediction** win
 synthetic case where chroma is a linear function of luma, which no real film is. **NGU**, the
 one that beats everything on the doom9 test, is closed.
 
+**libplacebo's other polar kernels**, which FrankyRenderer offers for chroma, were measured
+the same way, through the filter: the Jinc (EWA) entry takes any of them when
+`MPCVR_CHROMA_EWA` names it in the player's environment (a test hook, read as the conversion
+shader is written; unset, the entry is the Jinc it always was), each as libplacebo's
+`filters.c` defines it at the commit FrankyRenderer takes, with its polar anti-ringing for the
+one that has it (`playback_test --chroma <png> --ewa`). Six film frames at 1920x800 and the
+doom9 line-art test at its own 640x480, against Catmull-Rom:
+
+| Kernel | Cb/Cr | at luma edges | whole picture | line art, at edges |
+|---|---|---|---|---|
+| Jinc (EWA), the entry as it ships (`ewa_lanczos`) | −0.07 dB | +0.43 dB | −0.16 dB | +0.49 dB |
+| `ewa_lanczossharp`: the same, blurred by 0.981 | −0.08 dB | **+0.46 dB** | −0.17 dB | +0.60 dB |
+| `ewa_lanczos4sharpest`: four lobes, blurred by 0.885, anti-ringing 0.8 | **+0.11 dB** | +0.12 dB | **+0.10 dB** | **+1.04 dB** |
+| `ewa_ginseng`: jinc windowed by a sinc | −0.09 dB | +0.44 dB | −0.18 dB | +0.53 dB |
+| `ewa_hann`: jinc windowed by a Hann | −0.04 dB | +0.40 dB | −0.12 dB | +0.34 dB |
+| `ewa_robidouxsharp`: a polar cubic | −0.03 dB | +0.30 dB | −0.06 dB | +0.46 dB |
+| `ewa_robidoux`: the same, softer | +0.04 dB | −0.04 dB | +0.02 dB | −0.20 dB |
+| `ewa_jinc`: jinc with no window | −0.86 dB | −1.89 dB | −0.80 dB | −0.67 dB |
+
+Nothing is clearly better on film along the edges, where bleeding shows and what the list is
+ordered by. **EWA Lanczos Sharp** is the Jinc a little sharper and 0.03 dB above it there
+(between −0.01 and +0.07 from frame to frame), hundredths of an 8-bit level. **EWA Lanczos4
+Sharpest** keeps more colour over the whole picture and on drawn lines, and gives up 0.31 dB
+along the edges; on drawn lines RAVU-zoom, in the list already, is above it, +1.78 dB in the
+same run (FSRCNNX 8 AR +0.54, so the September table's line-art column, from another setup,
+does not carry over). The others are below the Jinc, and the unwindowed jinc below
+everything. An 800x450 crop of the same frames ranks them in the same order. Jinc (EWA) stays
+as it is.
+
 The **defaults are unchanged**: Upscaling is Jinc2m and Chroma upsampling Catmull-Rom for a
 fresh installation, and settings already saved in the registry are left alone — each entry
 carries its own number, so reordering the lists moved nobody's setting.
@@ -3328,6 +3357,7 @@ playback_test.exe --mainpage 10 --section 4   on one of the seven tabs; --apply 
 playback_test.exe --frame 10      the page in a real property frame, as a player puts it up
 playback_test.exe --frame 10 --themed   and with a player painting its controls over it
 playback_test.exe --chroma <png>  each chroma upsampler, the hardware one included, against 4:4:4
+playback_test.exe --chroma <png> --ewa   libplacebo's polar kernels instead, through the Jinc (EWA) entry
 playback_test.exe --chroma10 <png> the same in 10 bits: P010 against Y410 (--interlaced: who converts)
 playback_test.exe --clean <png>   the picture coded as MPEG-2 intra blocks, deblocked by each path (--clean10: P010)
 playback_test.exe --file <film> --deblock 3 --deband 2   a real film with the artifact removal at those levels (--spp: SPP)
