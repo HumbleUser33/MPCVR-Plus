@@ -1877,7 +1877,8 @@ PQ.
 
 The matrix is the same in every picture, unless **A new pattern each picture** is ticked (Detail
 tab, off by default, Direct3D 11): the pattern then starts 11 cells further across and 19 further
-down at each picture, so that every pixel meets another threshold. The eye, which averages a
+down at each new picture of the film, so that every pixel meets another threshold; a picture
+drawn again (paused, or rendered for a snapshot) keeps its own pattern. The eye, which averages a
 still picture over several, sees less of the noise: averaged over eight pictures, pixel by pixel,
 0.40 of a step with the pattern held still against 0.16 with it moving (the shadows' ramp; 0.41
 against 0.15 on 8 bits, 0.45 against 0.21 in the highlights). `--tdither` runs the final pass

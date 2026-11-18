@@ -1123,17 +1123,25 @@ void CDX11VideoProcessor::UpdateSharpenDitherShader()
 // A still gradient is then seen as the average of several, which is nearer the value
 // the picture had than any one of them: over eight pictures, 0.40 of a step off with
 // the pattern held still and 0.16 with it moving (dlssnr_harness --tdither, which runs
-// this same sequence through the shipped shader). Asked once per picture finished, by
-// the step that dithers it.
+// this same sequence through the shipped shader). Asked by the step that dithers each time
+// a picture is finished, and moved on with each new picture of the film (m_rtStart), not
+// with each drawing of one: a paused picture drawn again, or rendered for a snapshot, keeps
+// its pattern, and the screen stays as it was (playback_test --aftergrab).
 void CDX11VideoProcessor::NextDitherOffset(float& x, float& y)
 {
 	if (!m_bDitherMoving) {
 		x = y = 0.0f;
 		return;
 	}
+	if (m_rtStart != m_rtDitherPicture) {
+		if (m_bDitherPictureKnown) {
+			m_nDitherPicture++;
+		}
+		m_rtDitherPicture = m_rtStart;
+		m_bDitherPictureKnown = true;
+	}
 	x = (float)((m_nDitherPicture * 11) % dither_size) / dither_size;
 	y = (float)((m_nDitherPicture * 19) % dither_size) / dither_size;
-	m_nDitherPicture++;
 }
 
 // The peak that the HDR to SDR conversion maps onto the display's white: what the file claims,

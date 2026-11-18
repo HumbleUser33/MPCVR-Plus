@@ -275,6 +275,8 @@ private:
 	// Where the dither's pattern starts for the picture being finished: the pattern
 	// moved each picture with Settings_t::bDitherMoving, where it is otherwise.
 	UINT m_nDitherPicture = 0;
+	REFERENCE_TIME m_rtDitherPicture = 0;   // the picture it was moved for
+	bool m_bDitherPictureKnown = false;
 	void NextDitherOffset(float& x, float& y);
 
 	bool m_bVPReplaceChroma = false;    // the setting
