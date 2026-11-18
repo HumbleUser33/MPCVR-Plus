@@ -3689,7 +3689,12 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	// it opens a shot, and what a picture made before it would be made from. Timed with
 	// the steps before it, while the statistics show.
 	m_bCadenceMeasured = false;
-	if (field && frameStartTime != INVALID_TIME && CadenceActive() && !m_renderRect.IsRectEmpty()) {
+	const bool bCadence = field && frameStartTime != INVALID_TIME && CadenceActive() && !m_renderRect.IsRectEmpty();
+	if (bCadence && !m_bCadenceWasActive) {
+		CadenceReset();   // the last picture it kept may be from long before
+	}
+	m_bCadenceWasActive = bCadence;
+	if (bCadence) {
 		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::Cadence);
 		CadenceTakePicture(pBackBuffer);
 		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Cadence);

@@ -99,7 +99,7 @@ void CDX11VideoProcessor::ReadPresentSchedule()
 // come back within a minute, renewing is not what it needs, and it is not tried again on
 // this swap chain.
 //
-// The setting (Workarounds, bSwapChainRenew) unticked, or MPCVR_SWAPCHAIN_RENEW=0 in the
+// The setting (Frame Pacing Workarounds, bSwapChainRenew) unticked, or MPCVR_SWAPCHAIN_RENEW=0 in the
 // environment, leaves them held back, with a note in the trace each time the swap chain
 // would have been renewed: the system's own tools see what holds them back only while it
 // lasts.

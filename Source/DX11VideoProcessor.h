@@ -543,6 +543,7 @@ private:
 	CRect m_cadenceRect;                       // the video area those were taken from
 	int m_iCadencePicture = 0;                 // which of the two holds the last picture
 	bool m_bCadenceHaveLast = false;           // it holds one
+	bool m_bCadenceWasActive = false;          // CadenceActive() at the last picture
 	bool m_bCadenceHaveBefore = false;         // and the other one holds the picture before it
 	bool m_bCadenceMeasured = false;           // the scene cut detector measured the last picture
 	bool m_bCadenceMakeReady = false;          // the motion and the synthesis can run

@@ -290,6 +290,13 @@ public:
 	// a 3:2 cadence whose slip can be placed. 0.001 is 60.000 Hz against 23.976 fps.
 	static constexpr double kNearCadence = 0.001;
 	static constexpr double kNearCadenceTol = 0.0006;
+	// A whole step is watched for cuts only where it owes a slip at least every 2500 pictures:
+	// this far, in refreshes a frame, from its whole number. 29.97 or 59.94 fps on 60.000 Hz
+	// are 0.002 and 0.001 from it (a slip every 500 and 1000 pictures), 23.976 fps on 24.000 Hz
+	// 0.001, 23.976 on 120 Hz 0.005. A film at the screen's own rate (23.976 at 23.976 Hz, 25 at
+	// 50, 24 at 120) is a few parts in a million from it, its clock's and the screen's drift: a
+	// slip an hour or so, which the renderer need not copy and measure every picture for.
+	static constexpr double kSlipsOften = 0.0004;
 
 	struct Plan {
 		bool bValid = false;       // a refresh was chosen; otherwise present as before
@@ -376,8 +383,8 @@ public:
 	unsigned MadeShown() const { return m_madeShown; }
 	// The step is being kept past the nearest refresh, waiting for a cut.
 	bool SlipWaiting() const { return m_bSlipWaiting; }
-	// The last picture was in a cadence whose slips are placed: what the renderer copies
-	// pictures out for.
+	// The last picture was in a cadence whose slips are placed and come often enough to be
+	// watched for (kSlipsOften): what the renderer copies pictures out and looks for cuts for.
 	bool SlipsPlaced() const { return m_bSlipCadence; }
 	bool ShownKnown() const { return m_bShownKnown; }
 	double ShownOffsetMs() const { return m_shownOffsetMs; } // the last one DXGI reported: its refresh, less its time

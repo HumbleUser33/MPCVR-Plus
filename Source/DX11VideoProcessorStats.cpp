@@ -486,7 +486,12 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		// out of the box. On a scene change, not on one for want of one in time, and of those
 		// how many an interpolated frame covered and how many interpolated frames came too
 		// late to be shown. "Elsewhere" read as a place on the screen.
-		if (m_iCadenceSlips != CADENCE_SLIPS_Off) {
+		if (m_iCadenceSlips != CADENCE_SLIPS_Off && !m_PresentSchedule.SlipsPlaced()
+				&& !m_PresentSchedule.SlipsOnCut() && !m_PresentSchedule.SlipsForced()) {
+			// 24 fps at 60Hz, 25 at 50Hz, a film at the screen's own rate: nothing owed often
+			// enough to be watched for (CPresentSchedule::kSlipsOften), nothing copied.
+			str += L"\nHiccups       : none owed at this rate";
+		} else if (m_iCadenceSlips != CADENCE_SLIPS_Off) {
 			// Short enough for three-digit counts, two hours of film, within the box.
 			str += std::format(L"\nHiccups       : {} on scene changes, {} not", m_PresentSchedule.SlipsOnCut(), m_PresentSchedule.SlipsForced());
 			if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {

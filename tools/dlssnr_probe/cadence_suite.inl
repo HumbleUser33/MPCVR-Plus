@@ -58,6 +58,9 @@ struct CadenceResult {
 	unsigned pictures = 0, slipsOnCut = 0, slipsForced = 0, made = 0, repeated = 0, dropped = 0;
 	double worstEarlyMs = 0, worstLateMs = 0;   // shown before / after its own time
 	unsigned gaps[8] = {};                      // refreshes between two drawn pictures
+	// Of the pictures of the run's second half, how many the schedule said were in a cadence
+	// the renderer copies pictures out and looks for cuts for (SlipsPlaced).
+	unsigned later = 0, watched = 0;
 };
 
 // The filter's CPresentSchedule against a screen of periodMs, Present shown on the first
@@ -130,6 +133,10 @@ CadenceResult RunSchedule(double frameMs, double periodMs, int mode, const std::
 		CPresentSchedule::Plan plan = s.Choose(now, due, frameMs, 8.0);
 		if (!plan.bValid) {
 			continue;
+		}
+		if (k >= pictures / 2) {
+			res.later++;
+			res.watched += s.SlipsPlaced() ? 1 : 0;
 		}
 		s.ApplyCut(plan, cuts.count(k) != 0);
 		if (plan.bDrop) {
@@ -556,6 +563,33 @@ static int RunCadence()
 	ReportSchedule("23.976@23.976 +300 ppm, no cut: a made picture", nm2, nm2.slipsForced == 1 && nm2.made == 1);
 	const CadenceResult nd2 = RunSchedule(f23, f23, CS::CadenceSlipsOnCutOrMade, none, n, -300);
 	ReportSchedule("23.976@23.976 -300 ppm, no cut: a drop stays one", nd2, nd2.dropped == 1 && nd2.made == 0);
+
+	// Where the renderer watches for cuts at all, copying every picture out and measuring it:
+	// only where slips come often enough to be seen (kSlipsOften). Every picture of the run's
+	// second half watched where they do, none where a whole step owes a slip once an hour.
+	struct Watch { const char* name; double frameMs, periodMs, ppm; bool bWanted; };
+	const double p24 = 1000.0 / 24.0, p120 = 1000.0 / 120.0, p144 = 1000.0 / 144.0, p5994 = 1000.0 * 1001.0 / 60000.0;
+	const Watch watch[] = {
+		{ "23.976@60 watched", f23, p60, 0, true },
+		{ "29.97@60 watched", f29, p60, 0, true },
+		{ "59.94@60 watched", f59, p60, 0, true },
+		{ "23.976@24 watched (a slip every 42 s)", f23, p24, 0, true },
+		{ "24@23.976 watched (a drop every 42 s)", p24, f23, 0, true },
+		{ "23.976@120 watched", f23, p120, 0, true },
+		{ "23.976@144 watched", f23, p144, 0, true },
+		{ "24@60 not watched (3:2 exactly)", p24, p60, 0, false },
+		{ "23.976@59.94 not watched (3:2 exactly)", f23, p5994, 0, false },
+		{ "25@50 not watched", 40.0, 20.0, 0, false },
+		{ "60@60 not watched", p60, p60, 0, false },
+		{ "24@120 not watched", p24, p120, 0, false },
+		{ "23.976@23.976 +50 ppm not watched", f23, f23, 50, false },
+	};
+	for (const Watch& w : watch) {
+		const CadenceResult r = RunSchedule(w.frameMs, w.periodMs, CS::CadenceSlipsOnCut, none, (int)(60000.0 / w.frameMs), w.ppm);
+		Out("  %-50s %u of %u pictures watched\n", w.name, r.watched, r.later);
+		Check(w.bWanted ? r.later > 0 && r.watched == r.later : r.watched == 0, w.name);
+	}
+
 	if (g_report) {
 		fclose(g_report);
 		g_report = nullptr;

@@ -199,7 +199,7 @@ trace (see *Diagnostic tools*).
 
 ### What it was put through
 
-In MPC-HC, a 1080p film at 25 fps on a television at 25 Hz, with the trace saying for every
+In MPC-HC, a 1080p film at 25 fps on a television at 25Hz, with the trace saying for every
 picture whether DLSS 5 NR ran on it: the toggle key while playing, while paused, and three
 times within a second; seeks short and long, forwards and back, three in half a second;
 subtitles next, off and on; another sound track; pause and play; out of fullscreen and back;
@@ -317,7 +317,7 @@ composition, waited for:
 
 The reduction takes 0.35 to 1.0 ms and the composition 0.4 to 1.1.
 
-And in MPC-HC, 40 s of each film from 10 minutes in, the television at 24 Hz, with the trace
+And in MPC-HC, 40 s of each film from 10 minutes in, the television at 24Hz, with the trace
 (`pacing_report.py --dlss`). A picture is drawn in the time the network takes and 11 to 16 ms
 more -- the decoded 4K HDR picture converted, Optical Flow, the stabilizer, the composition --
 and one that does not fit the 41.7 ms a picture lasts is left out undrawn:
@@ -1208,7 +1208,7 @@ measured on film frames halved from 4K, against the same frame through the proce
 it is on the control's side of the choice: with it set to *Disable* the picture goes round in
 4:4:4 and keeps what it had.
 
-In MPC-HC, a 1080p film at 25 fps on a television at 25 Hz, RTX Video HDR on: with DLSS 5 NR
+In MPC-HC, a 1080p film at 25 fps on a television at 25Hz, RTX Video HDR on: with DLSS 5 NR
 and the processor enlarging, a picture is ready 26 ms after it arrives, and 36 to 39 ms with
 Super Resolution as well (the *Render ahead* line) -- of the 40 ms a frame lasts. That is the
 edge, on an RTX 4060: over stretches of a hundred pictures one run left none out and another
@@ -1936,7 +1936,7 @@ below the display's 750 the curve does nothing whatever the peak.
 **In the filter itself.** The same four scenes, made into an HDR10 film by
 `make_hdr_scenes.py upscale_refs <out.mkv>` (HEVC 10-bit, PQ and BT.2020 in the stream, 23.976 pictures a second, the four repeated eight times: 80 s, 24 real
 cuts), played by `playback_test --file <it> --hdrtm 4 --measurepeak 1 --peakcuts 0|1 --cadence
-0|1` on a 60 Hz screen, with `MPCVR_PACING_TRACE` writing every picture's own peak, the peak the
+0|1` on a 60Hz screen, with `MPCVR_PACING_TRACE` writing every picture's own peak, the peak the
 curve was given and the window's count (`pacing_report.py <trace> --peak`). The cuts are the
 ones the cadence slips' detector found, which is a detector apart from the measurement's:
 
@@ -1962,7 +1962,7 @@ leaves the window alone; a slow fade has no jump to take. Direct3D 9's own peak 
 does the same.
 
 The two options leave each other alone otherwise. With *Start over* on, the peak the curve was
-given is the same on all 1 918 pictures with *Hide the 60 Hz hiccup* on and off, and the
+given is the same on all 1 918 pictures with *Hide the 60Hz hiccup* on and off, and the
 hiccups are the same with *Start over* on and off: 10 on scene changes, none forced, on the same
 pictures. They find cuts apart on purpose: the measurement's test costs nothing (the mean of the
 histogram it makes anyway, compared on the GPU in the same picture), and the cadence detector
@@ -1984,7 +1984,7 @@ the DLSS passes take beyond those 8 ms used to reach the screen late. The render
 offset* on an RTX 4060: −7 ms without DLSS, +11 to +17 ms with DLSS 5 NR, +11 to +19 ms with
 DLSS 5 NR and DLSS SR — and DLSS SR's GPU time comes on top, since the GPU runs it after
 Present has returned. The delay also varied by several ms from picture to picture, enough to
-move some pictures to the next refresh of a 60 Hz screen.
+move some pictures to the next refresh of a 60Hz screen.
 
 **Render ahead: a refresh chosen for each picture** (Presentation tab, on by default; *Render
 ahead to keep audio sync* before 2.5) measures each picture from
@@ -2006,7 +2006,7 @@ only an Apply while a film played did, and the next file had render ahead on aga
 settings said.
 
 Measured in a DirectShow graph with the filter itself (`playback_test.exe`): an 800×450 film in
-a 1280×720 window on an RTX 3050 and a 60 Hz screen, with DLSS 5 NR and DLSS SR (NR 23 ms,
+a 1280×720 window on an RTX 3050 and a 60Hz screen, with DLSS 5 NR and DLSS SR (NR 23 ms,
 stabilizer 1.6 ms, SR 3.2 ms), 20 s per run. Sync offset, mean (5th…95th percentile), and
 skipped pictures:
 
@@ -2052,15 +2052,15 @@ are still waiting for one.
 
 It matters on a screen that refreshes exactly as often as the film has pictures: 24 fps at 24
 Hz, 25 at 25. DXGI lets three pictures wait unless told otherwise and `Present` returns at once
-while there is room. At 60 Hz there are two and a half refreshes for every picture and the
+while there is room. At 60Hz there are two and a half refreshes for every picture and the
 room is never used. With one refresh a picture, the first pictures of a film arrive in a burst
 and fill it, and nothing ever empties it again -- a pause and play does, which is why that
-cured it. Measured with a 30 fps film on a screen at 30 Hz (`playback_test --hz 30 --fps 30
+cured it. Measured with a 30 fps film on a screen at 30Hz (`playback_test --hz 30 --fps 30
 --jolt`): the queue sat at 3 and the picture reached the screen **72 to 92 ms** after its
 time, with the Sync offset reading -7 throughout.
 
 The renderer now asks DXGI for one picture waiting and no more
-(`IDXGIDevice1::SetMaximumFrameLatency(1)`). Same test: queue 1, on screen +43 ms. At 60 Hz
+(`IDXGIDevice1::SetMaximumFrameLatency(1)`). Same test: queue 1, on screen +43 ms. At 60Hz
 nothing moves -- sync offset -7.0 to -7.1 ms across the battery, on screen within 6 ms of the
 picture's time, nothing skipped.
 
@@ -2074,7 +2074,7 @@ its time, the same after 20 s as at the start, with the Sync offset reading +8 t
 For a while the renderer then left one picture out when that had lasted -- eight pictures
 running waiting more than a refresh -- and counted it in the statistics as *caught up*. It is
 gone since 2.5. It only ever saw pictures render ahead did not schedule, and there it did harm:
-measured in MPC-HC on a film at 23.976 Hz with render ahead off, it left a picture out every
+measured in MPC-HC on a film at 23.976Hz with render ahead off, it left a picture out every
 half second, 245 in 135 s, each a jump followed by a picture shown twice; upstream's own filter
 showed 1 to 4 pictures twice in the same two minutes. Without it the same run shows one. A film
 that starts late with render ahead off now stays late, as it does upstream; render ahead keeps
@@ -2091,7 +2091,7 @@ to do, as on a film shown at its own size.
 ### A refresh chosen for every picture
 
 Everything above times the call to `Present` and leaves the rest to the queue. Measured where
-it matters -- MPC-HC itself, fullscreen on a television at 25 Hz, a 25 fps film through the
+it matters -- MPC-HC itself, fullscreen on a television at 25Hz, a 25 fps film through the
 video processor with RTX Video HDR, with a line written for every picture (see *Diagnostic
 tools*, the pacing trace) -- that was not enough, three times over.
 
@@ -2112,7 +2112,7 @@ picture out, read the same again, and went on. That is the stutter after a chang
 What decides is where in a refresh `Present` is called, which the same trace measured by
 calling it a chosen time after a blank:
 
-| `Present` called after a blank | 25 Hz: on the screen after | |
+| `Present` called after a blank | 25Hz: on the screen after | |
 |---|---|---|
 | 0 ms | 80.1 ms | the second blank from there |
 | 6, 12, 18, 24, 30 ms | 73.9, 67.9, 61.8, 55.8, 49.9 ms | the same one |
@@ -2120,7 +2120,7 @@ calling it a chosen time after a blank:
 | 38 ms | 81.8 ms | every picture a refresh later |
 
 Anywhere from a blank until some milliseconds before the next, the picture is shown on the
-blank after that one; in the last few it slips, and not every time. At 60 Hz the same: 13 ms
+blank after that one; in the last few it slips, and not every time. At 60Hz the same: 13 ms
 after a blank is in time, 15 ms is a refresh late. And the start of a refresh is no safer than
 its end: in the bench's window a `Present` called 3 ms after a blank was in time or not from
 one picture to the next, and every second or third then waited a whole refresh.
@@ -2134,17 +2134,17 @@ So with **Render ahead** on, the renderer now gives every picture a refresh in a
 - `Present` is called a third of a refresh after a blank, clear of both edges, as many
   refreshes before the picture's own as the queue is deep. How deep is measured: DXGI says
   on which refresh each `Present` ended up.
-- The sample is asked for early enough for all that: 80 to 100 ms before its time at 25 Hz,
+- The sample is asked for early enough for all that: 80 to 100 ms before its time at 25Hz,
   depending on where the refreshes fall, which is what *Render ahead* in the statistics now
   reads for every film (less the 8 ms every sample is already given).
 - A film with a whole number of refreshes per frame keeps that step from picture to picture,
   and is only moved -- a picture given a refresh more, or left out -- when the two clocks have
   drifted three quarters of a refresh apart. The nearest refresh alone would flicker between
   two whenever a picture's time fell half way.
-- A film without one -- 23.976 fps at 60 Hz, 2.5025 refreshes a picture -- takes the nearest
+- A film without one -- 23.976 fps at 60Hz, 2.5025 refreshes a picture -- takes the nearest
   refresh, which makes the 3:2 cadence, and the time it goes by is not the picture's stamp but
   the stamp smoothed: Matroska keeps stamps to the millisecond, 41, 42, 42, 41... ms, and each
-  time the cadence had to change step, every 8.3 s at 60.000 Hz, the rounding made the nearest
+  time the cadence had to change step, every 8.3 s at 60.000Hz, the rounding made the nearest
   refresh flip five or six times in half a second. See *What the screen shows* below.
 - A redraw the player asks for while the film plays -- its message over the picture after a
   change of track -- is no longer a `Present` of its own: it landed in the same refresh as a
@@ -2177,8 +2177,8 @@ What it cannot do:
 - **The two clocks drift.** When they do, a picture is repeated or left out once per refresh
   of drift, and nothing a renderer does can spare it: the sound would have to be resampled.
   How much depends on the display mode. On the machine this was written on, a 25 fps film at
-  25 Hz hardly moved: seven minutes with the offset at +11.5 ms, to a tenth. A 23.976 fps
-  film in 4K HDR at 23.976 Hz, thirty minutes: 43 086 pictures in a row each on its own
+  25Hz hardly moved: seven minutes with the offset at +11.5 ms, to a tenth. A 23.976 fps
+  film in 4K HDR at 23.976Hz, thirty minutes: 43 086 pictures in a row each on its own
   refresh, none repeated and none left out, and the offset going from −14 to +4 ms, 0.65 ms
   a minute. That is one picture left out every 64 minutes, the first when the offset has
   reached three quarters of a refresh.
@@ -2188,7 +2188,7 @@ What it cannot do:
   later, or leaves one out when that would put them too far from their time, and is back in
   step within two pictures. It used to stay a refresh late for good. The trace now says when
   the GPU was done with each picture and how DXGI put it on the screen: on a film at
-  23.976 Hz, three such pictures in 305 s, two with the statistics hidden, every one finished
+  23.976Hz, three such pictures in 305 s, two with the statistics hidden, every one finished
   by the GPU 3.5 to 7.6 ms before its `Present` and every picture of the film composed by the
   desktop. Upstream's filter shows it as often (see *What the screen shows*). The compositor
   only carries it: with RTX Video Super Resolution or DLSS SR on an NVIDIA card, Windows'
@@ -2199,7 +2199,7 @@ What it cannot do:
   been drawn by then, and the next one is no sooner for it. With DLSS 5 NR on a 25 fps film
   that turned the rule against itself, twice. At 52 ms a picture, every one came behind its
   time and every one was left out: 744 of 767, a screen that moved once in two seconds. At
-  33 ms, on a 25 Hz screen, one picture a refresh late was followed by one left out, whose
+  33 ms, on a 25Hz screen, one picture a refresh late was followed by one left out, whose
   own drawing made the next a refresh late again, and the film ran at 12.5 pictures a second
   for as long as it played, 463 left out of 944. So the schedule asks first whether the next
   picture, drawn after this one, would still be in time for its refresh. When it would not,
@@ -2224,10 +2224,10 @@ it. In MPC-HC, a 1080p film at 25 fps with DLSS 5 NR and no RTX Video HDR, on an
 
 | | two buffers | three |
 |---|---|---|
-| fullscreen at 25 Hz: DLSS 5 NR waits for its input / a picture is drawn in | 21.9 ms / 39.2 ms | 1.6 ms / 18.7 ms |
-| exclusive fullscreen at 25 Hz | 22.5 ms / 39.2 ms | 1.6 ms / 18.7 ms |
-| in a window, the screen at 60 Hz | 11.9 ms / 28.6 ms | 1.6 ms / 20.2 ms |
-| with Super Resolution after the network, 25 Hz: pictures left out, repeated | 47 and 44 of 517 | 2 and 0 of 521 |
+| fullscreen at 25Hz: DLSS 5 NR waits for its input / a picture is drawn in | 21.9 ms / 39.2 ms | 1.6 ms / 18.7 ms |
+| exclusive fullscreen at 25Hz | 22.5 ms / 39.2 ms | 1.6 ms / 18.7 ms |
+| in a window, the screen at 60Hz | 11.9 ms / 28.6 ms | 1.6 ms / 20.2 ms |
+| with Super Resolution after the network, 25Hz: pictures left out, repeated | 47 and 44 of 517 | 2 and 0 of 521 |
 | no DLSS, FSRCNNX 16 AR by the shaders: a picture is ready in, counted late | 39.2 ms, 305 times | 17.7 ms, 4 times |
 
 Six buffers measure as three do, and with nothing heavy in the chain two and three play the
@@ -2237,7 +2237,7 @@ starts. So an SDR picture gets three, and an HDR one keeps upstream's six.
 again.
 
 **A swap chain that starts skipping flips.** A 4K HDR10 film at 23.976 fps (film H), MPC-HC
-fullscreen on the television at 23.976 Hz, the video processor's chain with HDR output, the
+fullscreen on the television at 23.976Hz, the video processor's chain with HDR output, the
 picture on a plane of its own, an RTX 4060 left at its low clocks by the driver (29 ms of GPU a
 picture). After **30 to 45 minutes** of playing -- 37, 30, 38, 35, 39 and 45, in each of the
 six sessions that went on that long -- one picture every **1.024 s** reached the screen a
@@ -2261,7 +2261,7 @@ What it did and did not answer to, every time while it went on:
 | the swap chain resized to its own size (`ResizeBuffers`) | **0 in 88 s**, 6 pictures lost doing it |
 | a fresh start of the player | none |
 
-The period says what it is. It is the beat of the screen's 23.976 Hz with **23 Hz** exactly,
+The period says what it is. It is the beat of the screen's 23.976Hz with **23Hz** exactly,
 1 / (f - 23) = 1.02450 s for the rate the refreshes measure, and the period fitted through each
 stretch came out between 1.02437 and 1.02454 s in four sessions: the flips were let through 23
 times a second, as if something on the way went by the mode's whole number of hertz instead of
@@ -2277,7 +2277,7 @@ So the renderer now watches for that beat. It takes the pictures that reached th
 although the GPU had finished them before their `Present`, counts the late ones on refreshes up
 to three apart as one group -- a stall puts several in a row late, the held-back flips one and
 the picture after it -- and four groups in a row, each starting the beat's spacing after the one
-before (24.56 refreshes at 23.976 Hz, within 10 %), have it resize the swap chain to its own size
+before (24.56 refreshes at 23.976Hz, within 10 %), have it resize the swap chain to its own size
 once, about three seconds in. Should it come back within a minute, that is not what it needed,
 and it is not tried again on that swap chain. The statistics' *Swap chain* line says
 `renewed N time(s) for skipped flips`, and the pacing trace has a note at each. The first
@@ -2289,18 +2289,18 @@ renewed at 45 minutes, 5 pictures left out doing it and none in the 9 minutes af
 film at 55 minutes, then none in the 10 minutes after. With this one, in MPC-HC itself: held back
 after 36 minutes, renewed 3 s later at the fourth group, 7 pictures left out in that minute and
 none in the 38 minutes that followed. A mode of a whole number of hertz has no beat, and the
-rule is off there; 29.97 or 59.94 Hz would beat with their own, which is not measured.
-*Windows 23 Hz stutter: rebuild the swap chain* (Presentation tab, *Workarounds*, on by
+rule is off there; 29.97 or 59.94Hz would beat with their own, which is not measured.
+*Windows 23Hz stutter: rebuild the swap chain* (Presentation tab, *Frame Pacing Workarounds*, on by
 default) turns the renewal off when unticked: the stutter then stays as Windows leaves it, and
 the trace notes each time the swap chain would have been rebuilt.
 
 **What holds them back, from the graphics kernel's own events.** An event trace of
 Microsoft-Windows-DxgKrnl, recorded with WPR while the film played in MPC-HC and the swap chain
-left as it was (`MPCVR_SWAPCHAIN_RENEW=0`), shows where the 23 Hz comes from. The kernel smooths
+left as it was (`MPCVR_SWAPCHAIN_RENEW=0`), shows where the 23Hz comes from. The kernel smooths
 the time between VSyncs over every one since the film went fullscreen (`VSyncSmoothenedPeriod`:
 417,092 ticks of the 10 MHz counter, 41.709 ms, 41,573 samples after 29 minutes), and keeps
 beside it the display mode's own period, which it holds as 434,782 ticks: 1/23 s, the mode's
-whole number of hertz, where the mode is 23.976 Hz (41.7084 ms by Windows' display
+whole number of hertz, where the mode is 23.976Hz (41.7084 ms by Windows' display
 configuration). With hardware-accelerated scheduling each flip of the video's plane is given an
 earliest ideal time, the one before's plus the smoothed period (`MMIOFlipMultiPlaneOverlay3`,
 `ThisFlipEarliestIdealTimeQpc`, its target half a period earlier), and every one of the 2,488
@@ -2319,7 +2319,7 @@ From the first reset on, the flips' earliest ideal times stepped 43.478 ms apart
 41.709: one refresh lost every 24.56, the beat measured from the outside.
 
 That accounts for all of it: half an hour or more before it begins, depending on how the period
-wobbles and how old that first frame is; a mode of a whole number of hertz safe from it, 25 Hz
+wobbles and how old that first frame is; a mode of a whole number of hertz safe from it, 25Hz
 falling back on 1/25 s, which is right; nothing without HAGS, whose hardware flip queue is what
 goes by those times; and a renewed swap chain, or a fullscreen left and taken again, putting an
 end to it -- presumably as the compositor stops asking for that frame, which the trace cannot
@@ -2341,7 +2341,7 @@ each picture of the film stayed. A film, 4K HDR output on the Panasonic televisi
 video processor resizing with Super Resolution and RTX Video HDR, in MPC-HC, two minutes of film
 for each line, on an RTX 4060:
 
-| 60.000 Hz, 23.976 fps | breaks in the 3:2 cadence | a picture shown 4 refreshes, the next 1 | on the screen against its time |
+| 60.000Hz, 23.976 fps | breaks in the 3:2 cadence | a picture shown 4 refreshes, the next 1 | on the screen against its time |
 |---|---|---|---|
 | render ahead, before 2.5 | 78 to 90, five or six in half a second every 8.3 s | 0 to 2 | −8 to +8 ms |
 | **render ahead, 2.5** | **18**, one every 8.3 s | 1 | −8 to +8 ms |
@@ -2349,19 +2349,19 @@ for each line, on an RTX 4060:
 | upstream 0.10.10, VBlank off | 109 to 115 | 0 to 1 | not measured |
 | upstream 0.10.10, VBlank on | 105 to 126 | 3 to 11 | not measured |
 
-| 23.976 Hz, 23.976 fps | pictures shown twice | on the screen against its time |
+| 23.976Hz, 23.976 fps | pictures shown twice | on the screen against its time |
 |---|---|---|
 | **render ahead** | 2 or 3 (each followed by one left out to keep the step) | **+6 to +12 ms** |
 | render ahead off, before 2.5 (the catch-up) | 32 to 241 | +51 to +96 ms |
 | render ahead off, 2.5, Adjust on | 1 | +92 to +94 ms |
 | upstream 0.10.10, any combination | 1 to 4 | not measured |
 
-A screen at 60.000 Hz needs one break in the 3:2 cadence every 8.3 s for a 23.976 fps film, and
-no renderer can do with fewer; at 59.94 Hz it needs none, and at the film's own rate the cadence
+A screen at 60.000Hz needs one break in the 3:2 cadence every 8.3 s for a 23.976 fps film, and
+no renderer can do with fewer; at 59.94Hz it needs none, and at the film's own rate the cadence
 is one refresh a picture. A player that switches the screen to the film's rate (MPC-HC's *Auto change fullscreen monitor
-mode*, 23.976 fps on 23 Hz) gets that.
+mode*, 23.976 fps on 23Hz) gets that.
 
-The duplication itself costs the compositor work: the same film at 23.976 Hz showed a picture
+The duplication itself costs the compositor work: the same film at 23.976Hz showed a picture
 twice 2 or 3 times in two minutes watched, 3 times in five minutes unwatched. Those were measured
 with Windows' hardware-accelerated GPU scheduling off; they come from the GPU being held up by a
 service of NVIDIA's, and with the scheduling on there were none in thirteen minutes (see *Known
@@ -2369,7 +2369,7 @@ limitations*).
 
 ### Cadence slips: on a scene cut, or a picture made between two
 
-A 23.976 fps film on a screen at 60.000 Hz owes the screen a refresh it cannot share out: 2.5025
+A 23.976 fps film on a screen at 60.000Hz owes the screen a refresh it cannot share out: 2.5025
 refreshes a picture where the 3:2 cadence gives 2.5. Every 200 pictures, 8.34 s, the 3 and the 2
 change places, and two pictures in a row are held three refreshes, a 3,3. A film at 29.97 or 59.94
 owes one every 16.7 s, a picture held a refresh more; a film at the screen's own rate owes one in a
@@ -2378,15 +2378,15 @@ measured above). No renderer can do with fewer -- they are the arithmetic of the
 where one goes is free within a little of the pictures' times, and where the picture changes
 anyway, on a scene cut, a picture held a refresh longer is not seen.
 
-Measured first as it was, in MPC-HC (a copy of it, the screen held at 60.000 Hz), a 23.976 fps film,
+Measured first as it was, in MPC-HC (a copy of it, the screen held at 60.000Hz), a 23.976 fps film,
 4K HDR output through the video processor with RTX Video HDR, the pacing trace and `cadence_watch`
 reading the screen: **17 slips in 143 s, one every 8.4 s**, each a 3,3, and nothing else repeated or
 left out; the screen showed 14 in the 123 s it was watched.
 
-Two boxes of the Presentation tab's *Workarounds* say where they go:
+Two boxes of the Presentation tab's *Frame Pacing Workarounds* say where they go:
 
 - Neither, the default: where the nearest refresh puts them, as before (*where they fall* below).
-- **Hide the 60 Hz hiccup on scene changes** (*on a scene cut*): the cadence is kept past the
+- **Hide the 60Hz hiccup on scene changes** (*on a scene cut*): the cadence is kept past the
   point where the nearest refresh would break it, and broken on the first cut found from a
   quarter of a refresh before that point to a quarter after (a 3:2 cadence), or from half a
   refresh to where the step was given up before -- three
@@ -2400,6 +2400,19 @@ Two boxes of the Presentation tab's *Workarounds* say where they go:
 - and **Otherwise, show an interpolated frame** (*on a cut, else made*): the same, and a slip
   that no cut came in time for shows a picture made between the two, by EchoFG (below), on the
   refresh it adds. A picture left out at a film's own rate stays one.
+
+**Ticked, they run only where slips come often enough to be seen.** Watching for a cut means
+copying every picture out and measuring it, 0.2 ms a picture at 1280x720 on the RTX 4060, for a
+slip that may be hours away. Since 3.0 the schedule watches a cadence only where it owes a slip
+at least every 2 500 pictures (`kSlipsOften`): 23.976, 29.97 and 59.94 fps on a 60Hz screen, the
+same on 120 or 144Hz (23.976 fps is 5.005 refreshes a picture at 120Hz, a slip every 8.3 s), a
+23.976 fps film on a 24Hz mode and 24 fps on 23.976Hz (one every 42 s -- a player that sets the
+screen to 24Hz for a 23.976 film does this). 24 fps on 60Hz (3:2 exactly), 23.976 on 59.94Hz, 25
+on 50Hz, 24 on 120Hz and any film at the screen's own rate are not watched: nothing is copied or
+measured, the statistics say `Hiccups : none owed at this rate`, and the slip that the drift of
+the two clocks owes once an hour or so goes where it falls. `dlssnr_harness --tcadence` puts
+thirteen of these through the schedule; `playback_test --file` at 60Hz showed the Cadence step at
+23.976, 29.97 and 59.94 fps and not at 24 or 25.
 
 The same two and a half minutes of film, each line a start of the player, the slips counted in
 the pacing trace (`pacing_report.py` counts the 3,3s and says how each was taken) and the screen
@@ -2417,7 +2430,7 @@ was worse for it: a slip forced there had taken only half of the refresh it was 
 cut took another at once, and three came in four seconds where one every 8.3 is due. A slip
 waiting in a 3:2 cadence also had no use for a cut on a 3, which is every other cut.
 
-24, 25 and 30 fps on 60 Hz are left as they are, and so is any rate the screen is not a little
+24, 25 and 30 fps on 60Hz are left as they are, and so is any rate the screen is not a little
 faster than. It needs render ahead, which schedules every picture; the line *Frame sync* in the
 statistics says which is in force, and *Hiccups* counts the slips taken on a cut, the forced ones
 and the made pictures.
@@ -2445,7 +2458,7 @@ seconds. The shaders bind fourteen views, which takes Direct3D feature level 11_
 when the picture is not ready for its refresh, the slip is a plain one.
 
 It has to be ready a refresh before the drawn picture's own, and the drawn picture cannot come
-before the one ahead of it has been presented: at 23.976 fps on 60 Hz that leaves about 38 ms for
+before the one ahead of it has been presented: at 23.976 fps on 60Hz that leaves about 38 ms for
 the GPU to draw the picture and EchoFG to make the one before it. So the renderer waits for the GPU
 to be done with the drawn picture, and starts EchoFG only if its time -- the median of the last five
 times it ran, timed on the GPU, the first of them once alone as playback starts -- still fits
@@ -2508,14 +2521,14 @@ every pass, and fxc's /O3 changes nothing. Four changes followed:
   could not be ready, came out late and held up the picture after it on the GPU.
 - In a 3:2 cadence a made picture that a 2 leaves too little time for goes on a 3 instead, a
   picture sooner: from the Present of the 3 to the refresh it is for there are four refreshes,
-  56 ms at 60 Hz, where a 2 leaves three, 39 ms. A 3 made a 4 takes a whole refresh where a 3,3
+  56 ms at 60Hz, where a 2 leaves three, 39 ms. A 3 made a 4 takes a whole refresh where a 3,3
   takes half, so these slips come every 16.7 s at 23.976 fps, and the pictures between are within
   12.5 ms of their time either way. A plain slip there would be a 4, so it is done only where the
   made picture fits on a 3 and not on a 2; where it fits on neither, the slip is a 2 made a 3.
 
 In a window the desktop composes the picture a refresh before the screen shows it, and the made
 picture has to be done by then; it was allowed a refresh more, as full screen is. Measured in
-MPC-HC after these changes, the film at 60 Hz:
+MPC-HC after these changes, the film at 60Hz:
 
 | film | GPU | slips forced | covered by a made picture | the screen |
 |---|---|---|---|---|
@@ -2527,7 +2540,7 @@ NVIDIA's *Prefer maximum performance* (Manage 3D settings, Power management mode
 P0 while a film plays, where every step of the chain takes a fifth of the time; that is a setting of
 the computer, left to its owner. Set for MPC-HC alone, under Program Settings, it changed nothing on
 the machine measured; set in Global Settings, it held the card at 2505 MHz through every film. Then,
-on the same films at 60 Hz:
+on the same films at 60Hz:
 
 | film | slips forced | covered by a made picture | the screen |
 |---|---|---|---|
@@ -2561,7 +2574,7 @@ it. The same window size and settings here gave none of those times, nor did any
 days.
 
 So now each reading is held against the grid of refreshes found so far, and the one of the two that
-agrees with it is believed: a time off the grid (by more than 5 % of a refresh, 0.83 ms at 60 Hz)
+agrees with it is believed: a time off the grid (by more than 5 % of a refresh, 0.83 ms at 60Hz)
 is left out, the count followed and the grid kept; a count off a time on the grid by the same
 refreshes twice in a row is the count astray, and the times are followed; once, the reading waits.
 Eight times in a row off the grid by the same amount are the refreshes truly moved, and the grid
@@ -2585,7 +2598,7 @@ window with that check in place, and the user saw why: it was regular for as lon
 animated on the desktop, and irregular again as soon as it stopped. The runs here had always had one
 animating beside the player, the program they were driven from. With nothing else moving, DWM composes
 only when a picture arrives, and then it does not keep time. Two minutes of the 23.976 film in a
-3030x1653 window at 60 Hz, the desktop left alone, with the filter as it was: 31.6 % of DXGI's times off
+3030x1653 window at 60Hz, the desktop left alone, with the filter as it was: 31.6 % of DXGI's times off
 the grid by 1 to 16 ms, its count behind its times 3.2 times a second, and on the screen 492 film
 pictures held one refresh and 461 held four. The same with a 4-pixel window elsewhere on the screen
 changing on every composition: no time off the grid, no refresh lost, and 3 pictures held one refresh,
@@ -2621,7 +2634,7 @@ due. A line of its own says the rest while a delay is set:
     Video delay   : +40 ms asked for, the picture +37 ms from its own time
 
 Measured in MPC-HC, a 24 fps film in 4K HDR with its Atmos track bitstreamed, fullscreen at
-24 Hz, four starts at each value, the pacing trace reading each picture's refresh against the
+24Hz, four starts at each value, the pacing trace reading each picture's refresh against the
 time stamped on it:
 
 | Video delay | the picture on the screen, after its own time | pictures lost while playing |
@@ -2630,13 +2643,13 @@ time stamped on it:
 | +40 ms | +21.3, +37.1, +43.1, +35.0 ms | none |
 | +80 ms | +57.9, +91.5, +84.6, +75.5 ms | none |
 
-And in the bench's window, the screen at 60 Hz: +40.2 ms for +40, +100.0 for +100, +250.5 for
+And in the bench's window, the screen at 60Hz: +40.2 ms for +40, +100.0 for +100, +250.5 for
 +250 and −99.9 for −100, medians over ten seconds.
 
-**A picture only moves by whole refreshes.** At 24 Hz that is 41.7 ms, so the value asked for
+**A picture only moves by whole refreshes.** At 24Hz that is 41.7 ms, so the value asked for
 is met to the nearest refresh, and which one is drawn afresh at every start and every seek:
 the spread of the table, about twenty milliseconds either way. The line in the statistics says where
-the picture really is. A screen at 120 Hz for a 24 fps film has a refresh every 8.3 ms, and
+the picture really is. A screen at 120Hz for a 24 fps film has a refresh every 8.3 ms, and
 would hold the value five times closer.
 
 The slider applies as it is dragged, since it is set by ear with a film playing, and the
@@ -2652,7 +2665,7 @@ which is normally the audio renderer. The statistics name it:
     Clock         : MPC Audio Renderer
 
 A clock that stops while the sound goes on playing — seen with one third-party audio renderer
-after a very fast pause and play on a 24 Hz display — makes every picture look one frame
+after a very fast pause and play on a 24Hz display — makes every picture look one frame
 further into the future than the one before it, and the picture slows to a crawl while
 everything else carries on. The renderer catches that and says so:
 
@@ -2815,10 +2828,10 @@ key, both DLL paths, and the working size, which is what the card can carry.
 | Wait for VBlank before Present | off | Upstream's timing, with render ahead off: waits for the next refresh before each picture. Greyed while render ahead is on, which never waits for it |
 | Adjust the frame presentation time | on | Upstream's timing, with render ahead off: holds each picture until half a refresh before its time. Greyed while render ahead is on, which always holds the pictures it does not schedule |
 | Render ahead: a refresh chosen for each picture | on | See *Render ahead* and *A refresh chosen for every picture*. Gives every picture a refresh chosen in advance, and starts each early enough for it. Needs Direct3D 11, and the flip model for the first of the two. Registry `DlssRenderAhead` |
-| *Workarounds*, greyed with render ahead off: | | |
-| Hide the 60 Hz hiccup on scene changes | off | See *Cadence slips: on a scene cut, or a picture made between two*. The refresh a film at 23.976, 29.97 or 59.94 fps owes a screen at 60 Hz every few seconds -- two pictures in a row held three refreshes at 23.976 -- waits for the next change of shot, where it is not seen; so does the picture more or less a film at the screen's own rate owes it once in a long while. 24, 25 and 30 fps are left alone. Registry `CadenceSlips` 1 |
+| *Frame Pacing Workarounds*, greyed with render ahead off: | | |
+| Hide the 60Hz hiccup on scene changes | off | See *Cadence slips: on a scene cut, or a picture made between two*. The refresh a film at 23.976, 29.97 or 59.94 fps owes a screen at 60Hz every few seconds -- two pictures in a row held three refreshes at 23.976 -- waits for the next change of shot, where it is not seen. It runs only where such hiccups come often: 23.976, 29.97 and 59.94 fps at 60Hz (and 120 or 144Hz), 23.976 fps on a 24Hz mode and 24 fps on 23.976Hz; elsewhere nothing is copied or measured and the statistics say `none owed at this rate`. Registry `CadenceSlips` 1 |
 | Otherwise, show an interpolated frame | off | When no change of shot comes in time, the refresh added shows a frame EchoFG makes between the two pictures. Needs the box above, and Direct3D feature level 11_1. Registry `CadenceSlips` 2 |
-| Windows 23 Hz stutter: rebuild the swap chain | on | See *A swap chain that starts skipping flips*. A bug of Windows' graphics kernel, which after a while at 23.976 Hz holds every picture to 1/23 s: the swap chain is rebuilt when pictures ready in time are shown late. Unticked, the stutter stays as Windows leaves it. Registry `SwapChainRenew` |
+| Windows 23Hz stutter: rebuild the swap chain | on | See *A swap chain that starts skipping flips*. A bug of Windows' graphics kernel, which after a while at 23.976Hz holds every picture to 1/23 s: the swap chain is rebuilt when pictures ready in time are shown late. Unticked, the stutter stays as Windows leaves it. Registry `SwapChainRenew` |
 | Show statistics | off | The statistics over the picture; Ctrl+J in MPC-HC |
 | Size | Fixed size | Whether the statistics keep their size or grow with the window |
 | Video delay | 0 ms | See *A video delay, for a sound that arrives late*. Every picture shown that long after its time, −200 to +500 ms, to the nearest refresh. Applies as the slider is dragged |
@@ -2916,7 +2929,7 @@ steps work in.
 | DLSS 5 NR | The network's tuning, or why it is not running. *working* is the reduction and the composition at a working size below the picture's; *stabilizer* its Optical Flow and the stabilizer. The network runs on a Direct3D 12 device of its own and is timed there, by timestamps on its queue |
 | Scaling | From what size to what size, and what does it, with all it costs: the processor's second turn after DLSS 5 NR, DLSS SR and its *motion*, or an mpv prescaler, each with the resize shader that finishes the job. `SuperResolution*` when the driver's Super Resolution runs, and `(No Super Resolution when chroma by shaders)` when it was asked for on a 4:4:4 picture. When the processor resized in its own step, a time here is only the resize shader copying the picture to its place -- a film with black bars, or one in a window -- and the line says `placed by the shaders`: 0.5 ms for a 2.39:1 film on a 4K screen, which is not Super Resolution's (that is in the processor's time). With *DLSS SR* ticked and not enlarging, a sub-line says why |
 | Finish | What runs at the size the picture is shown at: a correction, the tone mapping, the sharpening and its level, the player's shaders, the dither |
-| Cadence | With *Hide the 60 Hz hiccup on scene changes*: the picture copied out of the back buffer and measured for a scene change, every picture while a hiccup may come. Under it, *EchoFG* is the interpolated frame (*Otherwise, show an interpolated frame*): the median of its last five times on the GPU, each brought to the GPU's clock of the moment, which decides whether one is made, and not in the total, since it is made every few seconds and not for every picture |
+| Cadence | With *Hide the 60Hz hiccup on scene changes*: the picture copied out of the back buffer and measured for a scene change, every picture while a hiccup may come. Under it, *EchoFG* is the interpolated frame (*Otherwise, show an interpolated frame*): the median of its last five times on the GPU, each brought to the GPU's clock of the moment, which decides whether one is made, and not in the total, since it is made every few seconds and not for every picture |
 
 Each time is the mean of the last 32 pictures, measured on the GPU with timestamps read back
 later, never waited for, and only while the statistics are shown. A step whose text does not
@@ -3048,7 +3061,7 @@ compositor's flip waits behind it, and one that goes more than about 40 ms after
 blank loses the refresh. Every hold-up fell on that thread's period, 1.006 s; without an AI
 upscaler its turns never passed 3.5 ms and nothing was held up. Hardware decoding, the
 statistics and the film's cuts had nothing to do with it. A film from 15:27 to 21:27 at
-23.976 Hz in MPC-HC 2.8.4, 4K HDR, the video processor resizing with RTX Video Super
+23.976Hz in MPC-HC 2.8.4, 4K HDR, the video processor resizing with RTX Video Super
 Resolution and RTX Video HDR, RTX 4060 (driver 32.0.16.1742), traced with ETW (xperf: the GPU
 scheduler, the compositor, DXGI, thread switches) beside the pacing trace:
 
@@ -3138,7 +3151,7 @@ dlssnr_harness.exe --tcutscan <film> the cut detection alone over minutes of a f
                                   measures on every picture, with ffmpeg's own scene score beside them
                                   (--cutfrom <s> --cutfor <s>: the stretch, 300 s by default)
 dlssnr_harness.exe --tcadence     the cadence slips' schedule against a simulated screen: 23.976, 29.97
-                                  and 59.94 at 60 Hz with cuts every 4 s, every 29 s and none, 24, 25
+                                  and 59.94 at 60Hz with cuts every 4 s, every 29 s and none, 24, 25
                                   and 30 left alone, a film at the screen's own rate drifting both ways,
                                   a made picture too long for a 2 put on a 3, DXGI's refresh count
                                   losing refreshes against its times
@@ -3310,7 +3323,7 @@ a picture that is the one before again, or the one before that (a single-frame f
 film does that too), and the green block moving other than one pixel. `--shot` keeps a picture
 of the statistics as the watch starts; with `--shotrect`, the part of the screen it names in
 fractions of it, at its own size: the statistics' graph at the bottom right of a window, say. The duplication is work for the compositor: it doubled
-the rare refreshes the compositor missed at 23.976 Hz.
+the rare refreshes the compositor missed at 23.976Hz.
 
 **`freeze_dump.exe`** — run against a player that hangs (by name, by process id, or with no
 argument at all), it asks Windows what every thread is waiting for, names any cycle as the

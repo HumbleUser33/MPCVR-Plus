@@ -400,7 +400,10 @@ CPresentSchedule::Plan CPresentSchedule::Choose(long long tickNow, long long tic
 	m_bSlipNext = false;
 	const bool bNear32 = std::abs(perFrame / 2.5 - (1.0 + kNearCadence)) <= kNearCadenceTol;
 	m_bSlipWaiting = false;
-	m_bSlipCadence = m_cadenceSlips != CadenceSlipsWhereTheyFall && (bWholeStep || bNear32);
+	// Watched only where slips come often enough to be seen (kSlipsOften): a slip a film at
+	// the screen's own rate owes once an hour goes where it falls.
+	const bool bWholeSlips = bWholeStep && std::abs(perFrame - (double)whole) >= kSlipsOften;
+	m_bSlipCadence = m_cadenceSlips != CadenceSlipsWhereTheyFall && (bWholeSlips || bNear32);
 	if (m_bLast && bWholeStep) {
 		// The step is kept while the picture stays within reach of its own time.
 		refresh = m_lastRefresh + whole;

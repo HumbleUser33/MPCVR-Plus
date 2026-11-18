@@ -527,15 +527,17 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		L"Fixes for what the screen or Windows impose on a film, beyond the renderer's own timing. "
 		"They need Render ahead." },
 	{ IDC_CADENCE_CUT,
-		L"A 23.976 fps film cannot be shared out evenly on a 60 Hz screen: every 8 seconds two "
+		L"A 23.976 fps film cannot be shared out evenly on a 60Hz screen: every 8 seconds two "
 		"pictures in a row stay three refreshes instead of three then two, a small hiccup in the "
 		"motion. 29.97 and 59.94 fps do the same every 17 seconds. No renderer can avoid it, only "
 		"choose where it goes.\n"
 		"Ticked, it waits for the next change of shot, a few seconds at most, and puts the hiccup "
-		"there, where it is not seen; a picture is then never more than about 13 ms off its time. "
-		"At the film's own rate (23.976 fps on 23.976 Hz) the picture repeated or skipped once in a "
-		"long while waits for a change of shot the same way.\n"
-		"24, 25 and 30 fps are not touched." },
+		"there, where it is not seen; a picture is then never more than about 13 ms off its time.\n"
+		"It only runs where hiccups come that often: 23.976, 29.97 and 59.94 fps on a 60Hz screen "
+		"(and on 120 or 144Hz), a 23.976 fps film on a 24Hz screen and 24 fps on 23.976Hz (one "
+		"every 42 seconds). Anywhere else -- 24 fps on 60Hz, 25 on 50Hz, a film at the screen's own "
+		"rate -- nothing is copied or measured, and the hiccup that a drift of the clocks brings "
+		"once an hour or so goes where it falls." },
 	{ IDC_CADENCE_MADE,
 		L"When no change of shot comes in time, the hiccup's extra refresh shows a frame "
 		"interpolated between the two pictures (EchoFG) instead of holding one.\n"
@@ -544,7 +546,7 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Needs Direct3D feature level 11_1." },
 	{ IDC_SWAPCHAIN_RENEW,
 		L"A bug in Windows, not in the renderer nor in the NVIDIA driver: after a while at "
-		"23.976 Hz (often half an hour), Windows' graphics kernel loses its count of the screen's "
+		"23.976Hz (often half an hour), Windows' graphics kernel loses its count of the screen's "
 		"refreshes and holds every picture to 1/23 s. The film then stutters about once a second "
 		"until it is restarted.\n"
 		"Ticked, the renderer notices pictures shown late although they were ready, and rebuilds "
