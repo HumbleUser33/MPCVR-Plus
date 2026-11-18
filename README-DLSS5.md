@@ -1059,6 +1059,37 @@ does not carry over). The others are below the Jinc, and the unwindowed jinc bel
 everything. An 800x450 crop of the same frames ranks them in the same order. Jinc (EWA) stays
 as it is.
 
+**Enlarged from 1080p to 4K**, as a 1080p film is on a 4K screen, the order holds
+(`playback_test --chroma <png> --size 1920x800 --upscale --ewa`). Each frame is reduced from its
+4K original to 1920x800 and played as 4:2:0, its chroma rebuilt by each method, the picture
+enlarged by Catmull-Rom to 3840x1600 (the networks of the Upscaling list take their colour from
+Catmull-Rom too) with the sharpening off; it is scored against the 4:4:4 picture through the
+same enlargement, which leaves the chroma method alone to differ, and against the 4K original,
+which is what the eye should have seen. The line art, 640x480 to 1280x960, has no original of
+its own. Against Catmull-Rom, the mean of the six film frames:
+
+| Method | at luma edges, against 4:4:4 | Cb/Cr, against the 4K original | at luma edges, against the 4K original | line art, at edges |
+|---|---|---|---|---|
+| Jinc (EWA), as it ships | +0.52 dB | +0.06 dB | +0.53 dB | +0.55 dB |
+| `ewa_lanczossharp` | **+0.59 dB** | +0.04 dB | **+0.59 dB** | +0.68 dB |
+| `ewa_ginseng` | +0.55 dB | +0.05 dB | +0.55 dB | +0.61 dB |
+| `ewa_hann` | +0.47 dB | +0.08 dB | +0.48 dB | +0.36 dB |
+| `ewa_robidouxsharp` | +0.40 dB | −0.02 dB | +0.42 dB | +0.50 dB |
+| RAVU-zoom | +0.43 dB | −0.11 dB | +0.43 dB | **+1.99 dB** |
+| `ewa_lanczos4sharpest` | +0.20 dB | **+0.17 dB** | +0.19 dB | +1.14 dB |
+| `ewa_robidoux` | −0.10 dB | +0.08 dB | −0.09 dB | −0.24 dB |
+| FSRCNNX 8 AR | −0.48 dB | −0.05 dB | −0.41 dB | +0.48 dB |
+| `ewa_jinc` | −2.14 dB | −0.48 dB | −1.99 dB | −0.54 dB |
+
+The 4:4:4 picture itself, enlarged the same way, is 54.33 dB at the edges against the 4K original
+where Catmull-Rom's 4:2:0 one is 49.05: what the subsampling costs, of which the best kernels win
+back half a decibel. EWA Lanczos Sharp is ahead of the Jinc by 0.07 dB at the edges, on five
+frames of six (+0.05 to +0.12, and −0.01), more than at 1:1 and still a hundredth of what the
+subsampling costs. RAVU-zoom is below the Jinc at the edges on film and far above everything on
+drawn lines, as at 1:1; against the 4K original it loses less on the whole colour (−0.11) than
+against the 4:4:4 picture (−0.53), its constant shift of a tenth of a level counting for less
+there. Lanczos4 Sharpest keeps the most colour overall and loses at the edges, as at 1:1.
+
 The **defaults are unchanged**: Upscaling is Jinc2m and Chroma upsampling Catmull-Rom for a
 fresh installation, and settings already saved in the registry are left alone — each entry
 carries its own number, so reordering the lists moved nobody's setting.
@@ -3358,6 +3389,7 @@ playback_test.exe --frame 10      the page in a real property frame, as a player
 playback_test.exe --frame 10 --themed   and with a player painting its controls over it
 playback_test.exe --chroma <png>  each chroma upsampler, the hardware one included, against 4:4:4
 playback_test.exe --chroma <png> --ewa   libplacebo's polar kernels instead, through the Jinc (EWA) entry
+playback_test.exe --chroma <png> --size 1920x800 --upscale [--ewa]   the same enlarged to twice the size, against the 4K original too
 playback_test.exe --chroma10 <png> the same in 10 bits: P010 against Y410 (--interlaced: who converts)
 playback_test.exe --clean <png>   the picture coded as MPEG-2 intra blocks, deblocked by each path (--clean10: P010)
 playback_test.exe --file <film> --deblock 3 --deband 2   a real film with the artifact removal at those levels (--spp: SPP)

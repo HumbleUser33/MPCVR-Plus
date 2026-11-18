@@ -30,7 +30,11 @@
 //   playback_test.exe --chroma10 <png>  --chroma in ten bits: P010 against a Y410 reference
 //   playback_test.exe --chroma <png> --ewa   libplacebo's polar kernels on the chroma instead of the
 //                                     list's methods, each through the Jinc (EWA) entry
-//                                     (the filter's test hook MPCVR_CHROMA_EWA)
+//                                     (the filter's test hook MPCVR_CHROMA_EWA), with RAVU-zoom
+//                                     and FSRCNNX 8 AR beside them
+//   playback_test.exe --chroma <png> --upscale   the picture shown at twice its size, enlarged by
+//                                     Catmull-Rom, sharpening off; also scored against the file's
+//                                     own picture before it was reduced (a 4K frame for a 1080p one)
 //   playback_test.exe --chroma <png> --interlaced   the media type says interlaced, to see
 //   playback_test.exe --toggle          settings changed in full playback, as the player does
 //   playback_test.exe --delay N [--delayto M]   the Video delay setting, and moved while it plays;
@@ -218,6 +222,11 @@ static bool NV12Source() { return g_bScalers || g_bToggle; }
 static bool g_bChroma10 = false;       // --chroma10: 10 bits, P010 against Y410
 static bool g_bInterlaced = false;     // --interlaced: the media type says so, to see who converts
 static std::vector<BYTE> g_refPicture; // BGRA, top-down, the picture --chroma plays
+// --upscale: the picture shown at this many times its size; and the file's picture before
+// it was reduced by two, when it was, at the size it is shown then.
+static int g_chromaScale = 1;
+static std::vector<BYTE> g_refFull;
+static int g_refFullW = 0, g_refFullH = 0;
 static bool g_bChromaVerbose = false;  // --verbose: the whole overlay of each run
 
 // The film: soft gradients, a textured band and discs moving at different speeds,
@@ -1074,6 +1083,11 @@ static bool LoadPicture(const wchar_t* path, int w, int h, std::string& error)
 			}
 		}
 	}
+	if (factor == 2) {
+		g_refFull = std::move(taken);
+		g_refFullW = 2 * w;
+		g_refFullH = 2 * h;
+	}
 	printf("picture: %dx%d, reduced by %d from the file\n", w, h, factor);
 	return true;
 }
@@ -1514,6 +1528,13 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		if (config.iSuperRes >= 0) {
 			sets.bVPScaling = true;
 			sets.iVPSuperRes = config.iSuperRes;
+		}
+		// --upscale: the enlargement every run shares. The networks take their colour from
+		// Catmull-Rom too, so what this says of the chroma holds under them.
+		if (g_chromaScale > 1) {
+			sets.iUpscaling = UPSCALE_CatmullRom;
+			sets.bUpscalingSmall = false;
+			sets.iSharpen = SHARPEN_Disabled;
 		}
 	}
 	if (g_filmFile) {
@@ -2890,6 +2911,9 @@ int wmain(int argc, wchar_t* argv[])
 		if (!wcscmp(argv[i], L"--ewa")) {
 			g_bEwa = true;
 		}
+		if (!wcscmp(argv[i], L"--upscale")) {
+			g_chromaScale = 2;
+		}
 		if (!wcscmp(argv[i], L"--scalers")) {
 			g_bScalers = true;
 			source.cx &= ~1; // NV12
@@ -2962,7 +2986,11 @@ int wmain(int argc, wchar_t* argv[])
 			printf("--chroma: %s\n", error.c_str());
 			return 1;
 		}
-		window = source;
+		window = { source.cx * g_chromaScale, source.cy * g_chromaScale };
+		if (g_chromaScale > 1) {
+			printf("shown at %dx%d, enlarged by Catmull-Rom%s\n", window.cx, window.cy,
+				g_refFullW == window.cx && g_refFullH == window.cy ? "; scored against the file's own picture as well" : "");
+		}
 	}
 
 	wchar_t exe[MAX_PATH] = {};
@@ -3084,6 +3112,8 @@ int wmain(int argc, wchar_t* argv[])
 		{ .name = "ewa_hann",             .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_hann"             },
 		{ .name = "ewa_robidoux",         .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_robidoux"         },
 		{ .name = "ewa_robidouxsharp",    .bAhead = true, .iChromaScaling = CHROMA_Jinc, .ewa = L"ewa_robidouxsharp"    },
+		{ "RAVU-zoom",                         false, false, true, -1, CHROMA_RAVU              },
+		{ "FSRCNNX 8 AR",                      false, false, true, -1, CHROMA_FSRCNNX8AR        },
 	};
 	// --clean: the same reference, and the picture coded as MPEG-2 intra blocks through
 	// each path that converts it, without the artifact removal and with it. The cleaning
@@ -3181,7 +3211,8 @@ int wmain(int argc, wchar_t* argv[])
 		printf("against the clean picture's; block: its steps across the 8-pixel grid over its steps\n");
 		printf("elsewhere, both ways (1.00: none).\n\n");
 	} else if (g_bChroma) {
-		printf("BT.709, limited range, chroma sited left, shown at 1:1 with the dither off.\n");
+		printf(g_chromaScale > 1 ? "BT.709, limited range, chroma sited left, shown at twice its size with the dither off.\n"
+			: "BT.709, limited range, chroma sited left, shown at 1:1 with the dither off.\n");
 		printf("psnr-c: Cb and Cr of the displayed picture against the 4:4:4 one; psnr-e: the\n");
 		printf("same where the luma has edges, where bleeding shows; offset: the constant\n");
 		printf("shift of Cb and Cr, in 8-bit levels.\n\n");
@@ -3418,12 +3449,24 @@ int wmain(int argc, wchar_t* argv[])
 				firstPicture = r.picture;
 				firstW = r.pictureW;
 				firstH = r.pictureH;
-				printf("   this is the reference the others are measured against\n\n");
-				printf("   %-36s %8s %8s %9s %13s\n", "", "psnr-c", "psnr-e", "psnr-rgb", "offset Cb/Cr");
+				printf("   this is the reference the others are measured against\n");
+				const bool bFull = g_refFullW == r.pictureW && g_refFullH == r.pictureH;
+				if (bFull) {
+					const ChromaMetrics f = ScoreChroma(r.picture, g_refFull, r.pictureW, r.pictureH);
+					printf("   against the file's own picture: psnr-c %.2f, psnr-e %.2f, psnr-rgb %.2f\n",
+						f.psnrChroma, f.psnrEdges, f.psnrRgb);
+				}
+				printf("\n   %-36s %8s %8s %9s %13s%s\n", "", "psnr-c", "psnr-e", "psnr-rgb", "offset Cb/Cr",
+					bFull ? "   | file: psnr-c psnr-e psnr-rgb" : "");
 			} else if (r.pictureW == firstW && r.pictureH == firstH) {
 				const ChromaMetrics m = ScoreChroma(r.picture, firstPicture, firstW, firstH);
-				printf("   %-36s %8.2f %8.2f %9.2f  %+6.2f/%+6.2f\n", config.name,
+				printf("   %-36s %8.2f %8.2f %9.2f  %+6.2f/%+6.2f", config.name,
 					m.psnrChroma, m.psnrEdges, m.psnrRgb, m.offsetCb, m.offsetCr);
+				if (g_refFullW == r.pictureW && g_refFullH == r.pictureH) {
+					const ChromaMetrics f = ScoreChroma(r.picture, g_refFull, r.pictureW, r.pictureH);
+					printf("   | %12.2f %6.2f %9.2f", f.psnrChroma, f.psnrEdges, f.psnrRgb);
+				}
+				printf("\n");
 			}
 			continue;
 		}
