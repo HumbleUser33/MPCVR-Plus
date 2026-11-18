@@ -30,9 +30,12 @@
 // the cross-page timer dance nor CopyDlssSettings is needed here.
 //
 // Upstream's page (CVRMainPPage, IDD_MAINPROPPAGE) is left in the tree exactly as
-// it is and simply not listed by GetPages(): a merge from upstream then costs
-// nothing, which is the whole point of writing a new page rather than reworking
-// theirs.
+// it is and offered by nobody: a merge from upstream then costs nothing, which is
+// the whole point of writing a new page rather than reworking theirs. Its CLSID is
+// another matter: GetPages() lists it and dllmain.cpp makes this page for it, since
+// every installation of the original has it registered and a host that makes pages
+// through COM finds nothing under ours unless the filter was registered itself. The
+// CLSID below stays registered by DllRegisterServer, and nothing asks for it.
 //
 // The sections are separate dialogs, so a control lives in one of them and not in
 // the page. Item() finds it by id wherever it is, and everything below works in

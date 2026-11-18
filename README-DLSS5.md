@@ -75,7 +75,11 @@ player in its own way.
 
 - **MPC-BE** uses the renderer registered in Windows. `Install_MPCVR_64.cmd`, run as
   administrator, registers this one. Installing or updating MPC-BE registers its own copy
-  again, and the last one registered is the one used.
+  again, and the last one registered is the one used. Putting `MpcVideoRenderer64.ax` in
+  place of the one in MPC-BE's `Filters` folder also works, with no registering: since 3.0
+  the settings page answers to the identifier of the original's own page, which MPC-BE
+  registered. Before, MPC-BE, which makes a filter's pages through Windows, found nothing
+  under the page's identifier of its own and left the settings out, showing the other pages.
 - **MPC-HC** uses the copy in its own folder first, `MPCVR\MpcVideoRenderer64.ax` beside
   `mpc-hc64.exe`, and a registered renderer only when that copy is not there: registering
   MPCVR-Plus changes nothing in MPC-HC. Put `MpcVideoRenderer64.ax` and the `dlss` folder in

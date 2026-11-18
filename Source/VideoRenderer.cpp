@@ -2063,7 +2063,9 @@ STDMETHODIMP CMpcVideoRenderer::GetPages(CAUUID* pPages)
 	}
 
 	ULONG n = 0;
-	pPages->pElems[n++] = __uuidof(CVRSettingsPPage);
+	// Upstream's main page's CLSID, which makes ours (dllmain.cpp): the one every
+	// installation of the original has registered.
+	pPages->pElems[n++] = __uuidof(CVRMainPPage);
 	if (bActive) {
 		pPages->pElems[n++] = __uuidof(CVRInfoPPage);
 		pPages->pElems[n++] = guidQualityPPage;

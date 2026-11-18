@@ -47,7 +47,13 @@ const AMOVIESETUP_FILTER sudFilter[] = {
 
 CFactoryTemplate g_Templates[] = {
 	{sudFilter[0].strName, &__uuidof(CMpcVideoRenderer), CreateInstance<CMpcVideoRenderer>, nullptr, &sudFilter[0]},
-	{L"MainProp", &__uuidof(CVRMainPPage), CreateInstance<CVRMainPPage>, nullptr, nullptr},
+	// Our settings page answers to the CLSID of upstream's main page, which every
+	// installation of the original renderer has registered, MPC-BE's among them. A host
+	// that makes a filter's pages through COM (MPC-BE does) and finds a CLSID nobody
+	// registered leaves that page out without a word: with ours under a CLSID of its own,
+	// a renderer dropped in place of the original's showed every page but the settings.
+	// Upstream's page (CVRMainPPage) is still built, and offered by nobody.
+	{L"MainProp", &__uuidof(CVRMainPPage), CreateInstance<CVRSettingsPPage>, nullptr, nullptr},
 	{L"SettingsProp", &__uuidof(CVRSettingsPPage), CreateInstance<CVRSettingsPPage>, nullptr, nullptr},
 	{L"InfoProp", &__uuidof(CVRInfoPPage), CreateInstance<CVRInfoPPage>, nullptr, nullptr}
 };

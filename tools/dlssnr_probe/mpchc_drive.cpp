@@ -9,6 +9,10 @@
 // pointer is showing.
 //
 //   mpchc_drive.exe <mpc-hc64.exe> <film> [--windowed] [--select A,B,...] [--combo ID]
+//   mpchc_drive.exe <mpc-be64.exe> <film> --class MPC-BE --windowed --shots PREFIX
+//
+// --class is the player's main window class: MPC-HC's by default, "MPC-BE" for MPC-BE,
+// which opens a filter's options by the same Filters command.
 //
 // --select lists the positions to put the list on, one visit to the options each
 // (default: the HDR output list, IDC_COMBO10, moved to 3 and back to 1). Position -1
@@ -39,6 +43,7 @@ static std::wstring g_size;       // --size W,H: the player's window, when not f
 static int g_attach = 0;          // --attach N: watch a player that is already running for N seconds, touch nothing
 static std::wstring g_shots;      // --shots PREFIX: the options, one picture a tab, as the player's theme leaves them
 static bool g_verbose = false;   // --verbose: what the Filters menu held
+static std::wstring g_class = L"MediaPlayerClassicW";   // --class: the player's main window
 
 // --windows: every window the player makes, shows, hides or destroys while the options
 // are being used, with its class, its thread and where it is. A window that flashes for
@@ -395,7 +400,11 @@ static void SaveWindow(HWND hwnd, const std::wstring& path)
 	void* bits = nullptr;
 	HBITMAP bmp = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
 	HGDIOBJ old = SelectObject(mem, bmp);
-	BitBlt(mem, 0, 0, w, h, screen, rc.left, rc.top, SRCCOPY);
+	// The window drawn by itself, not the screen where it is: another window can be in
+	// front of the options, and the screen then shows that one.
+	if (!PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT)) {
+		BitBlt(mem, 0, 0, w, h, screen, rc.left, rc.top, SRCCOPY);
+	}
 	const DWORD stride = ((w * 3 + 3) & ~3), size = stride * h;
 	BITMAPFILEHEADER fh = {};
 	fh.bfType = 0x4D42;
@@ -414,15 +423,51 @@ static void SaveWindow(HWND hwnd, const std::wstring& path)
 	ReleaseDC(nullptr, screen);
 }
 
+// Every window under a dialog, with its class, its id, where it is and whether it shows:
+// a page that "does not appear" is either missing from here, empty, or hidden.
+static void DumpWindows(HWND parent, int depth)
+{
+	for (HWND h = GetWindow(parent, GW_CHILD); h; h = GetWindow(h, GW_HWNDNEXT)) {
+		wchar_t cls[64] = {}, text[64] = {};
+		GetClassNameW(h, cls, 64);
+		// Read where Windows keeps it, with no message to the player's window: the
+		// buffer is ours and the window another process's.
+		GetWindowTextW(h, text, 64);
+		RECT rc = {};
+		GetWindowRect(h, &rc);
+		printf("   %*s%-18ls id %5d %4ldx%-4ld %s \"%.30ls\"\n", depth * 2, "", cls, GetDlgCtrlID(h),
+			rc.right - rc.left, rc.bottom - rc.top, IsWindowVisible(h) ? "shown " : "HIDDEN", text);
+		if (depth < 3 && !wcscmp(cls, L"#32770")) {
+			DumpWindows(h, depth + 1);
+		}
+	}
+}
+
 // The options opened, each of the page's tabs brought up in turn and photographed,
 // and the options cancelled.
 static void ShootOptions()
 {
+	const HWND before = TopLevel(L"#32770");
 	if (!OpenOptions()) {
+		// Whatever did come up, if anything.
+		if (const HWND other = TopLevel(L"#32770", before)) {
+			RECT rc = {};
+			GetWindowRect(other, &rc);
+			printf("   a dialog did come, %ldx%ld:\n", rc.right - rc.left, rc.bottom - rc.top);
+			DumpWindows(other, 0);
+			SaveWindow(other, g_shots + L"failed.bmp");
+			SendMessageW(other, WM_CLOSE, 0, 0);
+		}
 		return;
 	}
 	const HWND dlg = TopLevel(L"#32770");
 	Sleep(800);
+	{
+		RECT rc = {};
+		GetWindowRect(dlg, &rc);
+		printf("   the options, %ldx%ld:\n", rc.right - rc.left, rc.bottom - rc.top);
+		DumpWindows(dlg, 0);
+	}
 	// The renderer's own tab control is the one with the most tabs; the sheet's has two.
 	struct T { HWND best; int count; } t = {};
 	EnumChildWindows(dlg, [](HWND h, LPARAM l) -> BOOL {
@@ -450,6 +495,12 @@ static void ShootOptions()
 			SendMessageW(t.best, TCM_SETCURFOCUS, i, 0);
 		}
 		Sleep(700);
+		{
+			RECT rc = {};
+			GetWindowRect(dlg, &rc);
+			printf("   tab %d, the options %ldx%ld:\n", i, rc.right - rc.left, rc.bottom - rc.top);
+			DumpWindows(dlg, 0);
+		}
 		SaveWindow(dlg, g_shots + std::to_wstring(i) + L".bmp");
 	}
 	if (HWND cancel = Child(dlg, L"Button", IDCANCEL)) {
@@ -494,7 +545,7 @@ static bool SetDisplayHz(int hz)
 // that the two can be laid side by side.
 static int Attach(int seconds)
 {
-	const HWND main = FindWindowW(L"MediaPlayerClassicW", nullptr);
+	const HWND main = FindWindowW(g_class.c_str(), nullptr);
 	if (!main) {
 		printf("no MPC-HC is running\n");
 		return 1;
@@ -559,6 +610,8 @@ int wmain(int argc, wchar_t** argv)
 			g_byMouse = true;
 		} else if (!wcscmp(argv[i], L"--noapply")) {
 			g_noApply = true;
+		} else if (!wcscmp(argv[i], L"--class") && i + 1 < argc) {
+			g_class = argv[++i];
 		} else if (!wcscmp(argv[i], L"--verbose")) {
 			g_verbose = true;
 		} else if (!wcscmp(argv[i], L"--combo") && i + 1 < argc) {
@@ -589,7 +642,7 @@ int wmain(int argc, wchar_t** argv)
 		return 1;
 	}
 	g_pid = pi.dwProcessId;
-	g_main = WaitFor([] { return TopLevel(L"MediaPlayerClassicW"); }, 15000);
+	g_main = WaitFor([] { return TopLevel(g_class.c_str()); }, 15000);
 	if (!g_main) {
 		printf("the player's window never came\n");
 		TerminateProcess(pi.hProcess, 1);
