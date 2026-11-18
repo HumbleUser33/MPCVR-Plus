@@ -167,6 +167,7 @@ notice its absence.
 | 4:4:4 pre-pass ("Use this method instead of the video processor's chroma upsampling") | `Source/DX11VideoProcessorMpv.cpp`, `Source/Shaders.cpp` | `shader444_test`, `--chroma10`, `vp444_probe` |
 | The flip model kept on a window (no more freeze) | `Source/DX11VideoProcessor.cpp` | `playback_test --toggle`, `--switch` |
 | Every setting applied while the film plays | `Source/VideoRenderer.cpp`, `DX11VideoProcessor.cpp` | `--toggle`, `--switch`, `--gpu` |
+| The measured peak's start over at a cut on the HDR tab, the jumping picture drawn with its own peak (upstream drew it with the scene before's) | `Shaders/d3d11/cs_hdr_resolve.hlsl`, `Shaders/d3d9/hdr_peak_state.hlsl` (`provisional`), `Source/SettingsPage/` (`IDC_SDR_PEAK_CUTS`) | `--ttonemap`; `playback_test --file <make_hdr_scenes.py's film> --peakcuts 1 --cadence 1` with `MPCVR_PACING_TRACE`, then `pacing_report.py --peak` |
 | Lanczos weights kept finite at integer scale | `Shaders/d3d11/ps_interpolation_lanczos*.hlsl` | `--tupscale` |
 | The paused picture kept across a processor rebuild | `Source/D3D11VP.h`, `DX11VideoProcessor.cpp` | `vp_rebuild_test` |
 | `Tex2D_t::CheckCreate` minding the texture type | `Source/DX11Helper.h` | it compiles, and `--frames 300` |

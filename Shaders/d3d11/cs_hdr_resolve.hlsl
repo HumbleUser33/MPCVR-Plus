@@ -11,7 +11,12 @@
 // seconds.  A highlight that appears is followed by a straight ramp of that length in either
 // direction, and a single bright frame moves the result by one part in the number of frames.
 // The window starts afresh at a scene change, which is taken from the mean brightness of the
-// whole picture and not from the peak: a bright object entering a scene is not a cut.
+// whole picture and not from the peak: a bright object entering a scene is not a cut. The jump is
+// only followed once the next frame agrees, and the frame that jumped is drawn with its own peak
+// meanwhile, the window left as it was: a new scene's first picture would otherwise be drawn
+// with the scene before's peak and its second with its own, a step one picture after the cut
+// (the cadence slips' detector took it for a second cut, 16 times in 16). A one-frame flash is
+// drawn with its own peak too, and leaves the window alone.
 //
 // With windowTime == 0 the peak rises at once and relaxes slowly.  That is safe for the models
 // that use it, BT.2390 and Mobius: below their knee nothing moves whatever the peak does.
@@ -127,12 +132,14 @@ void main(uint tid : SV_GroupIndex)
 	float4 win = state[STATE_HEAD - 1];
 	const bool first = s.z < 0.5f;
 	const float a = 1.0f - exp(-frameTime / max(releaseTime, 0.001f));
+	bool provisional = false; // a jump the next frame has yet to confirm
 
 	if (windowTime > 0.0f) {
 		// A jump of the picture's mean brightness is a candidate cut; it is only followed if
 		// the next frame agrees with it, so that a flash does not empty the window.
 		const bool jump = !first && abs(meanPQ - win.z) > sceneCutPQ;
 		const bool confirmed = jump && cut.y > 0.5f && abs(meanPQ - cut.x) < sceneCutPQ;
+		provisional = jump && !confirmed;
 		if (first || confirmed) {
 			s = float4(peakPQ, avgPQ, 1.0f, minPQ);
 			win = float4(0.0f, 0.0f, meanPQ, 0.0f);
@@ -187,7 +194,7 @@ void main(uint tid : SV_GroupIndex)
 	// The floor is applied to what the tone mapping reads, not to the state that is smoothed,
 	// so it cannot look like a scene change or hold the peak up once the content is brighter.
 	state[1] = float4(peakNits, avgNits,
-					  max(ST2084ToLinear(s.x, 10000.0f).x, peakFloor),
+					  max(ST2084ToLinear(provisional ? peakPQ : s.x, 10000.0f).x, peakFloor),
 					  ST2084ToLinear(s.y, 10000.0f).x);
 	state[2] = float4(minNits, ST2084ToLinear(s.w, 10000.0f).x, 0.0f, 0.0f);
 	state[3] = cut;

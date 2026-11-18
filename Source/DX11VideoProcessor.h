@@ -588,6 +588,7 @@ private:
 	// Every picture's way to the screen, written to a file when one is asked for.
 	CPacingTrace m_PacingTrace;
 	CCutReadback m_SRCutReadback;       // what DLSS SR's cut detection said of each picture, for it
+	CCutReadback m_HdrTraceReadback;    // and the HDR peak measurement
 	bool m_bSkipNextSample = false;     // the schedule asked for the next sample to be left out undrawn
 	std::wstring m_strTraceNote;
 	std::wstring m_strTraceDlss;

@@ -831,6 +831,22 @@ void CPacingTrace::SetGpu(long long rtStart, float vpMs, float allMs)
 	}
 }
 
+void CPacingTrace::SetHdr(long long rtStart, const float* state)
+{
+	// The layout of cs_hdr_resolve.hlsl: state[1] = { raw peak, raw average, peak used
+	// (floored), smoothed average }, nits; state[4] = { window position, frames in it, ... }.
+	const size_t n = m_pictures.size();
+	for (size_t i = 0; i < n && i < 32; i++) {
+		Picture& p = m_pictures[n - 1 - i];
+		if (p.rtStart == rtStart && p.hdrPeak < 0) {
+			p.hdrPeak = (int)std::lround(std::clamp(state[4], 0.0f, 10000.0f));
+			p.hdrUsed = (int)std::lround(std::clamp(state[6], 0.0f, 10000.0f));
+			p.hdrFrames = (int)std::lround(std::clamp(state[17], 0.0f, 100000.0f));
+			return;
+		}
+	}
+}
+
 void CPacingTrace::Write(const size_t keep)
 {
 	if (!m_bEnabled || (m_pictures.empty() && m_notes.empty())) {
@@ -852,20 +868,21 @@ void CPacingTrace::Write(const size_t keep)
 			"tickPresentReturn,tickTarget,renderAhead,flags,"
 			"lastPresent0,presentCount0,presentRefresh0,syncRefresh0,syncQpc0,"
 			"lastPresent1,presentCount1,presentRefresh1,syncRefresh1,syncQpc1,"
-			"nrWaitUs,nrRecordUs,nrGpuUs,cutHist,cutRatio,cutResid,cutCorr,tickGpuDone,tickStamp,tickDue,gpuVpUs,gpuAllUs\n");
+			"nrWaitUs,nrRecordUs,nrGpuUs,cutHist,cutRatio,cutResid,cutCorr,tickGpuDone,tickStamp,tickDue,gpuVpUs,gpuAllUs,"
+			"hdrPeak,hdrUsed,hdrFrames\n");
 	}
 	for (const std::wstring& note : m_notes) {
 		fprintf(file, "# %ls\n", note.c_str());
 	}
 	for (size_t i = 0; i < count; i++) {
 		const Picture& p = m_pictures[i];
-		fprintf(file, "%llu,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%u,%u,%u,%u,%u,%lld,%u,%u,%u,%u,%lld,%d,%d,%d,%d,%d,%d,%d,%lld,%lld,%lld,%d,%d\n",
+		fprintf(file, "%llu,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%u,%u,%u,%u,%u,%lld,%u,%u,%u,%u,%lld,%d,%d,%d,%d,%d,%d,%d,%lld,%lld,%lld,%d,%d,%d,%d,%d\n",
 			m_written++, p.rtStart, p.rtClockAtCall, p.rtClockAtReturn, p.tickSample, p.tickDrawn, p.tickAfterVBlank,
 			p.tickPresentCall, p.tickPresentReturn, p.tickTarget, p.renderAhead, p.flags,
 			p.before.lastPresent, p.before.presentCount, p.before.presentRefresh, p.before.syncRefresh, p.before.syncQpc,
 			p.after.lastPresent, p.after.presentCount, p.after.presentRefresh, p.after.syncRefresh, p.after.syncQpc,
 			p.nrWaitUs, p.nrRecordUs, p.nrGpuUs, p.cutHist, p.cutRatio, p.cutResid, p.cutCorr,
-			p.tickGpuDone, p.tickStamp, p.tickDue, p.gpuVpUs, p.gpuAllUs);
+			p.tickGpuDone, p.tickStamp, p.tickDue, p.gpuVpUs, p.gpuAllUs, p.hdrPeak, p.hdrUsed, p.hdrFrames);
 	}
 	fclose(file);
 	m_pictures.erase(m_pictures.begin(), m_pictures.begin() + count);
@@ -881,7 +898,8 @@ void CCutReadback::Release()
 	}
 }
 
-void CCutReadback::Copy(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, ID3D11Buffer* pState, long long rtStart)
+void CCutReadback::Copy(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, ID3D11Buffer* pState, long long rtStart,
+	const UINT bytes)
 {
 	if (!pDevice || !pContext || !pState) {
 		return;
@@ -893,6 +911,11 @@ void CCutReadback::Copy(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, ID
 		if (!slot.pStaging) {
 			D3D11_BUFFER_DESC desc = {};
 			pState->GetDesc(&desc);
+			if (bytes) {
+				// The head alone, into a plain buffer, as the statistics read the HDR state.
+				desc.ByteWidth = std::min(bytes, desc.ByteWidth);
+				desc.StructureByteStride = 0;
+			}
 			desc.Usage          = D3D11_USAGE_STAGING;
 			desc.BindFlags      = 0;
 			desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -900,8 +923,14 @@ void CCutReadback::Copy(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, ID
 			if (FAILED(pDevice->CreateBuffer(&desc, nullptr, &slot.pStaging))) {
 				return;
 			}
+			slot.bytes = desc.ByteWidth;
 		}
-		pContext->CopyResource(slot.pStaging, pState);
+		if (bytes) {
+			const D3D11_BOX box = { 0, 0, 0, slot.bytes, 1, 1 };
+			pContext->CopySubresourceRegion(slot.pStaging, 0, 0, 0, 0, pState, 0, &box);
+		} else {
+			pContext->CopyResource(slot.pStaging, pState);
+		}
 		slot.rtStart = rtStart;
 		slot.order = m_copies++;
 		slot.bPending = true;

@@ -8,6 +8,7 @@ on, how long after its own time, and whether the one before it had left.
     python pacing_report.py trace.csv [--skip 3] [--rows N] [--plot]
     python pacing_report.py trace.csv --dlss
     python pacing_report.py trace.csv --cuts [--near N]
+    python pacing_report.py trace.csv --peak [--floor 640]
 
 --dlss says instead what the DLSS passes did: for every stretch between two notes,
 how many of its pictures DLSS 5 NR and DLSS Super Resolution really ran on, and how
@@ -17,6 +18,13 @@ many the video processor enlarged after DLSS 5 NR.
 cut, at its time in the stream (from the last seek), with its four measures, and the N
 pictures (10) that came closest to one without being called: closeness is how near its
 measures came to the detector's limits, 1 being a cut.
+
+--peak follows the HDR peak measurement (cs_hdr_resolve.hlsl) across the scene cuts the
+cadence slips' own detector found (CSceneCut, a detector apart from the measurement's): for each
+cut, the scene's own peak (the mean of its pictures' peaks over its first three seconds, never
+under the floor), how many pictures the peak the curve was given took to come within 10 % of it
+and stay there, and whether the measurement's window started over at the cut. Window restarts
+that fell on no cut are counted too: a flash taken for one.
 
 DXGI numbers every Present call and says, of the last picture shown, which call it
 was and on which refresh. Read before and after every Present, that gives the
@@ -41,8 +49,10 @@ COLUMNS = ("n rtStart rtClockAtCall rtClockAtReturn tickSample tickDrawn tickAft
            "last0 count0 refresh0 sync0 qpc0 last1 count1 refresh1 sync1 qpc1").split()
 # What the trace gained later; a file written before has none of them, and reads as zeros,
 # or for the cut measures as -1, not measured.
-MORE = "nrWaitUs nrRecordUs nrGpuUs cutHist cutRatio cutResid cutCorr tickGpuDone tickStamp tickDue gpuVpUs gpuAllUs".split()
-UNMEASURED = dict(cutHist=-1, cutRatio=-1, cutResid=-1, cutCorr=-1, gpuVpUs=-1, gpuAllUs=-1)
+MORE = ("nrWaitUs nrRecordUs nrGpuUs cutHist cutRatio cutResid cutCorr tickGpuDone tickStamp tickDue gpuVpUs gpuAllUs "
+        "hdrPeak hdrUsed hdrFrames").split()
+UNMEASURED = dict(cutHist=-1, cutRatio=-1, cutResid=-1, cutCorr=-1, gpuVpUs=-1, gpuAllUs=-1,
+                  hdrPeak=-1, hdrUsed=-1, hdrFrames=-1)
 
 HELD, VBLANK, FIELD2, NOT_PRESENTED, VP, RTX_HDR, HDR, EXCLUSIVE, SCHEDULED, REPEATED, DROPPED = (
     1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
@@ -457,9 +467,73 @@ def cut_report(stretches, near):
     return 0
 
 
+def peak_report(stretches, floor):
+    """How the measured peak the HDR curve is given followed each scene cut."""
+    measured = 0
+    for notes, rows in stretches:
+        rows = [r for r in rows if r["hdrPeak"] >= 0]
+        if len(rows) < 2:
+            continue
+        measured += len(rows)
+        frame = (rows[-1]["rtStart"] - rows[0]["rtStart"]) / max(len(rows) - 1, 1)
+        three = max(int(round(3e7 / frame)), 1) if frame > 0 else 72
+        cuts = [i for i, r in enumerate(rows) if r["flags"] & CADENCE_CUT]
+        restarts = [i for i in range(1, len(rows)) if rows[i]["hdrFrames"] < rows[i - 1]["hdrFrames"]]
+        print("%d pictures measured, %d cuts found by the cadence detector, %d window restarts" % (
+            len(rows), len(cuts), len(restarts)))
+        print("  %9s  %7s  %7s  %7s  %9s  %s" % ("time", "before", "scene", "peak", "settles", "restart"))
+        settles = []
+        for c, i in enumerate(cuts):
+            end = cuts[c + 1] if c + 1 < len(cuts) else len(rows)
+            scene = rows[i:min(end, i + three)]
+            if len(scene) < 6:
+                continue
+            target = max(sum(r["hdrPeak"] for r in scene) / len(scene), floor)
+            before = rows[i - 1]["hdrUsed"] if i > 0 else -1
+            settle = None
+            for k in range(len(scene)):
+                if all(abs(r["hdrUsed"] - target) <= 0.10 * target for r in scene[k:]):
+                    settle = k
+                    break
+            restart = [j - i for j in restarts if i - 1 <= j <= i + 3]
+            settles.append((abs(before - target) > 0.10 * target, settle))
+            print("  %8.2fs  %7d  %7d  %7d  %9s  %s" % (
+                rows[i]["rtStart"] / 1e7, before, target, rows[i]["hdrUsed"],
+                "never" if settle is None else "%d" % settle,
+                ("at +%d" % restart[0]) if restart else "-"))
+        stray = [j for j in restarts if not any(i - 1 <= j <= i + 3 for i in cuts)]
+        moved = [s for m, s in settles if m]
+        if moved:
+            done = sorted(s for s in moved if s is not None)
+            print("  cuts where the peak had to move by more than 10 %%: %d; settled in a median of %s pictures, "
+                  "%d never within the scene's first three seconds" % (
+                      len(moved), done[len(done) // 2] if done else "-", len(moved) - len(done)))
+        print("  window restarts on no cut: %d%s" % (len(stray), (" (at %s)" % ", ".join(
+            "%.2fs" % (rows[j]["rtStart"] / 1e7) for j in stray[:10])) if stray else ""))
+    if not measured:
+        print("no HDR peak measurement in this trace: no measured peak was in use, or the trace is older than it")
+        return 1
+    return 0
+
+
 def main():
     args = sys.argv[1:]
     skip, max_rows, plot = 3.0, 0, False
+    if "--peak" in args:
+        args.remove("--peak")
+        floor = 640
+        if "--floor" in args:
+            at = args.index("--floor")
+            floor = int(args[at + 1])
+            del args[at:at + 2]
+        if len(args) != 1:
+            print(__doc__)
+            return 2
+        qpf, stretches = read(args[0])
+        if not stretches:
+            print("no picture in " + args[0])
+            return 1
+        return peak_report(stretches, floor)
     if "--cuts" in args:
         args.remove("--cuts")
         near = 10

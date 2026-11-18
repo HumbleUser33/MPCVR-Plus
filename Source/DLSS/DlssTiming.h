@@ -22,6 +22,7 @@
 
 #include <d3d11.h>
 #include <atlbase.h>
+#include <algorithm>
 #include <atomic>
 #include <string>
 #include <vector>
@@ -553,6 +554,10 @@ public:
 		// GPU time, microseconds, while the statistics show (CGpuStageTimes): the video
 		// processor's turn, and every stage timed. -1: not measured.
 		int gpuVpUs = -1, gpuAllUs = -1;
+		// The HDR peak measurement (cs_hdr_resolve.hlsl), read back later: the picture's own
+		// peak and the peak the curve was given, nits, and how many pictures the window held,
+		// which falls back to one where it starts over at a cut. -1: not measured.
+		int hdrPeak = -1, hdrUsed = -1, hdrFrames = -1;
 	};
 
 	CPacingTrace();
@@ -568,6 +573,8 @@ public:
 	static void TakeCut(Picture& p, const float* state);
 	// Its GPU times (CGpuStageTimes::Take), likewise.
 	void SetGpu(long long rtStart, float vpMs, float allMs);
+	// Its HDR peak measurement, the head of cs_hdr_resolve.hlsl's state, likewise.
+	void SetHdr(long long rtStart, const float* state);
 	// Out to the file, all but the last `keep` pictures, which SetCut and SetGpu may still fill.
 	void Write(size_t keep = 0);
 
@@ -590,10 +597,14 @@ class CCutReadback
 {
 public:
 	void Release();
-	void Copy(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, ID3D11Buffer* pState, long long rtStart);
+	// bytes: how much of pState, from its start; 0 for all of it.
+	void Copy(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, ID3D11Buffer* pState, long long rtStart,
+		UINT bytes = 0);
 
 	// What the GPU has finished, oldest first: found(rtStart, state), state as
-	// GetCutState describes it.
+	// GetCutState describes it, or the head of whatever buffer was copied (kFloats at most,
+	// zeros past what was).
+	static constexpr int kFloats = 24;
 	template<class F> void Collect(ID3D11DeviceContext* pContext, F&& found)
 	{
 		for (;;) {
@@ -607,8 +618,8 @@ public:
 			if (!pOldest || pContext->Map(pOldest->pStaging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mr) != S_OK) {
 				return;
 			}
-			float state[16];
-			memcpy(state, mr.pData, sizeof(state));
+			float state[kFloats] = {};
+			memcpy(state, mr.pData, std::min<size_t>(pOldest->bytes, sizeof(state)));
 			pContext->Unmap(pOldest->pStaging, 0);
 			pOldest->bPending = false;
 			found(pOldest->rtStart, state);
@@ -621,6 +632,7 @@ private:
 		CComPtr<ID3D11Buffer> pStaging;
 		long long rtStart = 0;
 		uint64_t order = 0;
+		UINT bytes = 0;
 		bool bPending = false;
 	};
 	Slot m_slots[kSlots];

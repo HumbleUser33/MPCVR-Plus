@@ -1853,18 +1853,53 @@ nits):
 | | peak used, off by | 36 % | 34 % |
 | | highlights cut flat | 10.0 % | 0.2 % |
 | | highlights off by | 14.0 nits | 6.0 nits |
-| The filter, *Start over at a scene cut* | settles in | 1 picture | 1 picture |
-| | highlights off by | 0.5 nits | 0.2 nits |
+| The filter, *Start over at a scene cut* | settles in | 0: its first picture | 0 |
+| | highlights off by | 0.1 nits | 0.0 nits |
 | libplacebo, its default | settles in | 0 | 0 |
 | | highlights off by | 0.6 nits | 0.1 nits |
 
 So the measurement is right and the window is slow: within a scene the filter's peak is within
 0.4 % of the picture's, and a cut takes the window's three seconds to come through, where the
 setting that was already there, `SdrPeakSceneCuts` -- now the HDR tab's *Start over at a scene
-cut* -- brings it to one picture: what libplacebo
-does with its hysteresis. The 300-nit scene is left out of the comparison: the floor holds the
-filter's peak at 640 there, and below the display's 750 the curve does nothing whatever the peak.
-What a cut-restart does on a flash or a slow fade, where it could pump, is not in these pictures.
+cut* -- brings it to the scene's first picture, as libplacebo does with its hysteresis. The
+300-nit scene is left out of the comparison: the floor holds the filter's peak at 640 there, and
+below the display's 750 the curve does nothing whatever the peak.
+
+**In the filter itself.** The same four scenes, made into an HDR10 film by
+`make_hdr_scenes.py upscale_refs <out.mkv>` (HEVC 10-bit, PQ and BT.2020 in the stream, 23.976 pictures a second, the four repeated eight times: 80 s, 24 real
+cuts), played by `playback_test --file <it> --hdrtm 4 --measurepeak 1 --peakcuts 0|1 --cadence
+0|1` on a 60 Hz screen, with `MPCVR_PACING_TRACE` writing every picture's own peak, the peak the
+curve was given and the window's count (`pacing_report.py <trace> --peak`). The cuts are the
+ones the cadence slips' detector found, which is a detector apart from the measurement's:
+
+| | cuts the peak followed at once | the others | window restarts on no cut |
+|---|---|---|---|
+| *Start over at a scene cut* off | 0 of 24: 60 to 64 pictures each | | 0 |
+| on | 16 of 24, from the scene's first picture | 8, 64 pictures each | 0 |
+
+The eight it misses are the cuts from the 4000-nit scene to the 300-nit one. The window starts
+over on a jump of the picture's **mean** brightness (more than 0.10 in PQ), so that a bright
+object entering a shot does not restart it; there the shots differ in their highlights and
+hardly in their mean, and the floor of 640 nits then takes the window's three seconds to come
+down to. A cut that only changes the highlights is not seen as one.
+
+The jump is followed once the next picture agrees, so that a one-frame flash cannot empty the
+window. Upstream drew the jumping picture with the window's peak meanwhile: a new scene's first
+picture got the scene before's, and its second its own, a step one picture after the cut. The
+cadence slips' detector, run beside it, called that step a second cut 16 times in 16 (40 cuts
+where there are 24). That picture is now drawn with its own peak, the window left as it was
+until the next one says whether it was a cut: 24 cuts again, and the peak the curve was given
+changed on those 16 pictures and no other. A one-frame flash is drawn with its own peak too and
+leaves the window alone; a slow fade has no jump to take. Direct3D 9's own peak (`hdr_peak_state.hlsl`)
+does the same.
+
+The two options leave each other alone otherwise. With *Start over* on, the peak the curve was
+given is the same on all 1 918 pictures with *Hide the 60 Hz hiccup* on and off, and the
+hiccups are the same with *Start over* on and off: 10 on scene changes, none forced, on the same
+pictures. They find cuts apart on purpose: the measurement's test costs nothing (the mean of the
+histogram it makes anyway, compared on the GPU in the same picture), and the cadence detector
+looks at the finished picture, after the tone mapping, and answers once the GPU is done with it,
+too late for the curve of the picture it is asked about.
 
 The rest of what libplacebo adds to its tone mapping was looked at and not taken: a black
 cutoff for the mean brightness (the filter's curves read the peak, never the mean), a knee that
@@ -2700,7 +2735,7 @@ key, both DLL paths, and the working size, which is what the card can carry.
 | Method | Metadata | How that conversion is done. *Fixed*: one curve for every film, the only one up to upstream 0.10.9. *Metadata*: a curve made for the content's peak (MaxCLL, else the mastering display's, else 1000 nits) and the SDR brightness. *Measured*: the same curve, from the peak of each picture, measured on the GPU and smoothed. Where the shaders convert the picture rather than the video processor (Dolby Vision among them), *Measured* works as *Metadata*. Its window and its floor are upstream's registry-only values (`SdrPeakWindowMs`, 3000; `SdrPeakFloorNits`, 640), which no preset holds; whether it starts over at a cut is the box below |
 | SDR brightness | 125 nits | The target of that conversion, 25 to 400. Applies as the slider is dragged |
 | RTX Video HDR | off | The NVIDIA driver turns SDR video into HDR. Needs HDR output on Passthrough or a tone map method, an HDR display with Windows HDR on, an RTX card, the 64-bit filter, a bit depth other than 8-bit and a format the video processor converts. The statistics star it (`RTX Video HDR*`) while it runs. The driver leaves out a picture the processor writes in fewer than 640x360 pixels, and the line then adds `left out by the driver under 640x360`; where the shaders resize, the processor first enlarges such a picture just past that, which the Processor step says (`to 740x312 for RTX Video HDR`) -- see *RTX Video HDR on a small picture*. The driver applies it only when the NVIDIA app has it on, as bright as the app says: the statistics give both, and what the driver wrote (*What the driver is set to, and what it writes*) |
-| Start over at a scene cut | off | Beside *Measured peak*. The measured peak, of the tone mapping (*Measured peak*) and of the conversion to SDR (*Measured*), is smoothed over three seconds; with this, a jump in the mean brightness is taken for a cut and the smoothing starts over, so that the new scene's peak is used from its first picture (`SdrPeakSceneCuts`, upstream's registry-only value, on the page since 3.0). A flash or a fast fade can be taken for a cut too. Available while one of the two measurements is in use; not carried by a preset (see *Following the peak*) |
+| Start over at a scene cut | off | Beside *Measured peak*. The measured peak, of the tone mapping (*Measured peak*) and of the conversion to SDR (*Measured*), is smoothed over three seconds; with this, a jump in the mean brightness is taken for a cut and the smoothing starts over, so that the new scene's peak is used from its first picture (`SdrPeakSceneCuts`, upstream's registry-only value, on the page since 3.0). A cut that changes the highlights and not the mean is not seen as one; a one-frame flash is drawn with its own peak and leaves the smoothing alone. Available while one of the two measurements is in use; not carried by a preset (see *Following the peak*) |
 
 ### Presentation
 
@@ -3155,6 +3190,10 @@ their time in the stream (from the last seek), and the ten that came closest wit
 called: the detection's measures are read back from the GPU a few pictures later, never waited
 for, and written on the line of the picture they belong to.
 
+`pacing_report.py trace.csv --peak` follows the HDR peak measurement across the cuts the cadence
+slips' detector found (*Following the peak*): each picture's own peak, the peak the curve was
+given and how many pictures the window held, read back the same way, a few pictures later.
+
 A session that stops by itself shows there as pictures DLSS no longer ran on under a note
 that still asks for it, and nowhere else: the film goes on playing. To see what the renderer
 does about it, `MPCVR_DLSSNR_FAIL_AT=100` in the player's environment makes every hundredth
@@ -3303,6 +3342,7 @@ playback_test.exe --toggle       each setting changed in full playback, as the p
 playback_test.exe --toggle --gpu --hdr --switch   as a hardware decoder feeds it, in HDR
 playback_test.exe --toggle --file <mkv> --seek 1740   a real film, split and decoded
 playback_test.exe --file <film> --cadence N   the cadence slips: 0 where they fall, 1 on a cut, 2 else made
+playback_test.exe --file <film> --peakcuts 0|1   the measured peak starts over at a cut or not (pacing_report.py --peak)
 playback_test.exe --nrscale 70 --nrscaleto 100   DLSS 5 NR's working size, and another taken while it plays
 playback_test.exe --filter <ax>   any of the above with another build of the x64 filter
 ```

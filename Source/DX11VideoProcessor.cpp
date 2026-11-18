@@ -748,6 +748,7 @@ void CDX11VideoProcessor::ReleaseVP()
 	m_DlssSR.ReleaseFeature();
 	m_DlssSRMotion.Release();
 	m_SRCutReadback.Release();
+	m_HdrTraceReadback.Release();
 	m_RenderAhead.Reset();
 	m_DlssNRTimes.Reset();
 	CadenceReset();
@@ -1353,6 +1354,12 @@ HRESULT CDX11VideoProcessor::MeasureHdrPeak(const Tex2D_t& tex, const CRect& rec
 	ID3D11UnorderedAccessView* pNullUAVs[2] = {};
 	m_pDeviceContext->CSSetUnorderedAccessViews(0, 2, pNullUAVs, nullptr);
 	m_pDeviceContext->CSSetShader(nullptr, nullptr, 0);
+
+	// The picture's measurement in the pacing trace, when one is written: the head of the
+	// state, the window's count included.
+	if (m_PacingTrace.Enabled()) {
+		m_HdrTraceReadback.Copy(m_pDevice, m_pDeviceContext, m_pHdrStateBuffer, m_rtStart, 5 * 4 * sizeof(float));
+	}
 
 	return S_OK;
 }
@@ -3735,6 +3742,9 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		});
 		m_DlssStageTimes.Take([this](const CGpuStageTimes::Measured& measured) {
 			m_PacingTrace.SetGpu(measured.tag, measured.vpMs, measured.allMs);
+		});
+		m_HdrTraceReadback.Collect(m_pDeviceContext, [this](long long rtStart, const float* state) {
+			m_PacingTrace.SetHdr(rtStart, state);
 		});
 	}
 	const bool bTrace = m_PacingTrace.Enabled() && field && frameStartTime != INVALID_TIME;

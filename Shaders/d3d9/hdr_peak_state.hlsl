@@ -7,7 +7,9 @@
 //
 // A scene change is judged on the mean of the picture rather than the peak, so a bright object
 // entering a scene is not a cut, and it is only followed if the next frame agrees with it, so a
-// one frame flash does not restart the window.  Both of those match Direct3D 11.
+// one frame flash does not restart the window.  The frame that jumped is drawn with its own peak
+// meanwhile, so that a new scene's first picture is not drawn with the scene before's.  All of
+// those match Direct3D 11.
 //
 // The target is 2x1:
 //   texel 0 = { peak (PQ), mean of the picture (PQ), first filter (PQ), pending cut (PQ, -1 none) }
@@ -43,6 +45,7 @@ float4 main(float2 tex : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float mean = prev.y;
     float stage1 = prev.z;
     float pending = prev.w;
+    bool provisional = false; // a jump the next frame has yet to confirm
 
     if (first) {
         peak = peakPQ;
@@ -62,6 +65,7 @@ float4 main(float2 tex : TEXCOORD0, float2 vpos : VPOS) : COLOR
     else {
         const bool jump = abs(meanPQ - mean) > sceneCutPQ;
         const bool confirmed = jump && pending >= 0.0f && abs(meanPQ - pending) < sceneCutPQ;
+        provisional = jump && !confirmed;
         if (confirmed) {
             peak = peakPQ;
             stage1 = peakPQ;
@@ -80,7 +84,7 @@ float4 main(float2 tex : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // the floor is applied to what the conversion reads, not to what is smoothed, so it cannot
     // look like a scene change or hold the peak up once the content is brighter
     if (floor(vpos.x) > 0.5f) {
-        return float4(max(ST2084ToLinear(float4(peak, 0.0f, 0.0f, 0.0f), 10000.0f).x, peakFloor), 0.0f, 0.0f, 0.0f);
+        return float4(max(ST2084ToLinear(float4(provisional ? peakPQ : peak, 0.0f, 0.0f, 0.0f), 10000.0f).x, peakFloor), 0.0f, 0.0f, 0.0f);
     }
     return float4(peak, mean, stage1, pending);
 }
