@@ -483,8 +483,8 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		L"Target brightness of that conversion, in nits (25 to 400). Applies while you drag, so "
 		"you can judge it on the picture." },
 	{ IDC_SDR_PEAK_CUTS,
-		L"The measured peak (Measured peak above, and the Measured method of the conversion to "
-		"SDR) is smoothed over three seconds so that the picture does not pump. With this, a "
+		L"The measured peak (Measured peak, beside it, and the Measured method of the conversion "
+		"to SDR, on the right) is smoothed over three seconds so that the picture does not pump. With this, a "
 		"jump in the picture's mean brightness is taken for a scene cut and the smoothing starts "
 		"over: the new scene's peak is used from its first picture instead of after about 60, and "
 		"its highlights are not clipped meanwhile. A flash or a fast fade can be taken for a cut "

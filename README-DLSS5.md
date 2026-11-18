@@ -1831,7 +1831,7 @@ it are cut flat, too high and they are pressed down for nothing. The measurement
 brightest pixels but one in 10 000 of each picture, and the curve is given the mean of those
 peaks over the last three seconds (`SdrPeakWindowMs`), never under 640 nits (`SdrPeakFloorNits`);
 by default the window does not start over at a cut, which is upstream's choice (`SdrPeakSceneCuts`,
-off, "what matches madVR"; on the HDR tab since 3.0, *Start over at each scene cut*).
+off, "what matches madVR"; on the HDR tab since 3.0, *Start over at a scene cut*).
 libplacebo -- what FrankyRenderer and mpv use -- follows a low-pass of 20 pictures that a
 change in the mean brightness opens at once.
 
@@ -1849,15 +1849,15 @@ nits):
 | | peak used, off by | 36 % | 34 % |
 | | highlights cut flat | 10.0 % | 0.2 % |
 | | highlights off by | 14.0 nits | 6.0 nits |
-| The filter, *Start over at each scene cut* | settles in | 1 picture | 1 picture |
+| The filter, *Start over at a scene cut* | settles in | 1 picture | 1 picture |
 | | highlights off by | 0.5 nits | 0.2 nits |
 | libplacebo, its default | settles in | 0 | 0 |
 | | highlights off by | 0.6 nits | 0.1 nits |
 
 So the measurement is right and the window is slow: within a scene the filter's peak is within
 0.4 % of the picture's, and a cut takes the window's three seconds to come through, where the
-setting that was already there, `SdrPeakSceneCuts` -- now the HDR tab's *Start over at each
-scene cut* -- brings it to one picture: what libplacebo
+setting that was already there, `SdrPeakSceneCuts` -- now the HDR tab's *Start over at a scene
+cut* -- brings it to one picture: what libplacebo
 does with its hysteresis. The 300-nit scene is left out of the comparison: the floor holds the
 filter's peak at 640 there, and below the display's 750 the curve does nothing whatever the peak.
 What a cut-restart does on a flash or a slow fade, where it could pump, is not in these pictures.
@@ -2696,7 +2696,7 @@ key, both DLL paths, and the working size, which is what the card can carry.
 | Method | Metadata | How that conversion is done. *Fixed*: one curve for every film, the only one up to upstream 0.10.9. *Metadata*: a curve made for the content's peak (MaxCLL, else the mastering display's, else 1000 nits) and the SDR brightness. *Measured*: the same curve, from the peak of each picture, measured on the GPU and smoothed. Where the shaders convert the picture rather than the video processor (Dolby Vision among them), *Measured* works as *Metadata*. Its window and its floor are upstream's registry-only values (`SdrPeakWindowMs`, 3000; `SdrPeakFloorNits`, 640), which no preset holds; whether it starts over at a cut is the box below |
 | SDR brightness | 125 nits | The target of that conversion, 25 to 400. Applies as the slider is dragged |
 | RTX Video HDR | off | The NVIDIA driver turns SDR video into HDR. Needs HDR output on Passthrough or a tone map method, an HDR display with Windows HDR on, an RTX card, the 64-bit filter, a bit depth other than 8-bit and a format the video processor converts. The statistics star it (`RTX Video HDR*`) while it runs. The driver leaves out a picture the processor writes in fewer than 640x360 pixels, and the line then adds `left out by the driver under 640x360`; where the shaders resize, the processor first enlarges such a picture just past that, which the Processor step says (`to 740x312 for RTX Video HDR`) -- see *RTX Video HDR on a small picture*. The driver applies it only when the NVIDIA app has it on, as bright as the app says: the statistics give both, and what the driver wrote (*What the driver is set to, and what it writes*) |
-| Measured peak: Start over at each scene cut | off | The measured peak, of the tone mapping (*Measured peak*) and of the conversion to SDR (*Measured*), is smoothed over three seconds; with this, a jump in the mean brightness is taken for a cut and the smoothing starts over, so that the new scene's peak is used from its first picture (`SdrPeakSceneCuts`, upstream's registry-only value, on the page since 3.0). A flash or a fast fade can be taken for a cut too. Available while one of the two measurements is in use; not carried by a preset (see *Following the peak*) |
+| Start over at a scene cut | off | Beside *Measured peak*. The measured peak, of the tone mapping (*Measured peak*) and of the conversion to SDR (*Measured*), is smoothed over three seconds; with this, a jump in the mean brightness is taken for a cut and the smoothing starts over, so that the new scene's peak is used from its first picture (`SdrPeakSceneCuts`, upstream's registry-only value, on the page since 3.0). A flash or a fast fade can be taken for a cut too. Available while one of the two measurements is in use; not carried by a preset (see *Following the peak*) |
 
 ### Presentation
 
