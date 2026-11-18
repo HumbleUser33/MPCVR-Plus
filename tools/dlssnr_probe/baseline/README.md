@@ -1,9 +1,9 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 17 November 2026, on an
-RTX 4060 (driver 621.14) with the Windows desktop in HDR, Windows' hardware-accelerated GPU
+`run_all_report.txt` here is what the whole battery measured on 18 November 2026, on an
+RTX 4060 (driver 621.24) with the Windows desktop in HDR, Windows' hardware-accelerated GPU
 scheduling on and NVIDIA's *Prefer maximum performance* set in the driver's global settings,
-all thirty-four steps green. The filter and the tools are the code of `8be64abe`, as the
+all thirty-seven steps green. The filter and the tools are the code of `27088fd5`, as the
 report's commit line says, both built by MSVC 14.44. `run_all.cmd` masks
 the working folder and the user's profile in it (`<repo>`, `%USERPROFILE%`). It is the thing a
 merge from upstream is compared against, at step 8 of
@@ -38,6 +38,44 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## 18 November 2026: 3.0, and chroma sited top-left
+
+Against the report it replaces (`8be64abe`, 17 November), 3236 rows compared, 89 moved, none
+gone and 232 new, no failure in either; thirty-seven steps where there were thirty-four. The
+machine is the one of the sections below, with the NVIDIA driver at 621.24 where it was 621.14,
+and RTX Video HDR set in the NVIDIA app to a peak of 790 nits, mid grey 45, contrast 118 and
+saturation 90, which the statistics now print. The playback steps render as fast as before
+(DLSS off ready in 3.4 ms, DLSS SR 3.7, NR + SR 9.0; 3.4, 3.9 and 9.2 in the report before):
+the card ran at its full clocks. The code since: release 3.0 -- EWA Lanczos Sharp, EWA Ginseng
+and EWA Lanczos4 Sharpest for the chroma, Anime4K CNN x2 M AR, a new dither pattern each
+picture, the measured peak starting over at a scene cut, the hiccup watched only where it
+comes, the NVIDIA app's settings in the statistics -- and the 4:4:4 chroma pass compiling again
+on chroma sited top-left (`27088fd5`).
+
+- The 232 new rows are 3.0's. Three steps of its own: "the dither before output" (14 rows),
+  "the peak HDR tone mapping follows" (17) and "a snapshot leaves RTX Video HDR's picture as it
+  was" (8). Anime4K in "upscalers on film" (132, with and without its anti-ringing) and in "the
+  prescalers against the harness" (11); the three EWA kernels in the two chroma steps (3 each);
+  the cases of the hiccup watched and not watched in "the cadence slips' schedule" (26); the
+  lists' new entries in the four steps of the Settings page (4 each); and an On screen line in
+  the two steps of the upscalers through the filter.
+- 72 rows of the Settings page, 18 in each of its four steps: the lists in measured order,
+  read by position, with the new entries put in among them.
+- 10 rows of the logo step, its logos through x264, which does not encode the film the same
+  from one run to the next (the sections below); the largest in decibels, 48.49 to 49.24.
+- 4 rows of the two chroma steps, RTX Video HDR on, the processor's own chroma and the 4:4:4
+  pass alike: psnr-rgb 22.61 to 22.93 and 22.62 to 22.94 in 8 bits, 22.45 to 22.79 and 22.54 to
+  22.88 in 10. RTX Video HDR's own settings or the new driver; with it off nothing moved.
+- 2 rows of "the DLSS passes against the harness" and one of "the pipeline", times printed
+  bare: the vectors' GPU time a picture, 1.76 to 1.97 ms the largest, and the pipeline's slowest
+  picture from upload to done, 0.77 to 0.45 ms. The share of blocks keeping their own vector,
+  printed beside, did not move.
+
+The top-left fix moves none of them: the battery's chroma steps site the chroma left, and there
+the code the filter generates is the same to the byte. `shader444_test`, "the generated 4:4:4
+chroma pass", now compiles each method for the three sitings and the shaders' own conversion
+too, 240 shaders, which the comparison does not count as rows: they print no number.
 
 ## 17 November 2026: DWM kept composing in a window
 
