@@ -1370,6 +1370,22 @@ space it was asked for, and the SDR swap chain showed a dim, grey picture, every
 115 nits. The processor is then given eight bits to write, and writes what it was asked. A
 10-bit source was never affected.
 
+It does the same on an SDR desktop under Windows' automatic colour management (*Automatically
+manage color for apps*, Windows 11 24H2 and later), and there upstream refuses Super
+Resolution whenever an 8-bit source would be written in more than eight bits -- which DLSS 5
+NR, keeping the chain in half floats, always makes it, and so does a 10-bit or 16-bit
+**Texture format**. Measured under it on an 8-bit H.264 film, the processor enlarging with
+Super Resolution: written in half floats, mean 0.026 against 0.039 without Super Resolution
+and a third of the colour; given eight bits, mean, peak and colour within 0.0005 of the
+processor's without it, and the detail Super Resolution adds kept (0.0024 against 0.0014).
+So the processor is given eight bits there too. The processor's second turn after DLSS 5 NR
+takes ten bits, which the driver writes right under it (within 0.26 of a level of the
+shaders' enlargement, `playback_test --afternr`). Up to 3.0.1 it was asked as if it took the
+source's eight bits, and from 2.4 on an 8-bit film under automatic colour management lost
+Super Resolution as soon as DLSS 5 NR was on. The Color line of the statistics says
+`ACM: On` on any display that has it, and the Scaling line says why if Super Resolution is
+still refused.
+
 ### What the driver is set to, and what it writes
 
 RTX Video is the driver's, and Direct3D accepts the request whatever the driver then does

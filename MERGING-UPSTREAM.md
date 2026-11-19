@@ -239,6 +239,14 @@ notice its absence.
   `InitializeD3D11VP` (upstream moved it; keep their order, keep our condition), and
   `SetDirty()` in `PropPage.h` (upstream added a guard; keep it and keep our
   `OnDeactivate()`).
+- **Upstream's Super Resolution test under Windows' automatic colour management** lives in
+  `VPSuperResAllowed` (`Source/DX11VideoProcessorDlss.cpp`), not where upstream asks it.
+  This fork asks it once for each turn of the processor, with the depth that turn takes:
+  ten bits after DLSS 5 NR. And where upstream refuses Super Resolution under ACM, the
+  first turn writes eight bits instead (`VPSuperResOutputsEightBits`), as on an HDR
+  desktop. A change upstream makes to that test, or to `m_bACMEnabled`, is carried there.
+  `ACM: On` in the statistics is shown for any display (`SetDisplayInfo` in
+  `Source/VideoProcessor.cpp`); upstream shows it only for one that can show HDR.
 
 ## If a merge ever goes badly wrong
 

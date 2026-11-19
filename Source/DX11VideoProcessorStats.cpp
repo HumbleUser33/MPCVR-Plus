@@ -270,6 +270,9 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 						text.append(L" (No Super Resolution when chroma by shaders)");
 					} else if (bSecondTurn ? m_bVPScaleSuperRes : m_bVPUseSuperRes) {
 						text.append(L" SuperResolution*");
+					} else if (m_iVPSuperRes != SUPERRES_Disable && !VPSuperResAllowed(bSecondTurn ? 10 : m_srcParams.CDepth)) {
+						// Upstream's refusal, which nothing else on the screen explains.
+						text.append(L" (No Super Resolution under ACM, the chain wider than 8 bits)");
 					}
 				}
 				// On its first turn the processor resizes in the call that converts, and

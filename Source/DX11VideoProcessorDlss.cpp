@@ -479,7 +479,9 @@ void CDX11VideoProcessor::UpdateVPScale()
 	VPScaleKey key;
 	key.w = w;
 	key.h = h;
-	key.superRes = VPSuperResAllowed(m_srcParams.CDepth) ? m_iVPSuperRes : SUPERRES_Disable;
+	// Asked with what this turn takes -- ten bits, P010 or Y410 -- not with the source's
+	// depth (VPSuperResAllowed).
+	key.superRes = VPSuperResAllowed(10) ? m_iVPSuperRes : SUPERRES_Disable;
 	key.bPq = m_D3D11VP.IsPqSupported() != FALSE;
 	key.bKeepChroma = m_bVPReplaceChroma;
 	key.outFmt = m_D3D11OutputFmt;
@@ -687,10 +689,25 @@ HRESULT CDX11VideoProcessor::VPScalePass(Tex2D_t* pInputTexture, const CRect& rS
 // picture bound for a target wider than 8 bits, every real HDR film among them, which
 // the driver does take: on a PQ BT.2020 source in P010 the extension changes the
 // picture by 3.928, against 3.903 on the same frame in SDR (tools/dlssnr_probe
-// vp444_probe). Both turns of the processor ask it with the source's own facts.
+// vp444_probe).
+//
+// Upstream's reason holds: under automatic colour management the driver does what it does
+// on an HDR desktop (VPSuperResOutputsEightBits), and an 8-bit source written in more than
+// eight bits comes out as HDR10 read as SDR -- on an 8-bit H.264 film, mean 0.026 against
+// 0.039 without Super Resolution, colour 0.007 against 0.019 (playback_test --vpturns, a
+// half-float chain). So the first turn writes eight bits there too, and the test refuses
+// only a picture still written wider.
+//
+// Each turn asks it with the depth it takes. The first takes the source's; the second,
+// after DLSS 5 NR, always takes ten bits (UpdateVPScale). Asked with the source's depth
+// there, an 8-bit film under automatic colour management lost Super Resolution from 2.4
+// on: the network keeps the chain in half floats, which the test read as an 8-bit
+// picture written wider. Given ten bits in, the driver writes it right: within 0.26 of a
+// level of the shaders' enlargement on each channel (playback_test --afternr).
 bool CDX11VideoProcessor::VPSuperResAllowed(const int depth) const
 {
-	return !(m_bACMEnabled && !m_bVPUseRTXVideoHDR && depth == 8 && m_InternalTexFmt != DXGI_FORMAT_B8G8R8A8_UNORM);
+	return !(m_bACMEnabled && !m_bVPUseRTXVideoHDR && depth == 8 && m_InternalTexFmt != DXGI_FORMAT_B8G8R8A8_UNORM
+		&& !m_bVPOutEightBitsAsked);
 }
 
 // The size the processor's first turn writes where it does not resize: the source's, or
@@ -721,14 +738,16 @@ CSize CDX11VideoProcessor::VPConvertTexSize() const
 // a 10-bit film re-encoded in 8 bits, at every size tried; the original was right).
 // Given eight bits to write, it writes what it was asked: mean, peak and colour within
 // 0.001 of the processor's without Super Resolution, and its detail kept (0.0168 against
-// 0.0119). Eight bits lose nothing of an 8-bit source. Seen on an HDR desktop only, so
-// asked for there only.
+// 0.0119). Eight bits lose nothing of an 8-bit source. Seen on an HDR desktop, and on an
+// SDR one under Windows' automatic colour management, where upstream refuses Super
+// Resolution instead (VPSuperResAllowed): given eight bits there, mean, peak and colour
+// within 0.0005 of the processor's without it, and its detail kept (0.0024 against 0.0014).
 bool CDX11VideoProcessor::VPSuperResOutputsEightBits(const int depth)
 {
 	// The same question as the rtxHDR of InitializeD3D11VP, local tone mapping included.
 	const bool bRtxAsked = m_bVPRTXVideoHDR && m_bHdrPassthroughSupport && (m_bHdrPassthrough || m_bHdrLocalToneMapping)
 		&& m_iTexFormat != TEXFMT_8INT && !SourceIsHDR();
-	return m_bHdrDisplayModeEnabled && !bRtxAsked && depth == 8
+	return (m_bHdrDisplayModeEnabled || m_bACMEnabled) && !bRtxAsked && depth == 8
 		&& VPResizesFirst() && m_iVPSuperRes != SUPERRES_Disable;
 }
 
