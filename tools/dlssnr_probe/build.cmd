@@ -110,13 +110,15 @@ cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x
    detector_shaders.res /Fe:dlssnr_harness.exe || EXIT /B 1
 
 ECHO Building the video processor rebuild test (the paused green frame)...
-cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
+REM /wd4838 as common.props has it for the filter: D3D11VP.cpp, upstream's, puts an int
+REM into a UINT field where it asks for Super Resolution and RTX Video HDR.
+cl /nologo /EHsc /std:c++20 /O2 /MT /wd4838 /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
    /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" vp_rebuild_test.cpp ^
    "%SRC%\D3D11VP.cpp" "%SRC%\DX11Helper.cpp" ^
    /Fe:vp_rebuild_test.exe /link strmiids.lib || EXIT /B 1
 
 ECHO Building the video processor probe (what it does with 4:2:0 and with 4:4:4)...
-cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
+cl /nologo /EHsc /std:c++20 /O2 /MT /wd4838 /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
    /DUNICODE /D_UNICODE /I"%INC%" /I"%SRC%" vp444_probe.cpp shader444_guids.cpp ^
    "%SRC%\D3D11VP.cpp" "%SRC%\DX11Helper.cpp" ^
    "%SRC%\Shaders.cpp" "%SRC%\Helper.cpp" "%SRC%\csputils.cpp" ^
