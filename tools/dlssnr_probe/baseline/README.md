@@ -1,9 +1,9 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 18 November 2026, on an
+`run_all_report.txt` here is what the whole battery measured on 19 November 2026, on an
 RTX 4060 (driver 621.24) with the Windows desktop in HDR, Windows' hardware-accelerated GPU
 scheduling on and NVIDIA's *Prefer maximum performance* set in the driver's global settings,
-all thirty-seven steps green. The filter and the tools are the code of `27088fd5`, as the
+all thirty-eight steps green. The filter and the tools are the code of `c925178c`, as the
 report's commit line says, both built by MSVC 14.44. `run_all.cmd` masks
 the working folder and the user's profile in it (`<repo>`, `%USERPROFILE%`). It is the thing a
 merge from upstream is compared against, at step 8 of
@@ -38,6 +38,36 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## 19 November 2026: Super Resolution under automatic colour management
+
+Against the report it replaces (`27088fd5`, 18 November), 3468 rows compared, 20 moved, none
+gone and 8 new, no failure in either; thirty-eight steps where there were thirty-seven. The
+machine, its driver and RTX Video HDR's settings are those of the section below, and the card
+ran at its full clocks (DLSS off ready in 3.1 ms, 3.4 before). The code since: the video window
+made again without waiting with no limit on the thread that holds it (`3667fee3`), the driver's
+Super Resolution under Windows' automatic colour management with DLSS 5 NR (`eae20268`), and
+`playback_test --nrafter` with the step that runs it (`c925178c`).
+
+- The 8 new rows are that step's, "the processor enlarging before DLSS 5 NR": DLSS 5 NR
+  applied after the upscaling, the processor enlarging in its one turn before the network.
+  With Super Resolution, the still against the shaders' enlargement shifts by R +0.39, G +0.28,
+  B +0.61 and its blocks by 0.60 in 8-bit levels; without it, with the chroma replaced or
+  not, by 0.07 at most and its blocks by 0.18.
+- 14 rows of the logo step, all of its three logos through x264, which does not encode the
+  film the same from one run to the next (the sections below); the largest in decibels, 48.85
+  to 48.57.
+- 6 rows are times printed bare: three of "the DLSS passes against the harness", the vectors'
+  GPU time a picture (1.32 to 1.49 ms the largest), the share of blocks keeping their own
+  vector the same; two of "the pipeline", its slowest picture from upload to done, 8.23 to 9.56
+  and 0.45 to 0.82 ms; and the statistics' total in "a snapshot leaves RTX Video HDR's picture
+  as it was", 2.1 to 2.0 ms.
+
+The fix for automatic colour management is in no step: Windows does not apply it to an HDR
+desktop, and the filter does not look for it there. It was measured with `playback_test
+--afternr`, with and without `--nrafter`, on the desktop in SDR with the management on; the
+manual gives the figures, where it says what the driver's Super Resolution does on an HDR
+desktop.
 
 ## 18 November 2026: 3.0, and chroma sited top-left
 
