@@ -97,7 +97,9 @@ REM "Use the video processor for resizing" with DLSS 5 NR: the processor's secon
 REM against the shaders on the same still of a real film, as an SDR picture and as a PQ
 REM one. Nothing above reaches it -- the bench's own film is RGB, which never brings the
 REM hardware processor in. It needs the film, and the LAV Filters of an installed player.
+REM And with "Apply after upscaling": the processor's one turn enlarges, the network after it.
 CALL :Run "the processor enlarging after DLSS 5 NR" "playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --file" "%FILM%"
+CALL :Run "the processor enlarging before DLSS 5 NR" "playback_test.exe --afternr --nrafter --seek 1740 --seconds 4 --window 2880x1200 --file" "%FILM%"
 CALL :Run "the processor after DLSS 5 NR, PQ picture" "playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --hdrout 1 --rtxhdr 1 --file" "%FILM%"
 CALL :Run "a snapshot leaves RTX Video HDR's picture as it was" "playback_test.exe --aftergrab --seek 1740 --seconds 4 --rtxhdr 1 --hdrtm 1 --measurepeak 1 --stats 1 --only 0 --file" "%FILM%"
 

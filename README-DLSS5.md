@@ -3399,7 +3399,7 @@ filter may then switch the display's own HDR state, which is not what is being m
 playback_test.exe [--seconds 20] [--size 800x450] [--window 1280x720] [--fps 23.976] [--only N]
 playback_test.exe --scalers       each Upscaling and Chroma upsampling method (--vp: hardware)
 playback_test.exe --greying       what the page greys, for every state the renderer can be in and each DLSS box
-playback_test.exe --afternr --file <mkv> --seek 1740   who enlarges after DLSS 5 NR, on one still of a real film
+playback_test.exe --afternr --file <mkv> --seek 1740   who enlarges after DLSS 5 NR, on one still of a real film (--nrafter: the network after the upscaling)
 playback_test.exe --vpturns --file <film> --rtxhdr 1 --hdrout 1   the shaders, the processor, the processor with Super Resolution: one still each, read off the desktop unclipped (vpturns_N.pfm)
 playback_test.exe --file <film> --hdrtm 7 --measurepeak 1   HDR output: -1 off, 0 passthrough, 1..7 a tone mapping; --dovitm 0|6, --sdrtm 0..2, --tosdr, --prefdovi
 playback_test.exe --file <film> --aftergrab   the same paused picture on the screen before and after GetCurrentImage (a player's Save image)

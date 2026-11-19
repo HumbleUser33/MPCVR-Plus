@@ -163,6 +163,7 @@ static int g_frameSeconds = 0;         // --frame N: the page inside a real prop
 static bool g_bThemedHost = false;     // --themed: and a player that paints it
 static bool g_bDlaa = false;           // --dlaa: let DLSS SR run without enlarging
 static bool g_bAfterNR = false;        // --afternr: who enlarges what DLSS 5 NR leaves, on a real film (--file)
+static bool g_bNRAfter = false;        // --nrafter: DLSS 5 NR applied after the upscaling, the processor's one turn enlarging
 static bool g_bVPTurns = false;        // --vpturns: who enlarges, without DLSS, the desktop read unclipped (--file)
 static bool g_bAfterGrab = false;      // --aftergrab: the screen on the same paused picture before and after a snapshot (--file)
 static bool g_bLogo = false;           // --logo: the channel's logo found and hidden on a real film (--file)
@@ -1462,6 +1463,9 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	sets.bHdrPassthrough = false;
 	sets.iHdrToggleDisplay = HDRTD_Disabled;
 	sets.bDlssNR = config.bNR;
+	// --nrafter: the network after the upscaling. Without it, before, whatever the
+	// registry holds, so that a run measures the order it names.
+	sets.bDlssNRAfterUpscale = g_bNRAfter;
 	sets.bDlssSR = config.bSR;
 	// --dlaa: DLSS Super Resolution at the picture's own size. It only shows itself
 	// when the window is the size of the source, which is the one case the ordinary
@@ -2930,6 +2934,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_bGreying = true;
 		} else if (!wcscmp(argv[i], L"--afternr")) {
 			g_bAfterNR = true;
+		} else if (!wcscmp(argv[i], L"--nrafter")) {
+			g_bNRAfter = true;
 		} else if (!wcscmp(argv[i], L"--aftergrab")) {
 			g_bAfterGrab = true;
 		} else if (!wcscmp(argv[i], L"--vpturns")) {
@@ -3227,7 +3233,8 @@ int wmain(int argc, wchar_t* argv[])
 	if (g_bAfterNR) {
 		printf("--afternr: the film paused at the same place under each run, read off the desktop.\n");
 		printf("still: against the last run the shaders enlarged, each channel's shift and the difference\n");
-		printf("of 16x16 blocks, in 8-bit levels. A filter moves neither; a wrong matrix or range moves both.\n\n");
+		printf("of 16x16 blocks, in 8-bit levels. A filter moves neither; a wrong matrix or range moves both.\n");
+		printf(g_bNRAfter ? "--nrafter: DLSS 5 NR after the upscaling; the processor enlarges in its one turn, before it.\n\n" : "\n");
 	}
 	const std::wstring exeDir = std::wstring(exe).substr(0, std::wstring(exe).find_last_of(L'\\'));
 	std::vector<BYTE> firstPicture;
@@ -3345,18 +3352,30 @@ int wmain(int argc, wchar_t* argv[])
 				wprintf(L"   FAIL: DLSS 5 NR did not run (%s)\n", r.nrLine.c_str());
 				failures++;
 			}
-			if (bProcessor != bResizes) {
-				printf("   FAIL: %s\n", bProcessor ? "the processor did not enlarge what DLSS 5 NR left"
-					: "the processor resized where the shaders were asked to");
+			// After the upscaling, the statistics' step says so, and the processor has no
+			// second turn: it enlarges in its first, before the network.
+			if (g_bNRAfter != (r.nrLine.find(L"after upscaling") != std::wstring::npos)) {
+				wprintf(L"   FAIL: DLSS 5 NR is not where it was asked to be (%s)\n", r.nrLine.c_str());
 				failures++;
 			}
-			if (bProcessor && r.dlssTimes.find(L"resize ") == std::wstring::npos) {
+			if (bProcessor != bResizes) {
+				printf("   FAIL: %s\n", bProcessor ? (g_bNRAfter ? "the processor did not enlarge before DLSS 5 NR"
+					: "the processor did not enlarge what DLSS 5 NR left") : "the processor resized where the shaders were asked to");
+				failures++;
+			}
+			const bool bSecondTurn = r.dlssTimes.find(L"resize ") != std::wstring::npos;
+			if (bProcessor && !g_bNRAfter && !bSecondTurn) {
 				printf("   FAIL: the statistics give the processor's second turn no time\n");
+				failures++;
+			}
+			if (g_bNRAfter && bSecondTurn) {
+				printf("   FAIL: the processor took a second turn after a network that comes last\n");
 				failures++;
 			}
 			const bool bStar = r.scalingLine.find(L"SuperResolution*") != std::wstring::npos;
 			if (bStar != (config.iSuperRes != SUPERRES_Disable && config.iPrepass != 1 && bProcessor)) {
 				printf("   FAIL: Super Resolution %s\n", bStar ? "is on in a run that did not ask for it"
+					: g_bNRAfter ? "was asked for and the processor's turn does not have it"
 					: "was asked for and the processor's second turn does not have it");
 				failures++;
 			}
