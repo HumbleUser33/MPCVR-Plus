@@ -582,7 +582,7 @@ bool CDX11VideoProcessor::CadencePresentMade(const CPresentSchedule::Plan& plan,
 		// reach the screen a refresh late, holding the picture before it a refresh more and
 		// then itself and this one a refresh each: it is left out, this picture goes back into
 		// the back buffer, and the slip is a plain one. Its time still counts among the five.
-		m_cadenceMadeLate++;
+		m_PresentSchedule.MadeLate();
 		m_pDeviceContext->CopyResource(pBackBuffer, m_TexCadenceKeep.pTexture);
 		if (m_PacingTrace.Enabled()) {
 			m_PacingTrace.Note(std::format(L"cadence slips: interpolated frame left out, not done by its refresh (EchoFG expected to take {:.1f} ms)",

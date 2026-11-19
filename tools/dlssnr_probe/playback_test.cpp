@@ -1162,11 +1162,12 @@ static bool ParseSkipped(const std::wstring& text, int& frames, int& skipped)
 		&frames, &skipped, &dropped2, &failed) >= 2;
 }
 
-// The pictures not ready in time, at the end of the Render ahead line; 0 when there is none.
+// The pictures the GPU was still finishing when Present was called, at the end of the
+// Render ahead line; 0 when there is none.
 static int ParseLate(const std::wstring& text)
 {
 	const std::wstring line = StatsLine(text, L"Render ahead  : ");
-	const size_t pos = line.rfind(L" not in time");
+	const size_t pos = line.rfind(L" after Present");
 	if (pos == std::wstring::npos) {
 		return 0;
 	}
@@ -3594,7 +3595,7 @@ int wmain(int argc, wchar_t* argv[])
 			printf("   no Sync offset read\n");
 			failures++;
 		}
-		printf("   frames       : %d shown while measuring, %d skipped, %d late (%d while settling)\n",
+		printf("   frames       : %d shown while measuring, %d skipped, %d after Present (%d while settling)\n",
 			r.framesAtEnd - r.framesAtStart, r.skippedAtEnd - r.skippedAtStart, r.lateAtEnd - r.lateAtStart, r.lateAtStart);
 		printf("   state changes: pause %.2f s, run %.2f s, stop %.2f s\n", r.stopSeconds[0], r.stopSeconds[1], r.stopSeconds[2]);
 		for (double s : r.stopSeconds) {

@@ -2035,9 +2035,9 @@ skipped pictures:
 
 Without DLSS the same film measures −7.2 ms (−8…−6). A first version waited for the GPU before
 presenting; at 29.97 fps that took the time from the next picture and skipped 25 of them in
-20 s. At 29.97 fps most pictures are counted *late* below: the GPU finishes DLSS SR a moment
-after the present time, because the source cannot hand over a picture earlier than a frame
-minus its own time. Render ahead does not make the chain faster than the video: at 50 or 60 fps
+20 s. At 29.97 fps most pictures are counted *after Present* below: the GPU finishes DLSS SR a
+moment after the present time, because the source cannot hand over a picture earlier than a
+frame minus its own time. Render ahead does not make the chain faster than the video: at 50 or 60 fps
 with DLSS 5 NR pictures are still skipped, as they were.
 
 The statistics show where the time goes and what render ahead does (see *Reading the
@@ -2047,13 +2047,29 @@ statistics* for the rest):
         stabilizer: 100, Optical Flow 960x540, vectors to DLSS                   2.0
     3 Scaling     : 1920x1080 -> 3840x2160 DLSS SR Perf/M                        6.1
         motion    : Optical Flow, global motion                                  1.8
-    Render ahead  : asked  42 ms early, ready in  30.6 (max  31.3), 8 not in time
+    Render ahead  :  42 ms early, ready in  30.6 (max  31.3), 8 after Present
+
+*ms early* is how much earlier than usual a sample is asked for. It is measured, not set: the
+slowest of the last 32 pictures and 3 ms to spare (never more than a frame), plus how long
+before its time a picture is presented, less the 8 ms the DirectShow renderer gives already. It
+rises at once when a picture is slow and falls by a quarter of a millisecond a picture. While a
+hiccup that may get an interpolated frame is waiting, the sample is asked for a refresh and
+EchoFG's time earlier still, which this figure leaves out.
 
 *ready in* is the whole picture, from the start of processing to the GPU being done: the mean
-and the slowest of the last 32. *not in time* counts pictures the GPU had not finished at their
-present time. A few at start-up are normal; a count that keeps growing means the chain barely fits the
-frame rate, and a lighter DLSS SR preset gives it room. DLSS 5 NR is timed where the renderer
-waits for it, the other steps with GPU timestamps while the statistics are shown.
+and the slowest of the last 32. *after Present* counts the pictures the GPU was still finishing
+when Present was called. That is not late: Present is called ahead of the refresh the picture
+is for, and a picture finished a little after the call is still shown on it. The pictures late
+on the screen are the *shown late* of the *On screen* line, and while that stays at 0 these
+cost nothing. For one of them, *ready in* stops at the call, so the *max* can be that limit
+rather than the picture's own time: about 33 ms, two refreshes at 60Hz, for the film below.
+
+A count that keeps growing means the chain barely fits, and asking for the samples earlier
+does not help: a picture is only started once the one before it has left. A 23.976 fps film
+on a 60Hz screen shows its pictures for two refreshes and three by turns, so every other one
+has 33.3 ms to be drawn, whatever render ahead asks. A lighter chain gives it room, and so does
+the screen in its 23.976Hz mode, where each picture has 41.7 ms. DLSS 5 NR is timed where the
+renderer waits for it, the other steps with GPU timestamps while the statistics are shown.
 
 ### A film at the screen's own rate
 
@@ -2449,8 +2465,8 @@ waiting in a 3:2 cadence also had no use for a cut on a 3, which is every other 
 
 24, 25 and 30 fps on 60Hz are left as they are, and so is any rate the screen is not a little
 faster than. It needs render ahead, which schedules every picture; the line *Frame sync* in the
-statistics says which is in force, and *Hiccups* counts the slips taken on a cut, the forced ones
-and the made pictures.
+statistics says which is in force, and *Hiccups* counts how the slips ended: on a cut, covered by
+an interpolated frame, or visible.
 
 **The cuts** are found by the detector DLSS Super Resolution drops its history on
 (`cs_dlss_scene_cut.hlsl`, *DLSS SR at a cut*), with the thresholds it was chosen with, run here on
@@ -2925,7 +2941,7 @@ RTX 4060 (`playback_test --file <film> --window 3840x2160 --only 4`):
       Total       : for a frame of 40.0 ms                                      28.1
     -- Timing ----------------------------------------------------------------------
     Clock         : Audio renderer
-    Render ahead  : asked  42 ms early, ready in  30.6 (max  31.3), 8 not in time
+    Render ahead  :  42 ms early, ready in  30.6 (max  31.3), 8 after Present
     CPU (ms)      : copy   0.2, draw  19.8, wait  25.9, Present   0.1
     Swap chain    : Flip discard, R10G10B10A2_UNORM, 3 buffers
     Frame sync    : a refresh chosen for each picture
@@ -2971,8 +2987,8 @@ as they change:
 - *Clock*: whose clock every picture is scheduled against, normally the audio renderer's.
 - *Render ahead* (see *Render ahead*): how early a sample is asked for, how long a picture then
   takes from its sample to the GPU being done with it (the mean and the slowest of the last 32,
-  CPU and waits included, so above the total), and how many were not done at their present
-  time.
+  CPU and waits included, so above the total), and how many the GPU was still finishing when
+  Present was called, which is not late on the screen.
 - *CPU (ms)*: the last picture on the render thread. *copy* hands the sample to the GPU,
   *draw* issues every step, DLSS 5 NR's included, which it no longer waits for (it did
   until the two devices waited for each other on the GPU), *wait* is the wait for the moment to
@@ -2982,11 +2998,17 @@ as they change:
   what decides when each picture is presented.
 - *Sync offset* and *On screen*: see *A film at the screen's own rate* and *A refresh chosen
   for every picture*. *Video delay* follows them when one is set.
-- *Hiccups*, with the hiccup hidden on scene changes: how many of the cadence's slips went on a
-  scene change, how many did `not` -- no scene change came in time, and the slip was taken where
-  the cadence put it, seen as before -- and in brackets how many of those an interpolated frame
-  covered and how many interpolated frames came out `too late` and were left out:
-  `Hiccups : 9 on scene changes, 2 not (1 interpolated)`.
+- *Hiccups*, with the hiccup hidden on scene changes. A hiccup is a refresh more, not a picture
+  lost: a 23.976 fps film on a 60Hz screen has to give one of its pictures a refresh more every
+  8.3 s or so to stay with the sound. The line says how each ended: on a scene change, where it
+  does not show; covered by an interpolated frame, made between the two pictures for that
+  refresh; or `visible`, no scene change having come in time and no interpolated frame being
+  had, so the picture before stayed on the screen a refresh more, which a nearly still shot
+  hides. In brackets, how many of the visible ones had an interpolated frame that the GPU had
+  not finished by its refresh: shown, it would have come a refresh late and made it worse, so it
+  was left out (`too late`). The others had no time to be made at all. With *Otherwise, show
+  an interpolated frame* unticked there are no interpolated ones:
+  `Hiccups : 9 on scene changes, 1 interpolated, 1 visible`.
 - *Frames*: the samples received, those the renderer left undrawn for coming too late, the
   second fields of a deinterlaced picture left out, and the pictures that failed; *turns lost*
   and *turns late* when a picture's turn in the renderer was taken away or came late, the

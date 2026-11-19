@@ -681,6 +681,13 @@ void CPresentSchedule::LeftOut()
 	}
 }
 
+void CPresentSchedule::MadeLate()
+{
+	if (m_sinceFlush >= kSettling) {
+		m_madeLate++;
+	}
+}
+
 void CPresentSchedule::Presented(unsigned presentId, const Plan& plan, long long tickCalled, double msInside, bool bReady)
 {
 	const bool bSettled = m_sinceFlush >= kSettling;

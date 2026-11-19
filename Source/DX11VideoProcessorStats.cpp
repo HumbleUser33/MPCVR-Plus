@@ -452,12 +452,14 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	// line could not be read while the film played.
 
 	// How early a sample is asked for, how long a picture then takes from its sample to
-	// the GPU being done with it, and how many were not done at their present time.
+	// the GPU being done with it, and how many the GPU was still finishing when Present was
+	// called. Those still reach their refresh unless On screen counts them shown late: it
+	// read "not in time", which was taken for pictures late on the screen.
 	if (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded()) {
 		if (!m_bDlssRenderAhead) {
 			str.append(L"\nRender ahead  : off");
 		} else if (m_RenderAhead.MeanLatencyMs() >= 0) {
-			str += std::format(L"\nRender ahead  : asked {:3.0f} ms early, ready in {:5.1f} (max {:5.1f}), {} not in time",
+			str += std::format(L"\nRender ahead  : {:3.0f} ms early, ready in {:5.1f} (max {:5.1f}), {} after Present",
 				m_RenderAhead.GetAhead() / 10000.0, m_RenderAhead.MeanLatencyMs(), m_RenderAhead.MaxLatencyMs(),
 				m_RenderAhead.LateCount());
 		}
@@ -488,9 +490,11 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		str += std::format(L", scheduled: repeated {}, dropped {}, shown late {}",
 			m_PresentSchedule.RepeatedCount(), m_PresentSchedule.DroppedCount(), m_PresentSchedule.LateCount());
 		// The cadence slips placed, on a line of their own: on the line above they took it
-		// out of the box. On a scene change, not on one for want of one in time, and of those
-		// how many an interpolated frame covered and how many interpolated frames came too
-		// late to be shown. "Elsewhere" read as a place on the screen.
+		// out of the box. Each is a refresh more, and the line says how each ended: on a
+		// scene change, covered by an interpolated frame, or seen -- the picture before held
+		// a refresh more -- with how many of those had an interpolated frame that came too
+		// late to be shown. "Elsewhere" read as a place on the screen, and "7 not (6
+		// interpolated)" as a picture lost, the one left to be worked out.
 		if (m_iCadenceSlips != CADENCE_SLIPS_Off && !m_PresentSchedule.SlipsPlaced()
 				&& !m_PresentSchedule.SlipsOnCut() && !m_PresentSchedule.SlipsForced()) {
 			// 24 fps at 60Hz, 25 at 50Hz, a film at the screen's own rate: nothing owed often
@@ -498,13 +502,19 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 			str += L"\nHiccups       : none owed at this rate";
 		} else if (m_iCadenceSlips != CADENCE_SLIPS_Off) {
 			// Short enough for three-digit counts, two hours of film, within the box.
-			str += std::format(L"\nHiccups       : {} on scene changes, {} not", m_PresentSchedule.SlipsOnCut(), m_PresentSchedule.SlipsForced());
+			const unsigned forced = m_PresentSchedule.SlipsForced();
+			str += std::format(L"\nHiccups       : {} on scene changes", m_PresentSchedule.SlipsOnCut());
 			if (m_iCadenceSlips == CADENCE_SLIPS_OnCutOrMade) {
-				str += std::format(L" ({} interpolated", m_PresentSchedule.MadeShown());
-				if (m_cadenceMadeLate) {
-					str += std::format(L", {} too late", m_cadenceMadeLate);
+				// A made picture is presented before the drawn one that counts its slip: for that
+				// moment the made ones are one ahead.
+				const unsigned made = std::min(m_PresentSchedule.MadeShown(), forced);
+				const unsigned seen = forced - made;
+				str += std::format(L", {} interpolated, {} visible", made, seen);
+				if (const unsigned late = std::min(m_PresentSchedule.MadeLateCount(), seen)) {
+					str += std::format(L" ({} too late)", late);
 				}
-				str += L')';
+			} else {
+				str += std::format(L", {} visible", forced);
 			}
 		}
 	} else

@@ -564,7 +564,6 @@ private:
 	int m_cadenceProbeCount = 0, m_cadenceProbeNext = 0;
 	float m_cadenceEchoProbe[5] = {};          // the probe when m_cadenceEchoMs[i] was timed; 0, none
 	long long m_cadenceMadeRt = 0;             // the last made picture's time, for its line in the trace
-	unsigned m_cadenceMadeLate = 0;            // made pictures the GPU had not finished by their Present, left out
 	CComPtr<ID3D11Query> m_pCadenceDrawnQuery; // whether the GPU is done with the drawn picture, then with the made one
 	bool m_bCadenceMadeQueued = false;         // the last picture had one made, shown or not: its GPU time is not a drawn picture's
 	double CadenceEchoMs() const;

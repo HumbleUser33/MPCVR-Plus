@@ -112,7 +112,7 @@ static const wchar_t kStats[] =
 	L"  Total       : for a frame of 41.7 ms                                      10.5\n"
 	L"-- Timing ----------------------------------------------------------------------\n"
 	L"Clock         : Audio renderer\n"
-	L"Render ahead  : asked  40 ms early, ready in  12.9 (max  13.7), 2 not in time\n"
+	L"Render ahead  :  40 ms early, ready in  12.9 (max  13.7), 2 after Present\n"
 	L"CPU (ms)      : copy   0.3, draw   0.3, wait  26.3, Present   0.1\n"
 	L"Swap chain    : Flip discard, R10G10B10A2_UNORM, 3 buffers\n"
 	L"Frame sync    : a refresh chosen for each picture\n"
