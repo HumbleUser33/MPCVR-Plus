@@ -1816,14 +1816,18 @@ static const UINT WM_VR_REMAKE = WM_APP + 0x3A1;
 // hides the pointer after two seconds. A replacement made enabled took the mouse for
 // itself, and the pointer stayed over the film until it was closed -- upstream's fault
 // too, with any setting that has the window made again, the HDR output list first among them.
-HWND CMpcVideoRenderer::CreateVideoWindow(const bool bDisabled)
+//
+// Made where it goes, so that a window made on another thread than Init's need not be
+// placed from Init's, which would wait for that thread (Init, below). A child window
+// given CW_USEDEFAULT is at 0, 0 with no size, which an empty place is too.
+HWND CMpcVideoRenderer::CreateVideoWindow(const bool bDisabled, const RECT& place, const bool bQuiet)
 {
 	return CreateWindowExW(
-		0,
+		bQuiet ? WS_EX_NOPARENTNOTIFY : 0,
 		g_szClassName,
 		nullptr,
 		WS_VISIBLE | WS_CHILDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | (bDisabled ? WS_DISABLED : 0),
-		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+		place.left, place.top, place.right - place.left, place.bottom - place.top,
 		m_hWndParent,
 		nullptr,
 		g_hInst,
@@ -1884,19 +1888,51 @@ HRESULT CMpcVideoRenderer::Init(const bool bCreateWindow/* = false*/)
 			// mouse leaving its video area, is then told the pointer has left while
 			// it sits on the picture -- and never hides it again. If that thread does
 			// not answer, the window is made here as it always was.
+			//
+			// That thread may be waiting for the renderer's lock, which this one holds:
+			// asking for the statistics, or for anything else, while the setting is
+			// applied from another thread. It then answers nothing, and anything sent to
+			// it for this one to go on waits for good -- the bench reading the statistics
+			// from the window's thread hung there every time a frame generator's swap
+			// chain made the setting slow enough (playback_test --rewindow). So only the
+			// request is sent, with its time limit: should the thread take it after that,
+			// it closes what it made (OnReceiveMessage). The old window is let go of and
+			// closed by a message posted, not sent; and the new one is made where it goes
+			// (CreateVideoWindow), not placed from here.
 			const bool bDisabled = hWndOld && !IsWindowEnabled(hWndOld);
+			m_remakePlace = m_windowRect;
+			bool bUnanswered = false;
 			if (hWndOld && GetWindowThreadProcessId(hWndOld, nullptr) != GetCurrentThreadId()) {
+				m_hWndRemade = nullptr;
+				m_remakeState = RemakeWaiting;
 				DWORD_PTR made = 0;
-				if (SendMessageTimeoutW(hWndOld, WM_VR_REMAKE, bDisabled, 0, SMTO_ABORTIFHUNG, 2000, &made)) {
-					m_hWndWindow = reinterpret_cast<HWND>(made);
+				SendMessageTimeoutW(hWndOld, WM_VR_REMAKE, bDisabled, 0, SMTO_ABORTIFHUNG, 2000, &made);
+				int waiting = RemakeWaiting;
+				if (!m_remakeState.compare_exchange_strong(waiting, RemakeIdle)) {
+					// Taken: made, even when the answer came too late to be read.
+					m_hWndWindow = m_hWndRemade.exchange(nullptr);
 				}
-				DLogIf(!m_hWndWindow, L"CMpcVideoRenderer::Init() : the window's thread did not make the new one");
-			}
-			if (hWndOld) {
+				m_remakeState = RemakeIdle;
+				bUnanswered = !m_hWndWindow;
+				DLogIf(bUnanswered, L"CMpcVideoRenderer::Init() : the window's thread did not make the new one");
+				// What reaches it from now on goes to DefWindowProc: a message taken after
+				// this filter is gone would otherwise reach the filter.
+				SetWindowLongPtrW(hWndOld, 0, 0);
+				PostMessageW(hWndOld, WM_CLOSE, 0, 0);
+			} else if (hWndOld) {
 				::SendMessageW(hWndOld, WM_CLOSE, 0, 0);
 			}
 			if (!m_hWndWindow) {
-				m_hWndWindow = CreateVideoWindow(bDisabled);
+				// Made here because the window's thread did not answer, a child window
+				// announces itself to its parent and waits for the parent's thread to take
+				// it, which may be the thread that did not answer -- in the bench its window
+				// holds the video window -- or one that let the window go with it: that wait
+				// was for good too. So it is not announced to a parent of another thread.
+				// In MPC-HC the parent is the interface thread's, which is the one applying
+				// the setting, and nothing changes; nor for a window made any other way.
+				const bool bQuiet = bUnanswered && m_hWndParent
+					&& GetWindowThreadProcessId(m_hWndParent, nullptr) != GetCurrentThreadId();
+				m_hWndWindow = CreateVideoWindow(bDisabled, m_remakePlace, bQuiet);
 			}
 
 			if (!m_hWndWindow) {
@@ -1905,7 +1941,7 @@ HRESULT CMpcVideoRenderer::Init(const bool bCreateWindow/* = false*/)
 				return E_FAIL;
 			}
 
-			if (!m_windowRect.IsRectNull()) {
+			if (!m_windowRect.IsRectNull() && GetWindowThreadProcessId(m_hWndWindow, nullptr) == GetCurrentThreadId()) {
 				SetWindowPos(m_hWndWindow, nullptr, m_windowRect.left, m_windowRect.top, m_windowRect.Width(), m_windowRect.Height(), SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
 			}
 		} else if (hWndOld) {
@@ -2736,7 +2772,22 @@ void CMpcVideoRenderer::DoAfterChangingDevice()
 LRESULT CMpcVideoRenderer::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	if (uMsg == WM_VR_REMAKE) {
-		return reinterpret_cast<LRESULT>(CreateVideoWindow(wParam != 0));
+		// Init is waiting for it, or was: made, then claimed, and closed again when Init
+		// has given up meanwhile and made its own.
+		if (m_remakeState != RemakeWaiting) {
+			return 0;
+		}
+		const HWND hWnd = CreateVideoWindow(wParam != 0, m_remakePlace);
+		m_hWndRemade = hWnd;
+		int waiting = RemakeWaiting;
+		if (!m_remakeState.compare_exchange_strong(waiting, RemakeTaken)) {
+			m_hWndRemade = nullptr;
+			if (hWnd) {
+				DestroyWindow(hWnd);
+			}
+			return 0;
+		}
+		return reinterpret_cast<LRESULT>(hWnd);
 	}
 
 	if (m_hWndDrain && !InSendMessage() && !m_bExclusiveScreen) {

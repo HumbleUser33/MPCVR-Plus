@@ -183,7 +183,15 @@ private:
 	CSize m_videoSize, m_videoAspectRatio;
 
 	HRESULT Init(const bool bCreateWindow);
-	HWND CreateVideoWindow(const bool bDisabled);
+	// place: where it goes in its parent, as SetWindowPosition was last told. bQuiet: the
+	// parent is not told (WS_EX_NOPARENTNOTIFY).
+	HWND CreateVideoWindow(const bool bDisabled, const RECT& place, const bool bQuiet = false);
+	// Init asking the window's own thread for its replacement (WM_VR_REMAKE): waiting
+	// for it, taken by that thread, or neither -- given up on, or never asked.
+	enum : int { RemakeIdle, RemakeWaiting, RemakeTaken };
+	std::atomic<int> m_remakeState = RemakeIdle;
+	std::atomic<HWND> m_hWndRemade = nullptr;
+	RECT m_remakePlace = {};
 
 	std::atomic_bool m_bDisplayModeChanging = false;
 
