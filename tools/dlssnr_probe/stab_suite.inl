@@ -43,7 +43,7 @@ public:
 	ID3D11SamplerState* SamplerLinear() const { return m_linear; }
 
 	void FlowFrame(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* picture, ID3D11RenderTargetView* target,
-	               UINT width, UINT height, int factor);
+	               UINT width, UINT height, float factor);
 	void FlowMotion(ID3D11DeviceContext* ctx, const CDlssOpticalFlow& of, ID3D11RenderTargetView* motion,
 	                ID3D11RenderTargetView* confidence, UINT width, UINT height);
 	void Stabilize(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* current, ID3D11ShaderResourceView* network,
@@ -176,9 +176,9 @@ void CStabilizerPasses::Draw(ID3D11DeviceContext* ctx, ID3D11PixelShader* ps, st
 }
 
 void CStabilizerPasses::FlowFrame(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* picture, ID3D11RenderTargetView* target,
-                                  UINT width, UINT height, int factor)
+                                  UINT width, UINT height, float factor)
 {
-	const float constants[4] = { (float)factor, 0, 0, 0 };
+	const float constants[4] = { factor, 0, 0, 0 };
 	Draw(ctx, m_ps[0], { target }, width, height, { picture }, constants, std::size(constants));
 }
 
@@ -296,6 +296,86 @@ static bool ReadBytes(ID3D11DeviceContext* ctx, ID3D11Texture2D* stage, ID3D11Te
 	}
 	ctx->Unmap(stage, 0);
 	return true;
+}
+
+// PASS 0 of ps_dlss_stabilize.hlsl against the same box on the CPU: the flow frame at a
+// whole factor and at 1.5, the slider's 2/3, where each working pixel counts for the part
+// of the flow pixel it covers. On a picture of odd size and random colours, every flow
+// pixel within one step of R8.
+static void CheckFlowFrame(ID3D11Device* dev, ID3D11DeviceContext* ctx, CStabilizerPasses& passes)
+{
+	const int W = 97, H = 61;
+	std::vector<float> rgba(4 * (size_t)W * H);
+	uint32_t seed = 20261121u;
+	for (size_t i = 0; i < rgba.size(); i++) {
+		seed = seed * 1664525u + 1013904223u;
+		rgba[i] = (i % 4 == 3) ? 1.0f : (float)(seed >> 8) / 16777216.0f;
+	}
+	std::vector<HALF> half(rgba.size());
+	DirectX::PackedVector::XMConvertFloatToHalfStream(half.data(), sizeof(HALF), rgba.data(), sizeof(float), rgba.size());
+	DirectX::PackedVector::XMConvertHalfToFloatStream(rgba.data(), sizeof(float), half.data(), sizeof(HALF), half.size());
+
+	Target picture;
+	bool ok = MakeTarget(dev, W, H, false, picture, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	Check(ok, "flow frame check: picture");
+	if (!ok) {
+		return;
+	}
+	ctx->UpdateSubresource(picture.tex, 0, nullptr, half.data(), 4 * sizeof(HALF) * W, 0);
+
+	for (const float factor : { 2.0f, 1.5f }) {
+		const UINT fw = (UINT)std::floor(W / factor), fh = (UINT)std::floor(H / factor);
+		Target frame;
+		CComPtr<ID3D11Texture2D> stage;
+		D3D11_TEXTURE2D_DESC sd = {};
+		ok = MakeTarget(dev, fw, fh, false, frame, DXGI_FORMAT_R8_UNORM);
+		if (ok) {
+			frame.tex->GetDesc(&sd);
+			sd.Usage = D3D11_USAGE_STAGING;
+			sd.BindFlags = 0;
+			sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+			ok = SUCCEEDED(dev->CreateTexture2D(&sd, nullptr, &stage));
+		}
+		Check(ok, "flow frame check: targets");
+		if (!ok) {
+			return;
+		}
+		passes.FlowFrame(ctx, picture.srv, frame.rtv, fw, fh, factor);
+		ctx->CopyResource(stage, frame.tex);
+		D3D11_MAPPED_SUBRESOURCE mr = {};
+		if (FAILED(ctx->Map(stage, 0, D3D11_MAP_READ, 0, &mr))) {
+			Check(false, "flow frame check: read back");
+			return;
+		}
+		int largest = 0;
+		for (UINT y = 0; y < fh; y++) {
+			for (UINT x = 0; x < fw; x++) {
+				const double loX = x * (double)factor, hiX = loX + factor;
+				const double loY = y * (double)factor, hiY = loY + factor;
+				double c[3] = {};
+				for (int sy = (int)std::floor(loY); sy < (int)std::ceil(hiY); sy++) {
+					const double wy = std::min(hiY, sy + 1.0) - std::max(loY, (double)sy);
+					for (int sx = (int)std::floor(loX); sx < (int)std::ceil(hiX); sx++) {
+						const double wx = std::min(hiX, sx + 1.0) - std::max(loX, (double)sx);
+						const float* p = &rgba[4 * ((size_t)std::min(sy, H - 1) * W + std::min(sx, W - 1))];
+						for (int k = 0; k < 3; k++) {
+							c[k] += wx * wy * p[k];
+						}
+					}
+				}
+				const double area = factor * (double)factor;
+				const double luma = 0.2126 * std::clamp(c[0] / area, 0.0, 1.0) + 0.7152 * std::clamp(c[1] / area, 0.0, 1.0)
+					+ 0.0722 * std::clamp(c[2] / area, 0.0, 1.0);
+				const int expected = (int)std::lround(luma * 255.0);
+				const int got = ((const BYTE*)mr.pData)[(size_t)mr.RowPitch * y + x];
+				largest = std::max(largest, std::abs(got - expected));
+			}
+		}
+		ctx->Unmap(stage, 0);
+		Out("  flow frame at %g working pixels per flow pixel, %ux%u from %dx%d: largest difference from the CPU %d of 255\n",
+		    factor, fw, fh, W, H, largest);
+		Check(largest <= 1, factor == 1.5f ? "flow frame at 2/3 against the CPU" : "flow frame at a whole factor against the CPU");
+	}
 }
 
 static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, const wchar_t* imagePath, int frames, bool strong, bool port)
@@ -432,6 +512,7 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 			if (port) {
 				Out("Port check: each \"renderer class\" row runs CDlssStabilizer (embedded shaders, its own Optical Flow,\n");
 				Out("strength 1.0) on the network output of the row above it, and steadies every 5th picture twice.\n");
+				CheckFlowFrame(dev, ctx, passes);
 			}
 			Out("Grain 1.2/255 and 8x8 block offsets of up to 1.5/255 per frame. Stabilizer: current-frame weight 0.25 where trusted,\n");
 			Out("history clamped to the 3x3 neighbourhood +-0.02. Optical Flow at 960x540, grid 4, medium, both directions.\n");
@@ -949,13 +1030,14 @@ static int RunStabBench(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 			continue;
 		}
 
-		for (const UINT divider : { 4u, 3u, 2u, 1u })
+		// The page's dividers, 1.5 its 2/3.
+		for (const float factor : { 4.0f, 3.0f, 2.0f, 1.5f, 1.0f })
 		for (const bool vectors : { true, false }) {
 			CDlssStabilizer stabilizer;
 			CDlssStabilizer::FlowSettings flow;
-			flow.flowFactor = divider;
+			flow.flowFactor = factor;
 			if (vectors) {
-				flow = CDlssStabilizer::ForDlssNR(divider);
+				flow = CDlssStabilizer::ForDlssNR(factor);
 			}
 			if (FAILED(stabilizer.Create(dev, ctx, sz.w, sz.h, passes.InputLayout(), passes.VertexShader(),
 			                             passes.SamplerPoint(), passes.SamplerLinear(), false, flow))) {

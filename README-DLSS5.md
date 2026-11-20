@@ -358,6 +358,13 @@ with a finer flow, a fortieth of an 8-bit level, where going from 80 to 55 % add
 Optical Flow took 0.6 ms at 480x270, 2.1 ms at 1728x972 and 6.8 ms at 3456x1944, Full at 90 %.
 So the divider is left to the viewer, and Auto keeps every film where it always was.
 
+2/3 came later, between 1/2 and Full, and was measured the same way (21 November 2026, 1/2,
+2/3 and Full in turn). On the moving object it keeps nearly all Full gives: `obj dev` 0.00076
+at 60 % where 1/2 leaves 0.00080 and Full 0.00075, 0.00093 at 55 % with Full, 0.00096 at 1/2.
+The still picture does not move, to 0.02 dB, and the pan falls between the two, 54.55 dB at
+80 % where 1/2 gives 54.86 and Full 54.46. It costs about a quarter of what Full adds over
+1/2 (the cost table under *Temporal stabilizer*).
+
 ---
 
 ## Temporal stabilizer
@@ -394,9 +401,10 @@ So the stabilizer works **after** the network and never touches its inputs
    wrong motion estimate cannot drag old values far.
 3. **Motion** comes from **NVIDIA Optical Flow**: forward and backward flow from the driver's
    `nvofapi64.dll` (4×4 grid, medium quality), computed on the working picture divided by
-   *Optical Flow resolution* -- 1/4, 1/3, 1/2, Full, or Auto, the default, which takes 1, 2
-   or 4 from the working height for about 540 lines as the stabilizer always did: 960x540 for a
-   1080p film. The history is moved along the vectors, so moving areas are steadied too. A
+   *Optical Flow resolution* -- 1/4, 1/3, 1/2, 2/3, Full, or Auto, the default, which takes 1,
+   2 or 4 from the working height for about 540 lines as the stabilizer always did: 960x540 for
+   a 1080p film. At 2/3 a flow pixel covers one and a half working pixels each way, and each
+   working pixel counts in it for the part it covers. The history is moved along the vectors, so moving areas are steadied too. A
    vector is trusted according to its forward/backward consistency, its matching cost, and
    how well the previous input, moved along it, matches the current one; where trust falls,
    the network's output for that picture is used as it is.
@@ -460,19 +468,22 @@ its edges.
 Checked in the harness (`--tstabport`): the filter's own class, with its shaders embedded as
 in the filter, measures exactly what the reference passes measure — every sequence, alone and
 giving the network its cleaned vectors — and each of its redraws shows, bit for bit, what its
-picture showed.
+picture showed. The same check puts the flow frame itself against the box computed on the CPU,
+at a whole factor and at 2/3: within one step of 8 bits on every flow pixel, which is rounding.
 
 Cost on the RTX 4060 at each *Optical Flow resolution* (`--tstabbench`, GPU time per
-picture, a moving picture, the flow's size in brackets): Optical Flow with its passes and the
-stabilizer together, and in brackets the same without the network's cleaned vectors:
+picture, a moving picture, the flow's size after it): Optical Flow with its passes and the
+stabilizer together, and in brackets the same without the network's cleaned vectors. Measured
+on 21 November 2026, when 2/3 was added:
 
-| Working size | 4 | 3 | 2 | Full |
-|---|---|---|---|---|
-| 1920×1080 | 1.18 ms (0.88), 480x270 | 1.32 ms (0.97), 640x360 | 1.75 ms (1.19), 960x540 | 3.87 ms (2.49), 1920x1080 |
-| 3840×2160 | 3.59 ms (2.66), 960x540 | 3.97 ms (3.03), 1280x720 | 5.58 ms (3.87), 1920x1080 | 13.41 ms (9.00), 3840x2160 |
+| Working size | 1/4 | 1/3 | 1/2 | 2/3 | Full |
+|---|---|---|---|---|---|
+| 1920×1080 | 1.30 ms (0.94), 480x270 | 1.42 ms (1.03), 640x360 | 1.85 ms (1.25), 960x540 | 2.42 ms (1.62), 1280x720 | 3.97 ms (2.58), 1920x1080 |
+| 3840×2160 | 3.46 ms (2.68), 960x540 | 4.06 ms (3.05), 1280x720 | 5.66 ms (3.93), 1920x1080 | 7.73 ms (5.28), 2560x1440 | 13.53 ms (9.06), 3840x2160 |
 
-The cleaned vectors cost 0.3 to 0.6 ms at 1080p and 0.9 to 1.7 ms at 2160p below Full: the
-global motion, its refinement and the block passes, the same DLSS SR runs on its own picture.
+2/3 sits between 1/2 and Full: at 2160p it costs 2.1 ms more than 1/2 and 5.8 ms less than
+Full. The cleaned vectors cost 0.4 to 0.8 ms at 1080p and 0.8 to 2.4 ms at 2160p below Full:
+the global motion, its refinement and the block passes, the same DLSS SR runs on its own picture.
 
 The CPU side stays under half a millisecond: nothing waits for the GPU. Memory: about 95 MB
 at 1080p — the history, two input copies and the result at the working size — and 375 MB at
@@ -2819,7 +2830,7 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 | Toggle key | F12 | Switches DLSS 5 NR on and off during playback. The filter swallows this key; *None* gives no shortcut |
 | DLL | empty | Empty means search the locations listed above |
 | Temporal stabilizer: Strength | 100 | 0–100. Where the history is trusted, the current picture weighs from 1 down to 0.25 at 100, the measured setting. Its Optical Flow also gives the network its motion vectors, cleaned as DLSS SR's are, whatever the strength above 0. 0 runs nothing, vectors included. Applies live |
-| Optical Flow resolution | Auto | 1/4, 1/3, 1/2, Full or Auto: the fraction of the working picture Optical Flow measures its motion on. Auto takes 1, 2 or 4 from the working height for about 540 lines, as before the slider existed. See *A working size below the picture's* for what it changes. Applies on the next picture |
+| Optical Flow resolution | Auto | 1/4, 1/3, 1/2, 2/3, Full or Auto: the fraction of the working picture Optical Flow measures its motion on. Auto takes 1, 2 or 4 from the working height for about 540 lines, as before the slider existed. See *A working size below the picture's* for what it changes. Applies on the next picture |
 | Style | Default | Default / Natural / Cinematic. Applies live |
 | Preset | 0 | **No effect with the DLL builds seen so far** — they ship a single network and every preset falls back to it |
 | Auto mask | on | The network finds skin (faces, hands) by itself and gives it *Skin detail* rather than *Detail*. Off, the whole picture is treated alike and *Skin detail* does nothing: on a 1950 film, the output without it measured the same with Skin detail at 0, 0.50, 0.90 and 2.00, and with it the network changed a face by 19 thousandths of luma more at the defaults (`--tautomask`) |
@@ -3170,7 +3181,7 @@ dlssnr_harness.exe --tstabport    the filter's stabilizer class against those pa
 dlssnr_harness.exe --tstabbench   what the stabilizer costs at 1080p and 2160p, at each Optical Flow divider,
                                   with the network's cleaned vectors and without
 dlssnr_harness.exe --tnrscale     DLSS 5 NR at a working size: each way of carrying its change back, and the cost
-                                  (--nrflow N: the stabilizer's Optical Flow at N working pixels per flow pixel)
+                                  (--nrflow N: the stabilizer's Optical Flow at N working pixels per flow pixel, 1.5 for 2/3)
 dlssnr_harness.exe --tpipeline    the whole DLSS chain as the renderer runs it: CPU and GPU time per stage
 dlssnr_harness.exe --tsr          DLSS Super Resolution: bring-up, presets, scales, costs, NR next to it
 dlssnr_harness.exe --tsrq         DLSS SR against the resize shaders on moving film frames

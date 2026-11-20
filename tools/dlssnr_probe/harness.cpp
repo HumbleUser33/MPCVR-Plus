@@ -1196,10 +1196,10 @@ int wmain(int argc, wchar_t** argv)
 			srClipWhich = argv[i + 1];
 		}
 	}
-	int nrFlowFactor = 0;   // --nrflow N: --tnrscale with Optical Flow at N working pixels per flow pixel
+	float nrFlowFactor = 0;   // --nrflow N: --tnrscale with Optical Flow at N working pixels per flow pixel (1.5: 2/3)
 	for (int i = 1; i + 1 < argc; i++) {
 		if (!wcscmp(argv[i], L"--nrflow")) {
-			nrFlowFactor = std::clamp(_wtoi(argv[i + 1]), 0, 4);
+			nrFlowFactor = std::clamp((float)_wtof(argv[i + 1]), 0.0f, 4.0f);
 		}
 	}
 	std::wstring srDllPath;   // empty: CDlssSR looks next to the harness, then up to the repository root

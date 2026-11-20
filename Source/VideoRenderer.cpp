@@ -310,7 +310,7 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 		sets.iDlssNRWorkingScale = discard<int>((int)dw, DLSSNR_SCALE_DEF, DLSSNR_SCALE_MIN, DLSSNR_SCALE_MAX);
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRFlowDivider, dw)) {
-		sets.iDlssNRFlowDivider = discard<int>((int)dw, DLSSNR_FLOW_DEF, DLSSNR_FLOW_AUTO, DLSSNR_FLOW_MAX);
+		sets.iDlssNRFlowDivider = discard<int>((int)dw, DLSSNR_FLOW_DEF, DLSSNR_FLOW_AUTO, DLSSNR_FLOW_LAST);
 	}
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRToggleKey, dw)) {
 		sets.iDlssNRToggleKey = discard<int>((int)dw, VK_F12, 0, 0xFF);

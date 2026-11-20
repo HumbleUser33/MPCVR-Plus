@@ -603,7 +603,9 @@ private:
 
 	CDlssStabilizer::FlowSettings DlssNRFlow() const
 	{
-		return CDlssStabilizer::ForDlssNR((UINT)m_iDlssNRFlowDivider);   // 0, Auto: the stabilizer's own FlowFactor
+		// 0, Auto: the stabilizer's own FlowFactor. Two thirds is 1.5 working pixels a flow pixel.
+		const float factor = m_iDlssNRFlowDivider == DLSSNR_FLOW_TWO_THIRDS ? 1.5f : (float)m_iDlssNRFlowDivider;
+		return CDlssStabilizer::ForDlssNR(factor);
 	}
 	D3D_FEATURE_LEVEL m_FeatureLevel = D3D_FEATURE_LEVEL_10_0;
 

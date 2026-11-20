@@ -19,7 +19,7 @@
 // Without --nrflow the stabilizer's Optical Flow takes FlowFactor's whole factor, 1, 2
 // or 4 from the working height for about 540 lines: the rule DLSS SR keeps, and the
 // one DLSS 5 NR had before its divider went on the page. --nrflow N (1 to 4, the
-// page's divider) forces N at every working size below the full one, and runs the
+// page's divider, or 1.5 for its 2/3) forces N at every working size below the full one, and runs the
 // difference method alone: what the flow's size does to the stabilizer, on the moving
 // object above all, and what it costs.
 
@@ -212,7 +212,7 @@ static void NRScaleFinish(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 	}
 }
 
-static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, const wchar_t* imagePath, int flowFactor)
+static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, const wchar_t* imagePath, float flowFactor)
 {
 	const int W = 3840, H = 2160;
 	const int frames = 20, warm = 12;
@@ -226,7 +226,7 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 		{ "a 1152x768 object moving (6, 2) px/frame, the rest still", 0, 0, true,  6, 2 },
 	};
 	const auto Runs = [flowFactor](const NRScaleVariant& v) {
-		return !flowFactor || v.method == CDlssCompose::Method::Difference;
+		return flowFactor <= 0 || v.method == CDlssCompose::Method::Difference;
 	};
 
 	Head("DLSS 5 NR at a working size, its change carried back");
@@ -288,7 +288,7 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 			}
 			CDlssStabilizer::FlowSettings flow;
 			if (workW != fullW || workH != fullH) {
-				flow.flowFactor = (UINT)flowFactor;   // 0: FlowFactor
+				flow.flowFactor = flowFactor;   // 0: FlowFactor
 			}
 			if (FAILED(stabilizer.Create(dev, ctx, workW, workH,
 			                             passes.InputLayout(), passes.VertexShader(), passes.SamplerPoint(), passes.SamplerLinear(),
@@ -345,13 +345,14 @@ static int RunNRScale(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss
 		}
 
 		if (!rc) {
-			const std::string reportName = flowFactor ? std::format("temporal_results_nrscale_flow{}.txt", flowFactor)
+			// "flow2" for a whole factor, as before, "flow1.5" for two thirds.
+			const std::string reportName = flowFactor > 0 ? std::format("temporal_results_nrscale_flow{}.txt", flowFactor)
 				: std::string("temporal_results_nrscale.txt");
 			g_report = fopen(reportName.c_str(), "w");
 			Out("\nDLSS 5 NR at a working size -- %S at %dx%d, %d frames per run, the last %d measured.\n",
 			    imagePath, W, H, frames, frames - warm);
-			if (flowFactor) {
-				Out("Optical Flow at %d working pixels per flow pixel below the full size (--nrflow), the difference method alone.\n",
+			if (flowFactor > 0) {
+				Out("Optical Flow at %g working pixels per flow pixel below the full size (--nrflow), the difference method alone.\n",
 				    flowFactor);
 			}
 			Out("The filter's default settings; grain %.1f/255 fresh every frame. Each row is the network and the stabilizer at\n",

@@ -16,8 +16,9 @@
 // said where something had moved stood in for it once; it is gone.
 //
 //   PASS 0  flow frame: luma of the working-size picture, box-filtered by a whole
-//           factor of 1 to 4, into the R8 texture NVIDIA Optical Flow reads; the box
-//           can reach further, to take grain out of what the engine matches
+//           factor of 1 to 4, or 1.5 for two thirds, into the R8 texture NVIDIA Optical
+//           Flow reads; the box can reach further, to take grain out of what the
+//           engine matches
 //   PASS 1  flow -> motion (MRT): target 0 motion in working-size pixels, current
 //           to previous (RG16F, also usable as DLSSNR.MVec); target 1 confidence
 //   PASS 2  stabilize (MRT): target 0 history for the next frame, target 1 the
@@ -49,7 +50,7 @@ Texture2D picture : register(t0);
 
 cbuffer PS_DLSS_FLOW_FRAME : register(b0)
 {
-	float factor;   // working pixels per flow pixel: 1 to 4
+	float factor;   // working pixels per flow pixel: 1 to 4, or 1.5
 	float reach;    // working pixels the box reaches beyond its flow pixel on each side: 0..4
 	float2 reserved;
 };
@@ -59,17 +60,36 @@ float4 main(PS_INPUT input) : SV_Target
 	uint w, h;
 	picture.GetDimensions(w, h);
 	const int2 last = int2(w, h) - 1;
-	const int f = clamp((int)factor, 1, 4);
 	const int r = clamp((int)reach, 0, 4);
-	const int n = f + 2 * r;
-	const int2 base = int2(input.Pos.xy) * f - r;
 	float3 c = 0;
-	[loop] for (int y = 0; y < n; y++) {
-		[loop] for (int x = 0; x < n; x++) {
-			c += picture.Load(int3(clamp(base + int2(x, y), int2(0, 0), last), 0)).rgb;
+	if (factor == floor(factor)) {
+		// A whole factor: every pixel of the box counts the same, as it always did.
+		const int f = clamp((int)factor, 1, 4);
+		const int n = f + 2 * r;
+		const int2 base = int2(input.Pos.xy) * f - r;
+		[loop] for (int y = 0; y < n; y++) {
+			[loop] for (int x = 0; x < n; x++) {
+				c += picture.Load(int3(clamp(base + int2(x, y), int2(0, 0), last), 0)).rgb;
+			}
 		}
+		c /= (float)(n * n);
+	} else {
+		// Two thirds: the flow pixel covers [p f - r, (p + 1) f + r) of the working
+		// picture, and each working pixel counts for the part of it that it covers.
+		const float f = clamp(factor, 1.0, 4.0);
+		const float2 lo = floor(input.Pos.xy) * f - r;
+		const float2 hi = lo + f + 2 * r;
+		const int2 first = int2(floor(lo));
+		const int2 end = int2(ceil(hi));
+		[loop] for (int y = first.y; y < end.y; y++) {
+			const float wy = min(hi.y, y + 1) - max(lo.y, y);
+			[loop] for (int x = first.x; x < end.x; x++) {
+				const float wx = min(hi.x, x + 1) - max(lo.x, x);
+				c += wx * wy * picture.Load(int3(clamp(int2(x, y), int2(0, 0), last), 0)).rgb;
+			}
+		}
+		c /= (hi.x - lo.x) * (hi.y - lo.y);
 	}
-	c /= (float)(n * n);
 	return float4(dot(saturate(c), kLuma), 0, 0, 1);
 }
 

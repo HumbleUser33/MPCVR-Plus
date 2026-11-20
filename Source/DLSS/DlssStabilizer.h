@@ -50,7 +50,7 @@ public:
 	// How Optical Flow runs. The defaults are what the stabilizer was measured
 	// with; DLSS Super Resolution needs finer vectors (--tsrq).
 	struct FlowSettings {
-		UINT flowFactor = 0;                                  // working pixels per flow pixel, 1 to 4; 0: about 540 lines
+		float flowFactor = 0;                                 // working pixels per flow pixel, 1 to 4, 1.5 for two thirds; 0: about 540 lines
 		UINT gridSize = 4;                                    // flow pixels per vector
 		NV_OF_PERF_LEVEL perfLevel = NV_OF_PERF_LEVEL_MEDIUM;
 		bool bidirectional = true;                            // backward flow and cost feed the confidence map
@@ -100,7 +100,7 @@ public:
 	static FlowSettings ForDlssSR();
 
 	// What DLSS 5 NR's stabilizer runs with: Optical Flow on the working picture
-	// divided by divider (0: about 540 lines), its flow frame unblurred as the
+	// divided by factor (0: about 540 lines), its flow frame unblurred as the
 	// stabilizer was measured with, and the vectors the network is given cleaned the
 	// way DLSS SR's are. With them the network keeps 14 to 27 % more of its effect and
 	// shimmers less than the source itself, a moving object included, leaving behind
@@ -108,7 +108,7 @@ public:
 	// weaves (--tstab, --tsrclipnr).
 	// The stabilizer itself still warps its history with PASS 1's raw motion, as it
 	// was measured with.
-	static FlowSettings ForDlssNR(UINT divider);
+	static FlowSettings ForDlssNR(float factor);
 
 	// Everything for a working size and these settings; nothing if they already
 	// match. Optical Flow that cannot start leaves the object made, steadying
@@ -151,7 +151,7 @@ public:
 	// groups it is over. Null otherwise.
 	ID3D11Buffer* GetCutState() const { return m_pCutState; }
 	bool CutMeasured() const { return m_bCutMeasured; }   // the last PrepareMotion wrote it
-	UINT GetFlowFactor() const { return m_flowFactor; }   // working pixels per flow pixel
+	float GetFlowFactor() const { return m_flowFactor; }  // working pixels per flow pixel
 	// With FlowSettings::snap, PASS 4's blocks for the last new picture: RGBA32F, one
 	// pixel per vector block, xy the block's own vector in flow pixels, z how much of
 	// it it keeps. Null otherwise.
@@ -227,7 +227,7 @@ private:
 	UINT   m_height = 0;
 	UINT   m_failedWidth  = 0;   // the last size Create could not make
 	UINT   m_failedHeight = 0;
-	UINT   m_flowFactor = 1;
+	float  m_flowFactor = 1;
 	bool   m_bFlow        = false;
 	bool   m_bMotionOnly  = false;
 	FlowSettings m_FlowSettings;

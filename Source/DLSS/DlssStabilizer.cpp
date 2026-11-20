@@ -22,6 +22,7 @@
 #include "resource.h"
 #include "Helper.h"
 #include "DlssStabilizer.h"
+#include <cmath>
 
 namespace {
 
@@ -81,10 +82,10 @@ CDlssStabilizer::FlowSettings CDlssStabilizer::ForDlssSR()
 	return flow;
 }
 
-CDlssStabilizer::FlowSettings CDlssStabilizer::ForDlssNR(UINT divider)
+CDlssStabilizer::FlowSettings CDlssStabilizer::ForDlssNR(float factor)
 {
 	FlowSettings flow = ForDlssSR();
-	flow.flowFactor = divider;
+	flow.flowFactor = factor;
 	flow.flowBlur   = 0;
 	flow.cutDetect  = false;   // the network leaves no trail at a cut (--tsrcut --tsrcutnr)
 	return flow;
@@ -277,14 +278,18 @@ HRESULT CDlssStabilizer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pCon
 	m_bMotionOnly    = bMotionOnly;
 	m_FlowSettings   = flow;
 
-	m_flowFactor = flow.flowFactor ? std::clamp(flow.flowFactor, 1u, 4u) : FlowFactor(height);
+	m_flowFactor = flow.flowFactor > 0 ? std::clamp(flow.flowFactor, 1.0f, 4.0f) : (float)FlowFactor(height);
 	CDlssOpticalFlow::Options options;
 	options.gridSize      = flow.gridSize;
 	options.perfLevel     = flow.perfLevel;
 	options.bidirectional = flow.bidirectional;
 	options.cost          = flow.cost;
 	options.temporalHints = flow.temporalHints;
-	m_bFlow = m_Flow.Init(pDevice, pContext, width / m_flowFactor, height / m_flowFactor, options);
+	// Rounded down, as the whole divisions it replaces were; exact for every working size
+	// in double, two thirds included.
+	const UINT flowW = (UINT)std::floor((double)width / m_flowFactor);
+	const UINT flowH = (UINT)std::floor((double)height / m_flowFactor);
+	m_bFlow = m_Flow.Init(pDevice, pContext, flowW, flowH, options);
 	if (m_bFlow && m_pPSBlockMotion) {
 		// PASS 4's blocks, one pixel per vector, known once the engine has its grid.
 		for (int i = 0; i < 2 && SUCCEEDED(hr); i++) {

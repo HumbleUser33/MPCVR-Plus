@@ -78,21 +78,33 @@ static std::wstring StabilizerText(int value)
 }
 
 // What the stabilizer's Optical Flow divides the working picture by; 1 is the picture
-// itself, 0 Auto. On the slider, 1/4, 1/3, 1/2, Full and Auto from left to right: the
-// fraction of the picture, which a bare 4 did not say.
+// itself, 0 Auto, DLSSNR_FLOW_TWO_THIRDS two thirds of it. On the slider, 1/4, 1/3, 1/2,
+// 2/3, Full and Auto from left to right: the fraction of the picture, which a bare 4 did
+// not say. The notches are a table, since 2/3 came after the others and is saved as a
+// value of its own: the order on the slider is not the order of the values.
+static constexpr int s_FlowNotches[] = { 4, 3, 2, DLSSNR_FLOW_TWO_THIRDS, 1, DLSSNR_FLOW_AUTO };
+
 static std::wstring FlowDividerText(int divider)
 {
+	if (divider == DLSSNR_FLOW_TWO_THIRDS) {
+		return L"2/3";
+	}
 	return divider > 1 ? std::format(L"1/{}", divider) : std::wstring(divider ? L"Full" : L"Auto");
 }
 
 static int FlowDividerPos(int divider)
 {
-	return divider != DLSSNR_FLOW_AUTO ? DLSSNR_FLOW_MAX - divider : DLSSNR_FLOW_MAX;
+	for (int pos = 0; pos < (int)std::size(s_FlowNotches); pos++) {
+		if (s_FlowNotches[pos] == divider) {
+			return pos;
+		}
+	}
+	return (int)std::size(s_FlowNotches) - 1;   // Auto
 }
 
 static int FlowDividerAt(int pos)
 {
-	return pos < DLSSNR_FLOW_MAX ? DLSSNR_FLOW_MAX - pos : DLSSNR_FLOW_AUTO;
+	return s_FlowNotches[std::clamp(pos, 0, (int)std::size(s_FlowNotches) - 1)];
 }
 
 // DLSS 5 NR's working size, per cent of the picture's.
@@ -386,7 +398,7 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"100 is recommended. 0 turns the stabilizer and the motion vectors off." },
 	{ IDC_SLIDER10,
 		L"Resolution at which NVIDIA Optical Flow measures motion for the stabilizer and the "
-		"network: 1/4, 1/3 or 1/2 of the working picture, or Full size.\n"
+		"network: 1/4, 1/3, 1/2 or 2/3 of the working picture, or Full size.\n"
 		"Lower is faster; higher follows fine motion more closely. Auto, the default, uses about "
 		"540 lines (half size for a 1080p film)." },
 	{ IDC_COMBO11,
@@ -866,7 +878,7 @@ void CVRSettingsPPage::FillCombos()
 	Send(IDC_SLIDER7, TBM_SETRANGE, 0, MAKELONG(DLSSNR_STAB_MIN, DLSSNR_STAB_MAX));
 	Send(IDC_SLIDER7, TBM_SETLINESIZE, 0, 1);
 	Send(IDC_SLIDER7, TBM_SETPAGESIZE, 0, 10);
-	// 4, 3, 2, Full and Auto from left to right (FlowDividerPos).
+	// 1/4, 1/3, 1/2, 2/3, Full and Auto from left to right (s_FlowNotches).
 	Send(IDC_SLIDER10, TBM_SETRANGE, 0, MAKELONG(0, FlowDividerPos(DLSSNR_FLOW_AUTO)));
 	Send(IDC_SLIDER10, TBM_SETLINESIZE, 0, 1);
 	Send(IDC_SLIDER10, TBM_SETPAGESIZE, 0, 1);

@@ -161,6 +161,10 @@ constexpr inline auto DLSSNR_STAB_DEF  = 100;
 constexpr inline auto DLSSNR_FLOW_AUTO = 0;
 constexpr inline auto DLSSNR_FLOW_MAX  = 4;
 constexpr inline auto DLSSNR_FLOW_DEF  = DLSSNR_FLOW_AUTO;
+// Two thirds of the working size, between 1/2 and the size itself: not a whole divider,
+// so a value of its own after them, which leaves every saved one where it was.
+constexpr inline auto DLSSNR_FLOW_TWO_THIRDS = 5;
+constexpr inline auto DLSSNR_FLOW_LAST       = DLSSNR_FLOW_TWO_THIRDS;
 // The size DLSS 5 NR works at, per cent of the picture's each way. The network costs
 // in proportion to the pixels it is given; below 100 it runs on the picture reduced,
 // and the change it made is carried back onto the picture at its own size
@@ -350,7 +354,8 @@ struct Settings_t {
 	int  iDlssNRWorkingScale;
 
 	// What the working picture is divided by for the stabilizer's Optical Flow,
-	// DLSSNR_FLOW_*, 0 being Auto. DLSS Super Resolution keeps its own Auto.
+	// DLSSNR_FLOW_*, 0 being Auto and DLSSNR_FLOW_TWO_THIRDS 1.5. DLSS Super
+	// Resolution keeps its own Auto.
 	int  iDlssNRFlowDivider;
 
 	// Artifact removal on the decoded planes, before anything converts or resizes the
