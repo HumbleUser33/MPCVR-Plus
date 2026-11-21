@@ -305,6 +305,19 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Costs a full DLSS pass at the output size, which at 4K needs a high-end card: watch "
 		"'skipped' and the sync offset in the statistics.\n"
 		"Needs 'Use DLSS Super Resolution'." },
+	{ IDC_DLAA_AFTER,
+		L"Runs NVIDIA DLSS in its DLAA mode on the picture once it has been resized, whoever "
+		"resized it: the Upscaling or Downscaling method, an mpv prescaler, or the video processor "
+		"with or without RTX Video Super Resolution. It resizes nothing; it cleans the picture at "
+		"the size it is shown at.\n"
+		"GPU heavy: a full DLSS pass at the output size on every picture, which at 4K needs a "
+		"high-end card. Watch 'skipped' and the sync offset in the statistics.\n"
+		"One or the other with 'Use DLSS Super Resolution', which has its own DLAA. Uses its "
+		"preset and its DLL. Needs an NVIDIA RTX card, the 64-bit filter and Direct3D 11." },
+	{ IDC_DLAA_AFTER_NR,
+		L"Where DLSS 5 NR runs after the upscaling ('Apply after upscaling' on the DLSS 5 NR "
+		"tab), puts the DLAA after the network instead of before it.\n"
+		"Where the network runs before the upscaling, the DLAA comes after it anyway." },
 	{ IDC_COMBO15,
 		L"Which DLSS model runs. Automatic lets DLSS choose for the enlargement ratio." },
 	{ IDC_EDIT9,
@@ -1001,6 +1014,8 @@ void CVRSettingsPPage::SetControls()
 	SetCheck(IDC_CHECK28, m_SetsPP.bDlssSRDlaa);
 	Combo_SelectData(Item(IDC_COMBO15), m_SetsPP.iDlssSRPreset);
 	SetText(IDC_EDIT9, m_SetsPP.szDlssSRDllPath);
+	SetCheck(IDC_DLAA_AFTER, m_SetsPP.bDlaaAfterScaling);
+	SetCheck(IDC_DLAA_AFTER_NR, m_SetsPP.bDlaaAfterNR);
 }
 
 void CVRSettingsPPage::EnableControls()
@@ -1135,12 +1150,21 @@ void CVRSettingsPPage::EnableControls()
 	}
 
 	// DLSS Super Resolution does not depend on DLSS 5 NR: another DLL, another session.
-	for (const int id : { IDC_CHECK25, IDC_STATIC35, IDC_STATIC37, IDC_EDIT9, IDC_BUTTON4 }) {
+	// It and the DLAA after scaling are one or the other (Greying.h).
+	for (const int id : { IDC_STATIC35, IDC_STATIC37, IDC_EDIT9, IDC_BUTTON4 }) {
 		Enable(id, bD3D11);
 	}
-	for (const int id : { IDC_STATIC36, IDC_COMBO15, IDC_CHECK28, IDC_STATIC_DLAA_NOTE }) {
-		Enable(id, bD3D11 && m_SetsPP.bDlssSR);
+	Enable(IDC_CHECK25, grey.bDlssSRBox);
+	for (const int id : { IDC_CHECK28, IDC_STATIC_DLAA_NOTE }) {
+		Enable(id, grey.bDlssSRDlaaBox);
 	}
+	for (const int id : { IDC_STATIC36, IDC_COMBO15 }) {
+		Enable(id, grey.bDlssPresetList);
+	}
+	Enable(IDC_DLAA_AFTER_GROUP, bD3D11);
+	Enable(IDC_DLAA_AFTER, grey.bDlaaAfterBox);
+	Enable(IDC_STATIC_DLAA_AFTER_NOTE, grey.bDlaaAfterBox);
+	Enable(IDC_DLAA_AFTER_NR, grey.bDlaaAfterNRBox);
 }
 
 HRESULT CVRSettingsPPage::OnActivate()
@@ -1440,9 +1464,11 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				{ IDC_SDR_PEAK_CUTS, &m_SetsPP.bSdrPeakSceneCuts, false },
 				{ IDC_DLSSNR_ENABLE, &m_SetsPP.bDlssNR,        true  },
 				{ IDC_CHECK21, &m_SetsPP.bDlssNRAutoMask,      false },
-				{ IDC_CHECK23, &m_SetsPP.bDlssNRAfterUpscale,  false },
+				{ IDC_CHECK23, &m_SetsPP.bDlssNRAfterUpscale,  true  },   // the DLAA's order follows it
 				{ IDC_CHECK25, &m_SetsPP.bDlssSR,              true  },
 				{ IDC_CHECK28, &m_SetsPP.bDlssSRDlaa,          false },
+				{ IDC_DLAA_AFTER, &m_SetsPP.bDlaaAfterScaling, true  },
+				{ IDC_DLAA_AFTER_NR, &m_SetsPP.bDlaaAfterNR,   false },
 				{ IDC_CHECK29, &m_SetsPP.bUpscalingSmall,      true  },
 				{ IDC_CHECK26, &m_SetsPP.bDlssRenderAhead,     true  },
 				{ IDC_CHECK27, &m_SetsPP.bVPReplaceChroma,     true  },
@@ -1492,6 +1518,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				defaults.iDlssNRToggleKey = m_SetsPP.iDlssNRToggleKey;
 				wcscpy_s(defaults.szDlssNRDllPath, m_SetsPP.szDlssNRDllPath);
 				defaults.bDlssSR = m_SetsPP.bDlssSR;
+				defaults.bDlaaAfterScaling = m_SetsPP.bDlaaAfterScaling;
 				wcscpy_s(defaults.szDlssSRDllPath, m_SetsPP.szDlssSRDllPath);
 				// Nor is the working size: it is what the card can carry.
 				defaults.iDlssNRWorkingScale = m_SetsPP.iDlssNRWorkingScale;

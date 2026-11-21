@@ -162,6 +162,8 @@ static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
 static int g_frameSeconds = 0;         // --frame N: the page inside a real property frame
 static bool g_bThemedHost = false;     // --themed: and a player that paints it
 static bool g_bDlaa = false;           // --dlaa: let DLSS SR run without enlarging
+static bool g_bDlaaAfter = false;      // --dlaaafter: DLSS's DLAA after whoever resized, DLSS SR off
+static bool g_bDlaaAfterNR = false;    // --dlaaafternr: and after DLSS 5 NR where that runs after the upscaling
 static bool g_bAfterNR = false;        // --afternr: who enlarges what DLSS 5 NR leaves, on a real film (--file)
 static bool g_bNRAfter = false;        // --nrafter: DLSS 5 NR applied after the upscaling, the processor's one turn enlarging
 static bool g_bVPTurns = false;        // --vpturns: who enlarges, without DLSS, the desktop read unclipped (--file)
@@ -871,6 +873,30 @@ static std::wstring StepLine(const std::wstring& text, const wchar_t* name, doub
 	return {};
 }
 
+// The number the statistics give a step of the pipeline, which is its place in the order
+// the picture goes through them; -1 for none.
+static int StepNumber(const std::wstring& text, const wchar_t* name)
+{
+	const size_t nameLength = wcslen(name);
+	for (size_t pos = 0; pos < text.size();) {
+		size_t end = text.find(L'\n', pos);
+		if (end == std::wstring::npos) {
+			end = text.size();
+		}
+		const std::wstring line = text.substr(pos, end - pos);
+		pos = end + 1;
+		size_t i = 0;
+		while (i < line.size() && iswdigit(line[i])) {
+			i++;
+		}
+		if (i && i < line.size() && line[i] == L' ' && !line.compare(i + 1, nameLength, name)
+				&& (i + 1 + nameLength == line.size() || line[i + 1 + nameLength] == L' ' || line[i + 1 + nameLength] == L':')) {
+			return _wtoi(line.c_str());
+		}
+	}
+	return -1;
+}
+
 static double StepMs(const std::wstring& text, const wchar_t* name)
 {
 	double ms = -1;
@@ -1369,6 +1395,52 @@ static int ShowGreying()
 		: "The cleaning steps aside for Super Resolution chosen and live, and for nothing else; the\n"
 		  "logo's hiding stays live with it.");
 	wrong += wrongClean;
+
+	// DLSS's DLAA after scaling against DLSS Super Resolution: one or the other, DLSS SR
+	// winning when the two are found ticked, the preset live for either, the order against
+	// DLSS 5 NR only where the network runs after the upscaling; and the DLAA, which
+	// resizes nothing, leaving every list as it was without it.
+	printf("\nDLAA after scaling, against DLSS Super Resolution\n\n");
+	printf("%-9s %-11s %-9s %-8s %-8s %-7s %-10s %-9s %-6s\n",
+		"DLSS SR", "DLAA after", "NR after", "SR box", "SR DLAA", "preset", "DLAA box", "its order", "lists");
+	int wrongDlaa = 0;
+	for (const bool bSR : { false, true }) {
+		for (const bool bDlaa : { false, true }) {
+			for (const bool bNRAfter : { false, true }) {
+				Settings_t sets;
+				sets.bUseD3D11 = true;
+				sets.bVPScaling = true;
+				sets.VPFmts.bNV12 = sets.VPFmts.bP01x = sets.VPFmts.bYUY2 = sets.VPFmts.bOther = true;
+				sets.bDlssNR = true;
+				sets.bDlssNRAfterUpscale = bNRAfter;
+				sets.bDlssSR = bSR;
+				sets.bDlaaAfterScaling = bDlaa;
+				const Greying g = GreyingFor(sets, true, true, false);
+				Settings_t plain = sets;
+				plain.bDlaaAfterScaling = false;
+				const Greying p = GreyingFor(plain, true, true, false);
+				const bool bListsKept = g.bUpscalingList == p.bUpscalingList && g.bDownscalingList == p.bDownscalingList
+					&& g.bSuperRes == p.bSuperRes && g.bVPResizingBox == p.bVPResizingBox && g.bChromaList == p.bChromaList;
+				const bool bWrong = g.bDlssSRBox != (bSR || !bDlaa) || g.bDlssSRDlaaBox != bSR
+					|| g.bDlssPresetList != (bSR || bDlaa) || g.bDlaaAfterBox != !bSR
+					|| g.bDlaaAfterNRBox != (!bSR && bDlaa && bNRAfter) || !bListsKept;
+				wrongDlaa += bWrong;
+				printf("%-9s %-11s %-9s %-8s %-8s %-7s %-10s %-9s %-6s%s\n",
+					bSR ? "ticked" : "off", bDlaa ? "ticked" : "off", bNRAfter ? "yes" : "no",
+					g.bDlssSRBox ? "live" : "GREYED", g.bDlssSRDlaaBox ? "live" : "GREYED",
+					g.bDlssPresetList ? "live" : "GREYED", g.bDlaaAfterBox ? "live" : "GREYED",
+					g.bDlaaAfterNRBox ? "live" : "GREYED", bListsKept ? "kept" : "MOVED",
+					bWrong ? "   <-- WRONG" : "");
+			}
+		}
+	}
+	printf("\n%s\n", wrongDlaa
+		? "DLSS SR and the DLAA after scaling have to grey each other, DLSS SR's box staying live\n"
+		  "when both are ticked; the DLAA's order only with DLSS 5 NR after the upscaling; and the\n"
+		  "DLAA has to leave every list as it is without it."
+		: "DLSS SR and the DLAA after scaling grey each other, the preset serves both, and the DLAA\n"
+		  "leaves every list as it is without it.");
+	wrong += wrongDlaa;
 	printf("%d failure(s)\n", wrong);
 	return wrong ? 1 : 0;
 }
@@ -1472,6 +1544,10 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	// when the window is the size of the source or smaller, after the Downscaling
 	// method then, which are the cases the ordinary runs never produce -- they enlarge.
 	sets.bDlssSRDlaa = g_bDlaa;
+	// --dlaaafter, --dlaaafternr: DLSS's DLAA after the resizing, whoever resizes. Off
+	// without them, whatever the registry holds.
+	sets.bDlaaAfterScaling = g_bDlaaAfter;
+	sets.bDlaaAfterNR = g_bDlaaAfterNR;
 	// --small N: the Upscaling method that stands in under five per cent, by its
 	// UPSCALE_ value. Without it the option is off, whatever the registry holds, so
 	// that every other run measures the method it names.
@@ -2943,6 +3019,11 @@ int wmain(int argc, wchar_t* argv[])
 			g_bVPTurns = true;
 		} else if (!wcscmp(argv[i], L"--dlaa")) {
 			g_bDlaa = true;
+		} else if (!wcscmp(argv[i], L"--dlaaafter")) {
+			g_bDlaaAfter = true;
+		} else if (!wcscmp(argv[i], L"--dlaaafternr")) {
+			g_bDlaaAfter = true;
+			g_bDlaaAfterNR = true;
 		} else if (!wcscmp(argv[i], L"--themed")) {
 			g_bThemedHost = true;
 		} else if (!wcscmp(argv[i], L"--apply")) {
@@ -3245,6 +3326,36 @@ int wmain(int argc, wchar_t* argv[])
 	std::map<int, double> calGradient;          // --sharpencal: each run's mean luma gradient
 	int calW = 0, calH = 0;
 	std::map<int, std::wstring> cleanLines;     // and what the statistics said of the cleaning
+	// --dlaaafter, whatever the mode: its own step after the resizing where DLSS SR is off,
+	// none where it is on (it gives way), and with DLSS 5 NR after the upscaling, before the
+	// network or, with --dlaaafternr, after it.
+	const auto CheckDlaaAfter = [&](const Result& r, const Config& config) {
+		if (!g_bDlaaAfter) {
+			return;
+		}
+		double dlaaMs = -1;
+		const std::wstring dlaa = StepLine(r.statsAll, L"DLAA", &dlaaMs);
+		if (!dlaa.empty()) {
+			wprintf(L"   DLAA         : %s%s\n", dlaa.c_str(), dlaaMs >= 0 ? std::format(L", {:.1f} ms", dlaaMs).c_str() : L"");
+		}
+		const bool bRuns = dlaa.find(L"DLSS SR DLAA") != std::wstring::npos;
+		if (config.bSR && !dlaa.empty()) {
+			printf("   FAIL: a DLAA step after the resizing with DLSS SR on, which it is to give way to\n");
+			failures++;
+		} else if (!config.bSR && !bRuns) {
+			printf("   FAIL: DLAA after scaling asked for and not running\n");
+			failures++;
+		}
+		const int dlaaAt = StepNumber(r.statsAll, L"DLAA"), nrAt = StepNumber(r.statsAll, L"DLSS 5 NR");
+		if (bRuns && config.bNR && g_bNRAfter && nrAt > 0) {
+			printf("   order        : DLAA step %d, DLSS 5 NR step %d\n", dlaaAt, nrAt);
+			if ((dlaaAt > nrAt) != g_bDlaaAfterNR) {
+				printf("   FAIL: the DLAA %s DLSS 5 NR, where it was asked to come %s it\n",
+					dlaaAt > nrAt ? "after" : "before", g_bDlaaAfterNR ? "after" : "before");
+				failures++;
+			}
+		}
+	};
 	for (int c = 0; c < configCount; c++) {
 		if (only >= 0 && c != only) {
 			continue;
@@ -3266,6 +3377,7 @@ int wmain(int argc, wchar_t* argv[])
 		if (r.bSnapshotChanged) {
 			failures++;
 		}
+		CheckDlaaAfter(r, config);
 		if (g_bSharpenCal) {
 			if (r.picture.empty()) {
 				printf("   FAILED: no displayed picture\n");

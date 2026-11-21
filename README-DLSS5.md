@@ -550,6 +550,51 @@ this machine, with or without DLAA: the sync offset ran out to over five seconds
 that clip, a paused picture with DLAA lies 0.40 of a level from the one the downscaler alone
 leaves, none of its values more than 24 apart: in its place, the right way up.
 
+### DLAA after scaling, whoever scales
+
+**Apply DLAA after scaling**, in its own box on the **Scaling** tab, runs DLSS in its DLAA
+mode on the picture once it has been resized, whoever resized it: the *Upscaling* or
+*Downscaling* method, an mpv prescaler, or the video processor with or without RTX Video Super
+Resolution. It resizes nothing; it is a step after the resizing, at the size the picture is
+shown at, where DLSS 5 NR's *Apply after upscaling* also runs. It uses DLSS Super Resolution's
+session, its preset and its DLL, and so it and *Use DLSS Super Resolution* are one or the
+other: each greys the other's box, and DLSS SR's own DLAA box with it. Found ticked together
+(a registry, a preset), DLSS Super Resolution runs and its box stays live, to be unticked. The
+DLAA leaves every list of the tab as it found it -- `playback_test --greying` checks that it
+moves none.
+
+With DLSS 5 NR after the upscaling, the DLAA comes first, cleaning what the resizing left, and
+the network after it; **Run it after DLSS 5 NR** turns the order round. Where the network runs
+before the upscaling, the DLAA is after it whatever the box says, and the box is grey. The
+statistics give it a step of its own, `DLAA : DLSS SR DLAA/M at 3840x2160` with its time and
+its *motion*, in the order it runs. A picture it cannot run on -- a snapshot, a size NGX
+refused, a session that switched itself off -- goes through the step untouched.
+
+It is the most expensive way to use DLSS: a whole pass at the output size on every picture,
+after whatever the resizing already cost, which is what the note under the box says. Measured
+on the RTX 4060 on 21 November 2026 (`playback_test --dlaaafter`), each against the same run
+without it:
+
+| picture | resized by | DLAA | its optical flow | ready in | sync offset, skipped |
+|---|---|---|---|---|---|
+| 800x450 at 1280x720 | the shaders | 2.3 ms | -- | 7.3 ms (3.8) | -0.3 ms, 0 |
+| 1920x1080 at 1280x720 | the shaders, shrinking | 2.1 ms | -- | 7.7 ms | +0.7 ms, 0 |
+| 1920x800 film at 2880x1200 | the shaders / the processor / the processor with Super Resolution | 7.0 / 7.2 / 8.4 ms | -- | -- | -- |
+| 3840x2160 HEVC clip at 2560x1440 | the processor, shrinking | 7.2 ms | 1.3 ms | 17.8 ms | +1.3 ms, 0 |
+| 3840x2160 HEVC clip at 3840x2160 | nobody | 16.6 ms | 2.2 ms | 29.8 ms (10.0) | +1.8 ms, 0 |
+
+At 4K the statistics' total read 21.5 ms of the 41.7 a picture lasts, and nothing was shown
+late: on this card it fits a 23.976 fps film at 4K alone, not with DLSS 5 NR at full size as
+well. A paused 4K picture with it lies 0.32 of a level from the same without it. Whether it
+adds anything after RTX Video Super Resolution or a neural upscaler, which reconstruct the
+picture themselves, is for the eye to judge: no measure here says so.
+
+The order checks (`--afternr --nrafter`, with and without `--dlaaafternr`) put the DLAA one
+step before the network and one after it, as asked, on every run. Of seventeen runs of the
+processor enlarging before DLSS 5 NR with the DLAA after it, one showed neither the network nor
+the DLAA running and read a still far from the others; the next sixteen did not, and it was not
+seen again.
+
 **How it runs.** Unlike the NR snippet, this feature runs on Direct3D 11 through the display
 driver's NGX runtime (`_nvngx.dll`), which loads `nvngx_dlss.dll` itself: no second device,
 no shared textures, no waits (`Source/DLSS/DlssSR.cpp`). Every call into NGX runs in a
@@ -2823,6 +2868,8 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 | Downscaling | Hamming | Reduces when the shaders resize. Ordered best first (`--tdownscale`, see *Spline36, and what a downscaler is for*): Lanczos, Bicubic sharp and Spline36 are close |
 | Use DLSS Super Resolution for upscaling | off | Enlarges with DLSS Super Resolution, in place of the video processor and of the Upscaling method, which greys; it cleans grain and compression noise too. Up to 4 times; the Upscaling method finishes a larger enlargement. Works with or without DLSS 5 NR. Experimental (see *DLSS Super Resolution*): moving subjects can still shimmer on grainy film |
 | Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it, and on a larger one once the *Downscaling* method has brought it to the screen's size. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p; 7.7 ms at 2560x1440 after the downscaler on an RTX 4060. Needs *Use DLSS Super Resolution* |
+| Apply DLAA after scaling | off | DLSS's DLAA on the picture once resized, whoever resized it -- the shaders, a prescaler, the video processor with or without RTX Video Super Resolution -- at the size it is shown at. GPU heavy: 16.6 ms a picture at 4K on an RTX 4060. One or the other with *Use DLSS Super Resolution*; uses its preset and its DLL. See *DLAA after scaling, whoever scales* |
+| Run it after DLSS 5 NR | off | With DLSS 5 NR after the upscaling, the DLAA after the network instead of before it. Live only then |
 | Preset | Automatic | The DLSS model: J and K are DLSS 4's, L and M DLSS 4.5's; Automatic lets DLSS choose for the ratio. Applies on the next picture |
 | DLL | empty | `nvngx_dlss.dll` or its folder. Empty means search next to the filter and up |
 
@@ -2995,6 +3042,7 @@ steps work in.
 | Convert | The shaders convert the picture instead, with the chroma method named, a chroma prescaler's time included |
 | DLSS 5 NR | The network's tuning, or why it is not running. *working* is the reduction and the composition at a working size below the picture's; *stabilizer* its Optical Flow and the stabilizer. The network runs on a Direct3D 12 device of its own and is timed there, by timestamps on its queue |
 | Scaling | From what size to what size, and what does it, with all it costs: the processor's second turn after DLSS 5 NR, DLSS SR and its *motion*, or an mpv prescaler, each with the resize shader that finishes the job. `SuperResolution*` when the driver's Super Resolution runs, and `(No Super Resolution when chroma by shaders)` when it was asked for on a 4:4:4 picture. When the processor resized in its own step, a time here is only the resize shader copying the picture to its place -- a film with black bars, or one in a window -- and the line says `placed by the shaders`: 0.5 ms for a 2.39:1 film on a 4K screen, which is not Super Resolution's (that is in the processor's time). With *DLSS SR* ticked and not enlarging, a sub-line says why |
+| DLAA | *Apply DLAA after scaling*: DLSS's DLAA at the size the picture is shown at, its mode and preset, with its Optical Flow as *motion* under it. Before DLSS 5 NR after the upscaling, or after it with *Run it after DLSS 5 NR*. Asked for and not running, it says why |
 | Finish | What runs at the size the picture is shown at: a correction, the tone mapping, the sharpening and its level, the player's shaders, the dither |
 | Cadence | With *Hide the 60Hz hiccup on scene changes*: the picture copied out of the back buffer and measured for a scene change, every picture while a hiccup may come. Under it, *EchoFG* is the interpolated frame (*Otherwise, show an interpolated frame*): the median of its last five times on the GPU, each brought to the GPU's clock of the moment, which decides whether one is made, and not in the total, since it is made every few seconds and not for every picture |
 
@@ -3476,6 +3524,8 @@ playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler
 playback_test.exe --sharpencal --file <film> --window 3200x1334 --vpscale 0 --calup 5   each sharpener's gain in detail against its strength, and its levels read back
 playback_test.exe --scalers --size 3836x2160 --window 3840x2160 --small 5   the stand-in under 5 %
 playback_test.exe --dlaa --size 1920x1080 --window 1920x1080   DLSS SR with nothing to enlarge
+playback_test.exe --dlaaafter [--dlaaafternr]   DLAA after whoever resized, DLSS SR off; checks its step
+                                  is there, gives way to DLSS SR, and keeps its order with DLSS 5 NR
 playback_test.exe --mainpage 10 --hover 1042   the tip that comes up on a control, greyed or not
 playback_test.exe --mainpage 10   the settings page for 10 s, --click <id> clicks one control
 playback_test.exe --mainpage 10 --section 4   on one of the seven tabs; --apply presses Apply

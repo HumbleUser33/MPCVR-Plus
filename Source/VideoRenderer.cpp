@@ -107,6 +107,8 @@
 #define OPT_CadenceSlips                   L"CadenceSlips"
 #define OPT_SwapChainRenew                 L"SwapChainRenew"
 #define OPT_DitherMoving                   L"DitherMoving"
+#define OPT_DlaaAfterScaling               L"DlaaAfterScaling"
+#define OPT_DlaaAfterNR                    L"DlaaAfterNR"
 #define OPT_SdrToneMappingType             L"SdrToneMappingType"
 // registry only, not saved
 #define OPT_SdrPeakWindowMs                L"SdrPeakWindowMs"
@@ -366,6 +368,12 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DitherMoving, dw)) {
 		sets.bDitherMoving = !!dw;
 	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlaaAfterScaling, dw)) {
+		sets.bDlaaAfterScaling = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlaaAfterNR, dw)) {
+		sets.bDlaaAfterNR = !!dw;
+	}
 }
 
 static void WriteSettings(CRegKey& key, const Settings_t& sets)
@@ -444,6 +452,8 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_CadenceSlips,        sets.iCadenceSlips);
 	key.SetDWORDValue(OPT_SwapChainRenew,      sets.bSwapChainRenew);
 	key.SetDWORDValue(OPT_DitherMoving,        sets.bDitherMoving);
+	key.SetDWORDValue(OPT_DlaaAfterScaling,    sets.bDlaaAfterScaling);
+	key.SetDWORDValue(OPT_DlaaAfterNR,         sets.bDlaaAfterNR);
 }
 
 // The settings are this renderer's own. The original is often on the same machine -- MPC-HC

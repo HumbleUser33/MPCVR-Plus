@@ -247,8 +247,11 @@ void CDX11VideoProcessor::NoteDlssForTrace()
 	}
 	if (m_bDlssSR) {
 		note += std::format(L" SR {} ({})", m_bDlssSRActive ? L"on" : L"off", GetDlssSRStatus());
+	} else if (m_bDlaaAfterScaling) {
+		// DLSS SR's session, run after the resizing: its pictures count as SR's in the trace.
+		note += std::format(L" DLAA after scaling {} ({})", m_bDlaaAfterActive ? L"on" : L"off", GetDlssSRStatus());
 	}
-	if (!m_bDlssNR && !m_bDlssSR) {
+	if (!m_bDlssNR && !m_bDlssSR && !m_bDlaaAfterScaling) {
 		note += L" none asked for";
 	}
 	if (note != m_strTraceDlss) {

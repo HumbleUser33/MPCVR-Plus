@@ -58,6 +58,11 @@ struct Greying {
 	bool bCleaning;          // Deblocking and Debanding, and their levels
 	bool bLogo;              // Hide the channel logo, and its buttons: kept under RTX Video
 	                         // Super Resolution, which does not hide logos
+	bool bDlssSRBox;         // "Use DLSS Super Resolution for upscaling"
+	bool bDlssSRDlaaBox;     // its "Also run when no enlarging is needed (DLAA)", and the note
+	bool bDlssPresetList;    // the DLSS preset, which both use
+	bool bDlaaAfterBox;      // "Apply DLAA after scaling", and its note
+	bool bDlaaAfterNRBox;    // "Run it after DLSS 5 NR"
 };
 
 inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDoViNow)
@@ -110,5 +115,17 @@ inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDo
 	// shaders: Direct3D 11.
 	g.bCleaning = s.bUseD3D11 && !(g.bSuperRes && s.iVPSuperRes != SUPERRES_Disable);
 	g.bLogo = s.bUseD3D11;
+
+	// DLSS Super Resolution, or DLSS's DLAA after whoever resized: one session, one or
+	// the other. The DLAA after scaling resizes nothing, so it leaves every list above as
+	// it found it. Ticked together -- a registry, a preset -- DLSS Super Resolution is
+	// the one that runs, and its box stays live so that it can be unticked.
+	const bool bDlaaAfter = s.bUseD3D11 && s.bDlaaAfterScaling;
+	g.bDlssSRBox = s.bUseD3D11 && (!bDlaaAfter || bDlssSR);
+	g.bDlssSRDlaaBox = bDlssSR;
+	g.bDlssPresetList = bDlssSR || bDlaaAfter;
+	g.bDlaaAfterBox = s.bUseD3D11 && !bDlssSR;
+	// Where DLSS 5 NR runs before the upscaling, the DLAA is after it whatever the box says.
+	g.bDlaaAfterNRBox = bDlaaAfter && !bDlssSR && s.bDlssNR && s.bDlssNRAfterUpscale;
 	return g;
 }

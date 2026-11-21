@@ -468,6 +468,8 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_bDlssSRDlaa          = config.bDlssSRDlaa;
 	m_iDlssSRPreset        = config.iDlssSRPreset;
 	m_strDlssSRDllPath     = config.szDlssSRDllPath;
+	m_bDlaaAfterScaling    = config.bDlaaAfterScaling;
+	m_bDlaaAfterNR         = config.bDlaaAfterNR;
 	// Only Configure() used to take it, so the renderer made for each film had it on
 	// whatever the setting said: unticked, it stayed off until the next file.
 	m_bDlssRenderAhead     = config.bDlssRenderAhead;
@@ -791,6 +793,7 @@ void CDX11VideoProcessor::ReleaseDevice()
 	m_bDlssNRActive = false;
 	m_DlssSR.Shutdown();
 	m_bDlssSRActive = false;
+	m_bDlaaAfterActive = false;
 	m_DlssStageTimes.Release();
 	m_pVPTimingProbe.Release();
 	m_pPictureDoneQuery.Release();
@@ -915,6 +918,9 @@ UINT CDX11VideoProcessor::GetPostScaleSteps()
 {
 	UINT nSteps = m_pPostScaleShaders.size();
 	if (m_bDlssNRActive && m_bDlssNRAfterUpscale) {
+		nSteps++;
+	}
+	if (DlaaAfterStepCounted()) {
 		nSteps++;
 	}
 	if (m_pPSCorrection) {
@@ -4761,8 +4767,10 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 		// the picture where it lies, the first time, and where it was put from then on.
 		const bool bFirstStepDraws = m_pPSCorrection || m_pPSHDR10ToneMapping || m_pPSSharpen
 			|| !m_pPostScaleShaders.empty() || (m_bFinalPass && !m_pPSHalfOUtoInterlace);
+		const bool bDlaaStep = DlaaAfterStepCounted();
 		const bool bPlaceInFirstStep = rSrc != dstRect && rSrc.Size() == dstRect.Size() && rotation == 0 && !m_bFlip
-			&& rect == dstRect && bFirstStepDraws && !(m_bDlssNRActive && bAllowDlss && m_bDlssNRAfterUpscale);
+			&& rect == dstRect && bFirstStepDraws && !(m_bDlssNRActive && bAllowDlss && m_bDlssNRAfterUpscale)
+			&& !bDlaaStep;
 		CRect rRead = rect;
 
 		if (bPlaceInFirstStep) {
@@ -4774,6 +4782,30 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 			m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::Resize);
 		} else {
 			pTex = pInputTexture; // Hmm
+		}
+
+		// DLAA after the resizing, on the picture where it lies at the size it is shown at.
+		// Always taken when counted: a picture it cannot run on -- a snapshot, a session that
+		// latched itself off, a size NGX refused -- is copied through, so that the steps
+		// after it find it where they expect it. Before DLSS 5 NR after the upscaling, unless
+		// it is asked to come after the network.
+		const bool bNRAfterStep = m_bDlssNRActive && bAllowDlss && m_bDlssNRAfterUpscale;
+		const auto DlaaStep = [&]() {
+			StepSetting();
+			Tex2D_t* pDlaa = nullptr;
+			if (m_bDlaaAfterActive && bAllowDlss && S_OK == DlaaAfterScalingPass(pInputTexture, rect, &pDlaa) && pDlaa) {
+				const CRect rDlaa(0, 0, pDlaa->desc.Width, pDlaa->desc.Height);
+				hr = TextureCopyRect(*pDlaa, pRT, rDlaa, rect, m_pPS_Simple, nullptr, 0, false);
+				m_bDlaaAfterRan = true;
+			} else {
+				hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPS_Simple, nullptr, 0, false);
+				if (bAllowDlss) {
+					m_bDlaaAfterRan = false;
+				}
+			}
+		};
+		if (bDlaaStep && !(m_bDlaaAfterNR && bNRAfterStep)) {
+			DlaaStep();
 		}
 
 		if (m_bDlssNRActive && bAllowDlss && m_bDlssNRAfterUpscale) {
@@ -4793,6 +4825,9 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 			} else {
 				hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPS_Simple, nullptr, 0, false);
 			}
+		}
+		if (bDlaaStep && m_bDlaaAfterNR && bNRAfterStep) {
+			DlaaStep();
 		}
 
 		// The finishing steps, as one figure in the statistics.
@@ -5372,6 +5407,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 
 	const bool bDlssNRActiveBefore = m_bDlssNRActive;
 	const bool bDlssSRActiveBefore = m_bDlssSRActive;
+	const bool bDlaaActiveBefore = m_bDlaaAfterActive;
 	const bool bRenderAheadBefore  = m_bDlssRenderAhead;
 	// Whether Super Resolution has taken the cleaning over: several settings decide it.
 	const bool bCleaningAllowedBefore = CleaningAllowed();
@@ -5440,6 +5476,15 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		// DlssSRPass makes a new one on the next picture; only another DLL ends
 		// the session.
 		bool bUpdateSR = false;
+		// The DLAA after scaling is a step of its own after the resizing: when it comes or
+		// goes, the post-scale textures are counted again.
+		const bool bDlaaStepBefore = DlaaAfterStepCounted();
+		if (config.bDlaaAfterScaling != m_bDlaaAfterScaling) {
+			m_bDlaaAfterScaling = config.bDlaaAfterScaling;
+			m_DlssSR.ReleaseFeature();   // its size is the picture's as shown, not DLSS SR's
+			bUpdateSR = true;
+		}
+		m_bDlaaAfterNR = config.bDlaaAfterNR;   // read by the next picture
 		if (m_strDlssSRDllPath != config.szDlssSRDllPath) {
 			m_strDlssSRDllPath = config.szDlssSRDllPath;
 			m_DlssSR.Shutdown();
@@ -5448,7 +5493,11 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		}
 		if (config.bDlssSR != m_bDlssSR) {
 			m_bDlssSR = config.bDlssSR;
+			m_DlssSR.ReleaseFeature();   // the DLAA after scaling's, or DLSS SR's own, goes
 			bUpdateSR = true;
+		}
+		if (DlaaAfterStepCounted() != bDlaaStepBefore) {
+			changeTextures = true;
 		}
 		if (config.bDlssSRDlaa != m_bDlssSRDlaa) {
 			// The feature was made for one pair of sizes, and DLAA is another pair.
@@ -5489,7 +5538,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 
 	m_bDlssRenderAhead = config.bDlssRenderAhead;
 	if (m_bDlssRenderAhead != bRenderAheadBefore || m_bDlssNRActive != bDlssNRActiveBefore
-			|| m_bDlssSRActive != bDlssSRActiveBefore || changeDlssFeature) {
+			|| m_bDlssSRActive != bDlssSRActiveBefore || m_bDlaaAfterActive != bDlaaActiveBefore || changeDlssFeature) {
 		// What render ahead measures has changed: it starts over.
 		m_RenderAhead.Reset();
 		m_DlssNRTimes.Reset();

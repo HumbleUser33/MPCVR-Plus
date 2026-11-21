@@ -333,7 +333,35 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		}
 	}
 
+	// DLAA after the resizing, at the size the picture is shown at, in the order it runs:
+	// before DLSS 5 NR after the upscaling, or after it when asked to. Ticked and not
+	// running, the step says why, as DLSS SR's does.
+	const auto DlaaStep = [&]() {
+		if (!m_bDlaaAfterScaling || m_bDlssSR) {
+			return;
+		}
+		if (m_bDlaaAfterActive && m_bDlaaAfterRan && m_DlssSR.IsFeatureReady()) {
+			// Its mode and preset, the last word of DLSS SR's own line, and the size it runs at.
+			const std::wstring sr = m_DlssSR.GetStatsLine();
+			const size_t space = sr.rfind(L' ');
+			const Tex2D_t* pOut = m_DlssSR.GetOutput();
+			Step(L"DLAA", std::format(L"DLSS SR {} at {}x{}", space == std::wstring::npos ? sr : sr.substr(space + 1),
+				pOut->desc.Width, pOut->desc.Height), Ms(CGpuStageTimes::SR));
+			if (!m_strDlssSRMotion.empty()) {
+				SubStep(L"motion", m_strDlssSRMotion, Ms(CGpuStageTimes::SRMotion));
+			}
+		} else {
+			Step(L"DLAA", DlssSRSupportedHere() ? m_DlssSR.GetStatsLine() : std::wstring(L"not available on this adapter"), -1);
+		}
+	};
+	const bool bNRAfterUpscale = m_bDlssNR && m_bDlssNRAfterUpscale;
+	if (!(m_bDlaaAfterNR && bNRAfterUpscale)) {
+		DlaaStep();
+	}
 	DlssNRSteps(true);
+	if (m_bDlaaAfterNR && bNRAfterUpscale) {
+		DlaaStep();
+	}
 
 	// Everything after the resize, at the size the picture is shown at.
 	{
@@ -470,7 +498,7 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 	// the GPU being done with it, and how many the GPU was still finishing when Present was
 	// called. Those still reach their refresh unless On screen counts them shown late: it
 	// read "not in time", which was taken for pictures late on the screen.
-	if (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded()) {
+	if (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_bDlaaAfterActive || m_MpvLuma.IsLoaded()) {
 		if (!m_bDlssRenderAhead) {
 			str.append(L"\nRender ahead  : off");
 		} else if (m_RenderAhead.MeanLatencyMs() >= 0) {

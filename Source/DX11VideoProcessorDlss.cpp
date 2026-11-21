@@ -287,7 +287,7 @@ void CDX11VideoProcessor::ReleaseDlssNRTextures(const bool bFeature)
 
 std::wstring CDX11VideoProcessor::GetDlssSRStatus()
 {
-	if (!m_bDlssSR) {
+	if (!m_bDlssSR && !m_bDlaaAfterScaling) {
 		return {};
 	}
 	if (!DlssSRSupportedHere()) {
@@ -309,21 +309,33 @@ bool CDX11VideoProcessor::DlssSRSupportedHere() const
 #endif
 }
 
-// Load or drop the DLSS Super Resolution session to match the setting. Toggling
-// only drops the feature; the session goes with the device or another DLL.
+// Load or drop the DLSS Super Resolution session to match the settings: DLSS Super
+// Resolution, or the DLAA after scaling, which uses the same session and gives way to
+// it. Toggling only drops the feature; the session goes with the device or another DLL.
 void CDX11VideoProcessor::UpdateDlssSR()
 {
-	if (!m_bDlssSR || !DlssSRSupportedHere()) {
+	if (!(m_bDlssSR || m_bDlaaAfterScaling) || !DlssSRSupportedHere()) {
 		m_DlssSR.ReleaseFeature();
 		m_DlssSRMotion.Release();
 		m_strDlssSRMotion.clear();
 		m_bDlssSRActive = false;
+		m_bDlaaAfterActive = false;
 		return;
 	}
 	if (!m_DlssSR.IsInitialised()) {
 		m_DlssSR.Init(m_pDevice, m_strDlssSRDllPath.c_str());
 	}
-	m_bDlssSRActive = m_DlssSR.IsInitialised();
+	const bool bReady = m_DlssSR.IsInitialised();
+	m_bDlssSRActive = m_bDlssSR && bReady;
+	m_bDlaaAfterActive = !m_bDlssSR && m_bDlaaAfterScaling && bReady;
+}
+
+// The DLAA after scaling is one of the steps after the resizing, counted whenever it is
+// asked for where it can run, so that the post-scale textures do not change with whether
+// a picture got through: a step that does not run copies the picture through.
+bool CDX11VideoProcessor::DlaaAfterStepCounted() const
+{
+	return m_bDlaaAfterScaling && !m_bDlssSR && DlssSRSupportedHere();
 }
 
 HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSrc, const CRect& dstRect, const int rotation, Tex2D_t** ppResult)
@@ -394,6 +406,50 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	if (FAILED(hr)) {
 		return hr;
 	}
+	return DlssSRRun(featW, featH, ppResult);
+}
+
+// DLAA after the resizing, whoever resized: the picture at the size it is shown at, rect
+// of the post-scale texture, run through DLSS at a ratio of one. DLSS Super Resolution
+// is off for this to run (DlaaAfterStepCounted), so the two share its session, its
+// feature and its motion.
+HRESULT CDX11VideoProcessor::DlaaAfterScalingPass(Tex2D_t* pInputTexture, const CRect& rect, Tex2D_t** ppResult)
+{
+	if (!pInputTexture || !ppResult) {
+		return E_POINTER;
+	}
+	const UINT w = rect.Width(), h = rect.Height();
+	if (!w || !h) {
+		return S_FALSE;
+	}
+
+	const unsigned preset = (unsigned)m_iDlssSRPreset;
+	if (!m_DlssSR.MatchesFeature(w, h, w, h, preset)) {
+		if (m_DlssSR.IsRefused(w, h, w, h, preset)) {
+			return S_FALSE;   // failed before for this size: the picture goes on as it is
+		}
+		if (!m_DlssSR.CreateFeature(w, h, w, h, preset)) {
+			UpdateStatsStatic();
+			return S_FALSE;
+		}
+		m_bDlssSRNewPicture = true;   // a new feature starts its history on this picture
+		m_DlssSRMotion.Reset();
+		UpdateStatsStatic();
+	}
+
+	Tex2D_t* pInput = m_DlssSR.GetInput();
+	const HRESULT hr = TextureCopyRect(*pInputTexture, pInput->pTexture, rect, CRect(0, 0, w, h), m_pPS_Simple, nullptr, 0, false);
+	if (FAILED(hr)) {
+		return hr;
+	}
+	return DlssSRRun(w, h, ppResult);
+}
+
+// What DLSS Super Resolution and the DLAA after scaling share, once the picture is in
+// the feature's input at w x h: its motion, and the network.
+HRESULT CDX11VideoProcessor::DlssSRRun(const UINT featW, const UINT featH, Tex2D_t** ppResult)
+{
+	Tex2D_t* pInput = m_DlssSR.GetInput();
 
 	// Motion only for a new picture: a redraw shows the same one, which has not
 	// moved. Optical Flow of its own, about 540 lines, on the very picture DLSS
@@ -442,8 +498,10 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	const bool bEvaluated = m_DlssSR.Evaluate(pMotion, frameMs);
 	m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::SR);
 	if (!bEvaluated) {
-		// Latch off rather than failing on every picture.
+		// Latch off rather than failing on every picture. The DLAA after scaling keeps its
+		// step, which then copies the picture through as it is.
 		m_bDlssSRActive = false;
+		m_bDlaaAfterActive = false;
 		UpdateScalingStrings();
 		UpdateStatsStatic();
 		return E_FAIL;

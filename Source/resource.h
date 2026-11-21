@@ -427,6 +427,10 @@
 #define IDC_GROUP_WORKAROUNDS              1384
 #define IDC_DITHER_MOVING                  1385
 #define IDC_SDR_PEAK_CUTS                  1386
+#define IDC_DLAA_AFTER                     1387
+#define IDC_STATIC_DLAA_AFTER_NOTE         1388
+#define IDC_DLAA_AFTER_NR                  1389
+#define IDC_DLAA_AFTER_GROUP               1390
 #define IDC_STATIC_SDRTM                1066
 #define IDC_COMBO_SDRTM                 1067
 #define IDC_STATIC_DVTM                 1068
@@ -438,7 +442,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        4010
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1387
+#define _APS_NEXT_CONTROL_VALUE         1391
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

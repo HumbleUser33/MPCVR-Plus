@@ -393,6 +393,15 @@ struct Settings_t {
 	// Direct3D 11.
 	bool bDitherMoving;
 
+	// DLSS's DLAA after the resizing, whoever resizes -- the shaders, a prescaler, the
+	// video processor with or without RTX Video Super Resolution -- at the size the
+	// picture is shown at. Not with DLSS Super Resolution, which is then the one
+	// resizing and has its own DLAA; ticked together, DLSS Super Resolution wins.
+	// bDlaaAfterNR puts it after DLSS 5 NR where the network runs after the upscaling;
+	// before it otherwise.
+	bool bDlaaAfterScaling;
+	bool bDlaaAfterNR;
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -490,6 +499,8 @@ struct Settings_t {
 		iCadenceSlips                   = CADENCE_SLIPS_Off;
 		bSwapChainRenew                 = true;
 		bDitherMoving                   = false;
+		bDlaaAfterScaling               = false;
+		bDlaaAfterNR                    = false;
 	}
 };
 
@@ -516,6 +527,8 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 	dst.bDlssSRDlaa           = src.bDlssSRDlaa;
 	dst.iDlssSRPreset         = src.iDlssSRPreset;
 	wcscpy_s(dst.szDlssSRDllPath, src.szDlssSRDllPath);
+	dst.bDlaaAfterScaling     = src.bDlaaAfterScaling;
+	dst.bDlaaAfterNR          = src.bDlaaAfterNR;
 	// bDlssRenderAhead is not here: it belongs to the main page, which sets it for
 	// the prescalers as much as for DLSS.
 }

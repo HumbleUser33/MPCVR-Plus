@@ -375,6 +375,12 @@ private:
 	bool m_bDlssSRActive = false;
 	bool m_bDlssSRDlaa = false;   // run it at the picture's own size as well, and after the downscalers
 	bool m_bDlssSRDownscaled = false;   // the picture at hand shrinks, and DLSS's DLAA follows the downscalers
+	// DLAA after the resizing, whoever resizes, with DLSS Super Resolution off: the
+	// settings, and whether its session is up.
+	bool m_bDlaaAfterScaling = false;
+	bool m_bDlaaAfterNR = false;
+	bool m_bDlaaAfterActive = false;
+	bool m_bDlaaAfterRan = false;   // the last picture went through it (a snapshot leaves it as it was)
 	// The Upscaling method for an enlargement under five per cent, and the one of
 	// the two that the picture at hand is really getting.
 	bool m_bUpscalingSmall = false;
@@ -460,7 +466,7 @@ private:
 	// holding those pictures back counted every one of them late for no reason.
 	// And every picture counts while pictures are being presented for a refresh chosen
 	// in advance: each has to be asked for early to be there for its own.
-	bool RenderAheadActive() const { return m_bDlssRenderAhead && (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_bMpvLumaRan); }
+	bool RenderAheadActive() const { return m_bDlssRenderAhead && (m_bScheduled || m_bDlssNRActive || m_bDlssSRActive || m_bDlaaAfterActive || m_bMpvLumaRan); }
 
 	// Who resizes when "Use the video processor for resizing" is ticked: the processor,
 	// in whichever of its two turns comes after everything that needs the source's
@@ -831,6 +837,11 @@ private:
 	// both axes, or no feature can be made for these sizes -- and the resize shaders
 	// then do the whole job.
 	HRESULT DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSrc, const CRect& dstRect, const int rotation, Tex2D_t** ppResult);
+	// DLAA on rect of a post-scale texture, the picture at the size it is shown at.
+	// S_FALSE where no feature can be made for its size: the step copies it through.
+	HRESULT DlaaAfterScalingPass(Tex2D_t* pInputTexture, const CRect& rect, Tex2D_t** ppResult);
+	HRESULT DlssSRRun(UINT featW, UINT featH, Tex2D_t** ppResult);
+	bool DlaaAfterStepCounted() const;
 	bool DlssSRSupportedHere() const;
 	void UpdateDlssSR();
 	std::wstring GetDlssSRStatus() override;
