@@ -669,9 +669,10 @@ public:
 	// Resize: the resize shader. Finish: everything after it, dither included.
 	// Deblock, Deband: the artifact removal on the decoded planes, as the sample is
 	// copied; the write back into the processor's input is the last one's. Cadence: the
-	// picture copied out for the cadence slips and measured for a scene cut.
+	// picture copied out for the cadence slips and measured for a scene cut. SRDownscale:
+	// the Downscaling method shrinking the picture for DLSS SR's DLAA at the screen's size.
 	enum Stage { NRMotion, NRStabilize, SRMotion, SR, MpvLuma, MpvChroma, VPScale, NRReduce, NRCompose,
-		VP, ShaderConvert, Prepass, Resize, Finish, Deblock, Deband, Logo, Cadence, StageCount };
+		VP, ShaderConvert, Prepass, Resize, Finish, Deblock, Deband, Logo, Cadence, SRDownscale, StageCount };
 
 	void Release();
 

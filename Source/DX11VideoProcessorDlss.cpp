@@ -342,11 +342,19 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	// already asks NGX for NGX_PERFQUALITY_DLAA at a ratio of one; what was missing
 	// was letting the pass get that far.
 	const bool bDlaa = m_bDlssSRDlaa && outW == inW && outH == inH;
-	if (!inW || !inH || (!bDlaa && (outW <= inW || outH <= inH))) {
+	// And DLAA after the downscalers: a picture that shrinks -- a 4K film on a 1440p screen --
+	// is first brought to the screen's size by the Downscaling method, which resizes it as it
+	// did, and DLSS runs on that at a ratio of one. DLSS only cleans here; it resizes nothing.
+	// A picture that grows one way and shrinks the other is left as it was.
+	const bool bDlaaDown = m_bDlssSRDlaa && !bDlaa && outW <= inW && outH <= inH;
+	if (!inW || !inH || (!bDlaa && !bDlaaDown && (outW <= inW || outH <= inH))) {
 		return S_FALSE;   // DLSS enlarges, or holds the size; the downscalers do the rest
 	}
+	// The size DLSS takes: the source's, or the screen's once the downscalers have run.
+	const UINT featW = bDlaaDown ? outW : inW;
+	const UINT featH = bDlaaDown ? outH : inH;
 
-	if (!bDlaa) {
+	if (!bDlaa && !bDlaaDown) {
 		// Past four times the source the output stops there, and the resize shaders
 		// cover what is left (measured: 4.5x still runs, but nothing films need).
 		const double reach = std::min({ 4.0 * inW / outW, 4.0 * inH / outH, 7680.0 / outW, 4320.0 / outH, 1.0 });
@@ -355,11 +363,11 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	}
 
 	const unsigned preset = (unsigned)m_iDlssSRPreset;
-	if (!m_DlssSR.MatchesFeature(inW, inH, outW, outH, preset)) {
-		if (m_DlssSR.IsRefused(inW, inH, outW, outH, preset)) {
+	if (!m_DlssSR.MatchesFeature(featW, featH, outW, outH, preset)) {
+		if (m_DlssSR.IsRefused(featW, featH, outW, outH, preset)) {
 			return S_FALSE;   // failed before for these sizes: the resize shaders do the job
 		}
-		if (!m_DlssSR.CreateFeature(inW, inH, outW, outH, preset)) {
+		if (!m_DlssSR.CreateFeature(featW, featH, outW, outH, preset)) {
 			UpdateStatsStatic();
 			return S_FALSE;
 		}
@@ -370,7 +378,19 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	}
 
 	Tex2D_t* pInput = m_DlssSR.GetInput();
-	HRESULT hr = TextureCopyRect(*pInputTexture, pInput->pTexture, rSrc, CRect(0, 0, inW, inH), m_pPS_Simple, nullptr, 0, false);
+	HRESULT hr = S_OK;
+	if (bDlaaDown) {
+		// Into DLSS's input at the screen's size, turned and flipped by nothing: the
+		// ResizeShaderPass after DLSS does both, at a ratio of one.
+		const bool bFlip = m_bFlip;
+		m_bFlip = false;
+		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::SRDownscale);
+		hr = ResizeShaderPass(*pInputTexture, pInput->pTexture, rSrc, CRect(0, 0, featW, featH), 0);
+		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::SRDownscale);
+		m_bFlip = bFlip;
+	} else {
+		hr = TextureCopyRect(*pInputTexture, pInput->pTexture, rSrc, CRect(0, 0, inW, inH), m_pPS_Simple, nullptr, 0, false);
+	}
 	if (FAILED(hr)) {
 		return hr;
 	}
@@ -391,8 +411,8 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	m_bDlssSRNewPicture = false;
 	if (bNewPicture) {
 		const CDlssStabilizer::FlowSettings flow = CDlssStabilizer::ForDlssSR();
-		if (!m_DlssSRMotion.Matches(inW, inH, true, flow)) {
-			m_DlssSRMotion.Create(m_pDevice, m_pDeviceContext, inW, inH,
+		if (!m_DlssSRMotion.Matches(featW, featH, true, flow)) {
+			m_DlssSRMotion.Create(m_pDevice, m_pDeviceContext, featW, featH,
 				m_pVSimpleInputLayout, m_pVS_Simple, m_pSamplerPoint, m_pSamplerLinear, true, flow);
 		}
 		if (m_DlssSRMotion.IsCreated()) {

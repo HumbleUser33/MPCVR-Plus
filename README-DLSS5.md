@@ -10,7 +10,7 @@ rendering is bit-identical to upstream.
 | **Chroma** | six more methods, libplacebo's EWA Lanczos Sharp the default, and a 4:4:4 pre-pass that hands the hardware video processor a full picture: +7 dB of colour on 10-bit film |
 | **Detail** | deblocking (PP7, or SPP for a powerful GPU) and debanding on the decoded planes, and sharpening after the resize, each with five calibrated levels; a TV channel's logo found and hidden |
 | **DLSS 5 NR** | NVIDIA neural reconstruction (NGX feature 18) with a temporal stabilizer made for video |
-| **DLSS SR** | DLSS Super Resolution 4.5 for enlarging, and DLAA at native size (experimental) |
+| **DLSS SR** | DLSS Super Resolution 4.5 for enlarging, and DLAA at native size or after downscaling (experimental) |
 | **Presentation** | render ahead, so none of it drifts off the audio clock |
 | **Statistics** | each step and what it costs, and with rampageX's OSD Plus the codec, the audio path and the machine's load |
 | **Settings** | one page, seven tabs, in the order the picture travels through them |
@@ -526,6 +526,29 @@ So on this card it is for 1080p and below, and 4K DLAA is out of reach; a faster
 that line. Render ahead cannot rescue it -- it hides latency, not a pass that takes longer
 than a frame. The honest check is the statistics box: *skipped* staying at 0 and the sync
 offset staying put.
+
+**After the downscalers.** A picture larger than the screen -- a 4K film on a 1440p screen, or in
+a window -- never reached DLSS either: it only shrinks. With the same box ticked, the
+*Downscaling* method now brings it to the screen's size first, as it did, and DLSS runs on that
+at a ratio of one. It resizes nothing: the downscaler does, and DLSS only cleans what it leaves.
+The downscaled picture goes straight into DLSS's input, turned and flipped by nothing, and the
+pass after DLSS turns, flips and places it at a ratio of one. Its Optical Flow measures the
+downscaled picture. The Scaling step names both: `3840x2160 -> 2560x1440 Spline36, DLSS SR
+DLAA/M`, its time the downscaler's and DLSS's together. A picture that grows one way and shrinks
+the other is left as it was.
+
+Measured on the RTX 4060 on 21 November 2026, with `playback_test --dlaa --only 2` (DLSS SR,
+render ahead on), against the same run without `--dlaa`:
+
+| picture, shown at | Scaling step | without DLAA | optical flow | ready in | sync offset, skipped |
+|---|---|---|---|---|---|
+| 1920x1080 at 1280x720 (`--size`) | 2.2 ms | -- | 1.1 ms | 6.2 ms (3.4) | -0.6 ms, 0 |
+| 3840x2160 at 2560x1440 (`--file`, an HEVC clip) | 7.7 ms | 0.6 ms | 1.4 ms | 18.3 ms (9.5) | +2.0 ms, 0 |
+
+The 4K row is a real clip because the bench's own 3840x2160 film cannot be made at 24 fps on
+this machine, with or without DLAA: the sync offset ran out to over five seconds both ways. On
+that clip, a paused picture with DLAA lies 0.40 of a level from the one the downscaler alone
+leaves, none of its values more than 24 apart: in its place, the right way up.
 
 **How it runs.** Unlike the NR snippet, this feature runs on Direct3D 11 through the display
 driver's NGX runtime (`_nvngx.dll`), which loads `nvngx_dlss.dll` itself: no second device,
@@ -2799,7 +2822,7 @@ One thing resizes the picture: DLSS Super Resolution if it is ticked, the video 
 | Use a lighter filter for small enlargements | off, Jinc2m | Under 5 % on both sides, a slightly cropped 4K film on a 4K screen for instance, the method in the list beside it is used instead: a network costs as much there as for a large enlargement, for nothing visible. The statistics name the method really in use |
 | Downscaling | Hamming | Reduces when the shaders resize. Ordered best first (`--tdownscale`, see *Spline36, and what a downscaler is for*): Lanczos, Bicubic sharp and Spline36 are close |
 | Use DLSS Super Resolution for upscaling | off | Enlarges with DLSS Super Resolution, in place of the video processor and of the Upscaling method, which greys; it cleans grain and compression noise too. Up to 4 times; the Upscaling method finishes a larger enlargement. Works with or without DLSS 5 NR. Experimental (see *DLSS Super Resolution*): moving subjects can still shimmer on grainy film |
-| Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p. Needs *Use DLSS Super Resolution* |
+| Also run when no enlarging is needed (DLAA) | off | DLSS runs on a picture already at the screen's size, rebuilding it without enlarging it, and on a larger one once the *Downscaling* method has brought it to the screen's size. A whole pass at the output size: 70 ms a frame at 4K on an RTX 3050, 14 ms at 1080p; 7.7 ms at 2560x1440 after the downscaler on an RTX 4060. Needs *Use DLSS Super Resolution* |
 | Preset | Automatic | The DLSS model: J and K are DLSS 4's, L and M DLSS 4.5's; Automatic lets DLSS choose for the ratio. Applies on the next picture |
 | DLL | empty | `nvngx_dlss.dll` or its folder. Empty means search next to the filter and up |
 

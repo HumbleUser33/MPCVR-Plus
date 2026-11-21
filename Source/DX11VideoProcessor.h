@@ -373,7 +373,8 @@ private:
 	std::wstring m_strDlssSRDllPath;
 	bool m_bDlssSR = false;             // user setting
 	bool m_bDlssSRActive = false;
-	bool m_bDlssSRDlaa = false;   // run it at the picture's own size as well
+	bool m_bDlssSRDlaa = false;   // run it at the picture's own size as well, and after the downscalers
+	bool m_bDlssSRDownscaled = false;   // the picture at hand shrinks, and DLSS's DLAA follows the downscalers
 	// The Upscaling method for an enlargement under five per cent, and the one of
 	// the two that the picture at hand is really getting.
 	bool m_bUpscalingSmall = false;

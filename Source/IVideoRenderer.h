@@ -333,8 +333,9 @@ struct Settings_t {
 	int iSharpenLevel;
 
 	// DLSS Super Resolution at the picture's own size: the network runs and nothing
-	// is enlarged, which is what games call DLAA. Only reached when the picture is
-	// already exactly the size it is shown at, so it costs nothing anywhere else.
+	// is enlarged, which is what games call DLAA. Reached when the picture is already
+	// exactly the size it is shown at, and when it shrinks: the Downscaling method
+	// brings it to the screen's size first, and DLSS runs on that.
 	bool bDlssSRDlaa;
 
 	// Another Upscaling method for an enlargement under five per cent -- a 4K film

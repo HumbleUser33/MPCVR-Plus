@@ -300,6 +300,8 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_CHECK28,
 		L"Also runs DLSS when the picture is already shown at its own size (for example a 4K film "
 		"on a 4K screen), to clean it without enlarging it. Games call this DLAA.\n"
+		"A picture that is shrunk (a 4K film on a 1440p screen) is first brought to the screen's "
+		"size by the Downscaling method, and DLSS then runs on it the same way.\n"
 		"Costs a full DLSS pass at the output size, which at 4K needs a high-end card: watch "
 		"'skipped' and the sync offset in the statistics.\n"
 		"Needs 'Use DLSS Super Resolution'." },

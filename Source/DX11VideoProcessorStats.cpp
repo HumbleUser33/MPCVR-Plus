@@ -250,9 +250,10 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 			? std::format(L"{}x{} r{}°> {}x{}", fromW, fromH, m_iRotation, dstW, dstH)
 			: std::format(L"{}x{} -> {}x{}", fromW, fromH, dstW, dstH);
 		// DLSS SR names itself in the shader names, DLAA included, which runs at no change of size.
+		// After the downscalers the names are theirs, and DLSS SR follows them on the line.
 		const auto IsDlssSR = [](const wchar_t* name) { return name && !wcsncmp(name, L"DLSS SR", 7); };
 		const bool bDlssSR = m_bDlssSRActive && m_DlssSR.IsFeatureReady()
-			&& (IsDlssSR(m_strShaderX) || IsDlssSR(m_strShaderY));
+			&& (IsDlssSR(m_strShaderX) || IsDlssSR(m_strShaderY) || m_bDlssSRDownscaled);
 		double extra = -1;
 		if (bResized || bDlssSR) {
 			// With DLSS Super Resolution on, the video processor never scales, and the
@@ -287,12 +288,26 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 					text.append(L", placed by the shaders");
 				}
 			} else if (bDlssSR) {
+				// The Downscaling method first, when it brought the picture to the screen's size.
+				if (m_bDlssSRDownscaled) {
+					text += L' ';
+					if (m_strShaderX) {
+						text.append(m_strShaderX);
+						if (m_strShaderY && m_strShaderY != m_strShaderX) {
+							text += L'/';
+							text.append(m_strShaderY);
+						}
+					} else if (m_strShaderY) {
+						text.append(m_strShaderY);
+					}
+					text += L',';
+				}
 				// Its quality mode and preset, DLAA among them: the last word of its own line.
 				const std::wstring sr = m_DlssSR.GetStatsLine();
 				const size_t space = sr.rfind(L' ');
 				text += L" DLSS SR ";
 				text.append(space == std::wstring::npos ? sr : sr.substr(space + 1));
-				extra = Ms(CGpuStageTimes::SR);
+				extra = Sum(Ms(CGpuStageTimes::SR), Ms(CGpuStageTimes::SRDownscale));
 			} else {
 				text += L' ';
 				if (m_strShaderX) {

@@ -1469,8 +1469,8 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	sets.bDlssNRAfterUpscale = g_bNRAfter;
 	sets.bDlssSR = config.bSR;
 	// --dlaa: DLSS Super Resolution at the picture's own size. It only shows itself
-	// when the window is the size of the source, which is the one case the ordinary
-	// runs never produce -- they enlarge.
+	// when the window is the size of the source or smaller, after the Downscaling
+	// method then, which are the cases the ordinary runs never produce -- they enlarge.
 	sets.bDlssSRDlaa = g_bDlaa;
 	// --small N: the Upscaling method that stands in under five per cent, by its
 	// UPSCALE_ value. Without it the option is off, whatever the registry holds, so
@@ -3569,6 +3569,13 @@ int wmain(int argc, wchar_t* argv[])
 		}
 		if (config.bSR) {
 			wprintf(L"   DLSS SR      : %s\n", r.srLine.c_str());
+			// --dlaa with a window no larger than the picture, stretched to it: DLSS SR at the
+			// window's size, after the Downscaling method where the picture shrinks.
+			if (g_bDlaa && !g_filmFile && !g_bLetterbox && window.cx <= source.cx && window.cy <= source.cy
+					&& r.srLine.find(L"DLAA") == std::wstring::npos) {
+				printf("   FAIL: DLAA asked for, the window no larger than the picture, and DLSS SR not running in it\n");
+				failures++;
+			}
 		}
 		if (!r.dlssTimes.empty()) {
 			wprintf(L"   DLSS (ms)    : %s\n", r.dlssTimes.c_str());

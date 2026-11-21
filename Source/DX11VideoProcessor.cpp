@@ -1747,8 +1747,10 @@ void CDX11VideoProcessor::UpdateScalingStrings()
 		}
 	}
 	// DLSS Super Resolution takes over when the picture grows on both axes, and with
-	// DLAA when it does not grow at all.
+	// DLAA when it does not grow at all. A picture that shrinks keeps the Downscaling
+	// method's names, and DLAA after them is said by the statistics (DlssSRPass).
 	const bool bDlaa = m_bDlssSRActive && m_bDlssSRDlaa && w1 == w2 && h1 == h2;
+	m_bDlssSRDownscaled = m_bDlssSRActive && m_bDlssSRDlaa && !bDlaa && w2 <= w1 && h2 <= h1;
 	const bool bDlssSR = bDlaa || (m_bDlssSRActive && w2 > w1 && h2 > h1);
 	const wchar_t* upscaling = bDlaa ? L"DLSS SR (DLAA)"
 		: bDlssSR ? L"DLSS SR" : s_Upscaling11ResIDs[m_iUpscalingInUse].description;
