@@ -1,9 +1,9 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 19 November 2026, on an
+`run_all_report.txt` here is what the whole battery measured on 22 November 2026, on an
 RTX 4060 (driver 621.24) with the Windows desktop in HDR, Windows' hardware-accelerated GPU
 scheduling on and NVIDIA's *Prefer maximum performance* set in the driver's global settings,
-all thirty-eight steps green. The filter and the tools are the code of `c925178c`, as the
+all thirty-eight steps green. The filter and the tools are the code of `13ec7929`, as the
 report's commit line says, both built by MSVC 14.44. `run_all.cmd` masks
 the working folder and the user's profile in it (`<repo>`, `%USERPROFILE%`). It is the thing a
 merge from upstream is compared against, at step 8 of
@@ -38,6 +38,35 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## 22 November 2026: Optical Flow at 2/3, and DLAA after scaling
+
+Against the report it replaces (`c925178c`, 19 November), 3476 rows compared, 15 moved, none
+gone and 1 new, no failure in either; thirty-eight steps, as before. The machine, its driver
+and RTX Video HDR's settings are those of the sections below, and the card ran at its full
+clocks (DLSS off ready in 3.4 ms, 3.1 before). The code since: the statistics' *Render ahead*
+and *Hiccups* lines worded for what they count (`178c3e1d`), the tools built without a warning
+(`c863bd88`), Optical Flow at 2/3 of DLSS 5 NR's working picture (`7c027b29`), DLSS SR's DLAA
+after the downscalers (`561371de`), and DLSS's DLAA after scaling as an option of its own
+(`13ec7929`).
+
+- The new row is the check `--tstabport` gained with 2/3, "the stabilizer against the
+  harness": the flow frame at 1.5 working pixels a flow pixel against the same box computed on
+  the CPU, `[ok]`. The 31 rows of that step before it read as they did.
+- 11 rows of the logo step, all of its three logos through x264, which does not encode the film
+  the same from one run to the next (the sections below); the largest in decibels, 40.27 to
+  40.71.
+- 4 rows are times printed bare: the statistics' total in "a snapshot leaves RTX Video HDR's
+  picture as it was", 2.0 to 2.1 ms; one row of "the DLSS passes against the harness", the
+  vectors' GPU time a picture, the share of blocks keeping their own vector the same; and two of
+  "the pipeline", its slowest picture from upload to done, 9.56 to 8.13 and 0.82 to 0.42 ms.
+
+None of them is the new code's. The *Render ahead* line now ends on `after Present` where it
+read `not in time`, which the comparison leaves out as a time. The 2/3 notch, DLSS SR's DLAA and
+the DLAA after scaling are reached by no step with the settings the battery runs: they were
+measured with `--tstabbench`, `--tnrscale --nrflow`, `playback_test --dlaa` and `--dlaaafter`, as
+the manual says. The steps of the Settings page and "what the Settings page greys", with its new
+table of the DLAA after scaling against DLSS SR, print verdicts and no numbers: all green.
 
 ## 19 November 2026: Super Resolution under automatic colour management
 
