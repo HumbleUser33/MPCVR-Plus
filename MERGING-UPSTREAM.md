@@ -160,7 +160,7 @@ notice its absence.
 | DLSS Super Resolution 4.5, with its own motion | `Source/DLSS/DlssSR.cpp`, `DlssStabilizer.cpp`, `Source/DX11VideoProcessorDlss.cpp` | `--tsr`, `--tsrport`, `--tsrstill` |
 | Render ahead | `Source/DX11VideoProcessorPresent.cpp`, `DX11VideoProcessor.cpp` | `playback_test --seconds` |
 | Cadence slips on a scene cut, or covered by a picture EchoFG makes, watched only where they come often (`kSlipsOften`) | `Source/DLSS/DlssTiming.cpp` (`CPresentSchedule`), `Source/DX11VideoProcessorCadence.cpp`, `Source/Cadence/`, `Source/FrameGen/echo/` | `--tcadence`, `--tcadencemade` |
-| The settings page, eight tabs in one, made under upstream's main page CLSID | `Source/SettingsPage/`, `Source/dllmain.cpp` (`MainProp`), `GetPages` in `Source/VideoRenderer.cpp` | `playback_test --mainpage`, `--frame`; `mpchc_drive --class MPC-BE --shots` |
+| The settings page, nine tabs in one, made under upstream's main page CLSID | `Source/SettingsPage/`, `Source/dllmain.cpp` (`MainProp`), `GetPages` in `Source/VideoRenderer.cpp` | `playback_test --mainpage`, `--frame`; `mpchc_drive --class MPC-BE --shots` |
 | The statistics laid out as the pipeline, each step with its GPU time | `Source/DX11VideoProcessorStats.cpp` (`GetStatsText`), `Source/DLSS/DlssTiming.cpp` | `playback_test --file <film> --only 4`, `--afternr` |
 | mpv prescalers: FSRCNNX 8/16, RAVU-zoom, ArtCNN, Anime4K, the AR entries | `Source/Upscale/`, `Source/DX11VideoProcessorMpv.cpp`, `Shaders/mpv/` | `--tmpvport`, `--tupscale`, `--scalers` |
 | Chroma: Jinc (EWA), libplacebo's EWA Lanczos Sharp (the default), EWA Ginseng and EWA Lanczos4 Sharpest, RAVU-zoom, FSRCNNX 8 AR | `Source/Shaders.cpp` (`kEwaKernels`), `Source/DX11VideoProcessorMpv.cpp` | `--tchroma`, `--chroma`, `--chroma10`, `--chroma --ewa [--upscale]` |
@@ -168,6 +168,7 @@ notice its absence.
 | The flip model kept on a window (no more freeze) | `Source/DX11VideoProcessor.cpp` | `playback_test --toggle`, `--switch` |
 | Every setting applied while the film plays | `Source/VideoRenderer.cpp`, `DX11VideoProcessor.cpp` | `--toggle`, `--switch`, `--gpu` |
 | The measured peak's start over at a cut on the HDR tab, the jumping picture drawn with its own peak (upstream drew it with the scene before's) | `Shaders/d3d11/cs_hdr_resolve.hlsl`, `Shaders/d3d9/hdr_peak_state.hlsl` (`provisional`), `Source/SettingsPage/` (`IDC_SDR_PEAK_CUTS`) | `--ttonemap`; `playback_test --file <make_hdr_scenes.py's film> --peakcuts 1 --cadence 1` with `MPCVR_PACING_TRACE`, then `pacing_report.py --peak` |
+| The HDR curve on every picture that leaves in HDR, its tab, and the HDR10 metadata held under its cap | `Source/HdrCurve.h`, `Source/DX11VideoProcessorHdrCurve.cpp`, `Shaders/d3d11/ps_hdr_curve.hlsl`, the step in `Process` and `GetPostScaleSteps`, `SendHdrMetadata` in `Render` (`DX11VideoProcessor.cpp`), `IDD_SECTION_HDRCURVE` | `--thdrcurve`, `playback_test --greying`, `playback_test --file <film> --hdrcurve 3 --rtxhdr 1 --hdrout 1` |
 | Lanczos weights kept finite at integer scale | `Shaders/d3d11/ps_interpolation_lanczos*.hlsl` | `--tupscale` |
 | The paused picture kept across a processor rebuild | `Source/D3D11VP.h`, `DX11VideoProcessor.cpp` | `vp_rebuild_test` |
 | `Tex2D_t::CheckCreate` minding the texture type | `Source/DX11Helper.h` | it compiles, and `--frames 300` |

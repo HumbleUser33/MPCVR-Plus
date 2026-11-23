@@ -39,6 +39,7 @@
 #include "DLSS/DlssTiming.h"
 #include "DLSS/DwmKeepAlive.h"
 #include "Cadence/SceneCut.h"
+#include "HdrCurve.h"
 #include "FrameGen/echo/EchoFlow.h"
 #include "FrameGen/echo/EchoSynth11.h"
 #include "Upscale/MpvShader.h"
@@ -381,6 +382,22 @@ private:
 	bool m_bDlaaAfterNR = false;
 	bool m_bDlaaAfterActive = false;
 	bool m_bDlaaAfterRan = false;   // the last picture went through it (a snapshot leaves it as it was)
+
+	// The HDR curve (Source/HdrCurve.h), the last change to the light of every picture that
+	// leaves in HDR: the settings, the constants they resolve to on this display, and the
+	// cap the HDR10 metadata last announced, so that a new one is sent when it changes.
+	bool m_bHdrCurve = false;
+	int  m_iHdrCurvePreset = HdrCurve::Custom;
+	int  m_iHdrCurveStrength = HdrCurve::kStrengthDef;
+	HdrCurve::Values m_HdrCurveValues;
+	HdrCurve::Constants m_HdrCurveConstants = {};
+	HdrCurve::Constants m_HdrCurveUploaded = {};   // what the constant buffer holds
+	CComPtr<ID3D11PixelShader> m_pPSHdrCurve;
+	CComPtr<ID3D11Buffer> m_pHdrCurveConstantBuffer;
+	unsigned m_uHdrCurveSentCap = 0;
+	bool m_bHdrCurveStep = false;   // a step of the post-scale chain (UpdatePostScaleTexures)
+	bool m_bHdrCurveRan = false;    // the last picture went through it, for the statistics
+	bool m_bSnapshot = false;       // GetCurentImage is drawing its SDR copy
 	// The Upscaling method for an enlargement under five per cent, and the one of
 	// the two that the picture at hand is really getting.
 	bool m_bUpscalingSmall = false;
@@ -842,6 +859,14 @@ private:
 	HRESULT DlaaAfterScalingPass(Tex2D_t* pInputTexture, const CRect& rect, Tex2D_t** ppResult);
 	HRESULT DlssSRRun(UINT featW, UINT featH, Tex2D_t** ppResult);
 	bool DlaaAfterStepCounted() const;
+	// The HDR curve: whether the picture leaves in HDR, whether the curve is a step of the
+	// post-scale chain, the constants worked out again from the settings, and the HDR10
+	// metadata as it is to be sent, its peaks no higher than the curve's cap.
+	bool HdrOutput() const;
+	bool HdrCurveStepCounted() const;
+	void UpdateHdrCurve();
+	HRESULT HdrCurvePass(Tex2D_t* pInputTexture, ID3D11Texture2D* pRenderTarget, const CRect& rRead, const CRect& rect);
+	DXGI_HDR_METADATA_HDR10 HdrMetadataToSend(const DXGI_HDR_METADATA_HDR10& hdr10);
 	bool DlssSRSupportedHere() const;
 	void UpdateDlssSR();
 	std::wstring GetDlssSRStatus() override;

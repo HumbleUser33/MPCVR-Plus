@@ -386,6 +386,9 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		if (m_pPSHDR10ToneMapping) {
 			Add(L"tone mapping");
 		}
+		if (m_bHdrCurveStep) {
+			Add(m_bHdrCurveRan ? L"HDR curve" : L"HDR curve (copied: not HDR now)");
+		}
 		if (m_pPSSharpen) {
 			Add(std::format(L"{} {}", m_iSharpen == SHARPEN_UnsharpClamp ? L"Unsharp + Clamp"
 				: m_iSharpen == SHARPEN_CAS ? L"AMD CAS" : L"Adaptive-Sharpen",
@@ -452,6 +455,26 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 			}
 		}
 		Line(L"  HDR", hdr, -1, false);
+	}
+	// The HDR curve as it is applied: the preset and the strength, the values they come to
+	// on this display, and the peak the HDR10 metadata now tells the display. Its time is in
+	// Finish.
+	if (m_bHdrCurve && (m_bHdrCurveStep || !m_strStatsHDR.empty())) {
+		const HdrCurve::Values v = HdrCurve::Applied(m_iHdrCurvePreset, m_HdrCurveValues, m_iHdrDisplayMaxNits, m_iHdrCurveStrength);
+		std::wstring text = std::format(L"{} {}%: lift {:+.2f} EV to {} nits, mid grey {}", HdrCurve::PresetName(m_iHdrCurvePreset),
+			m_iHdrCurveStrength, v.liftEv100 / 100.0, v.rangeNits, v.midGreyNits);
+		if (v.startNits) {
+			text += std::format(L", roll-off from {} ({}%)", v.startNits, v.rollOffPercent);
+		}
+		if (v.capNits) {
+			text += std::format(L", cap {}", v.capNits);
+		}
+		if (!m_bHdrCurveStep) {
+			text += L"; changes nothing here";
+		} else if (m_uHdrCurveSentCap) {
+			text += std::format(L"; metadata says {} nits", m_uHdrCurveSentCap);
+		}
+		Line(L"  HDR curve", text, -1, false);
 	}
 	// Upstream's Measured method: the brightest of the last picture measured, and the peak
 	// the curve was given, smoothed over the window. Read back a picture or two late, never

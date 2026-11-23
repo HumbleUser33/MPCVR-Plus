@@ -54,6 +54,7 @@ public:
 		SECTION_Hdr,
 		SECTION_Present,
 		SECTION_Presets,
+		SECTION_HdrCurve,   // shown after HDR: the number is what the page remembers, the tabs keep their own order
 		SECTION_COUNT
 	};
 
@@ -69,6 +70,12 @@ private:
 	Settings_t m_SetsPP;
 	int m_oldSDRDisplayNits = SDR_NITS_DEF;
 	int m_oldVideoDelay = 0;
+	int m_oldHdrCurveStrength = 100;   // applied as its slider is dragged, like the two above
+
+	// The HDR curve's six values, as the curve takes them: a preset's on this display, or
+	// the ones typed. Filling them in is not an edit of the user's.
+	void ShowHdrCurveValues();
+	bool m_bFillingCurve = false;
 
 	// Dolby Vision is the one thing about the film the page still watches: it takes
 	// the processor out of the chain, which is a different page and not a shade of

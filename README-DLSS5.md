@@ -2105,6 +2105,76 @@ filter asks before it changes a picture.
 
 ---
 
+## The HDR curve
+
+A dark scene in HDR is often too dark for a lit room, and the usual fix, a brighter picture,
+blows out the bright scene after it: a single exposure scales the shadows and the highlights
+alike. The HDR curve, on its own tab, is **Veyra**'s answer, taken with its presets: a curve on
+the light of each pixel, in nits, that raises the shadows without touching the highlights,
+moves the mid grey with the peak held where it is, and softens and caps the highlights. It
+works on every picture that leaves in HDR -- HDR10, HDR10+ (played as HDR10), HLG once
+converted, Dolby Vision once reshaped, and SDR video that RTX Video HDR turns into HDR --
+and changes nothing to one that leaves in SDR.
+
+On a pixel's light Y, in nits, in this order (`Source/HdrCurve.h`):
+
+- **Shadow lift**: Y is multiplied by 1 + w² (2^EV − 1), w = 1 − Y / range, held to 0..1:
+  the whole lift at black, none at the range and above.
+- **Mid grey**: Y = peak · (Y / peak)^g, with g such that 203 nits, the HDR reference white,
+  goes to the mid grey chosen; the peak is the cap, or 1000 nits, and does not move.
+- **Roll-off**: above its start s, Y = s + d / (1 + d / k), d = Y − s, k the room left under
+  the peak times the roll-off's per cent: at 100 % the brightest highlights approach the peak
+  and never pass it.
+- **Cap**: Y no higher than the cap; then, after the gain, no BT.2020 channel above it.
+
+The three channels get the same gain, Y's new value over its old one, so a colour keeps its
+hue. The step comes after the tone mapping and before sharpening and the dither, at the size the
+picture is shown at; subtitles and the OSD are drawn after it and are not touched. A snapshot
+(a player's *Save image*) is an SDR copy and is made without it. Its time is in Finish, and the
+statistics add a line, `HDR curve`, with the preset, the strength and the values they come to.
+
+The presets are Veyra's, written for a 1000-nit display; the roll-off's start and the cap
+follow *Nits* on the HDR tab (×0.6 on a 600-nit display), the shadows and the mid grey do not,
+since they describe the film and the room:
+
+| Preset | Shadow lift | Shadows up to | Mid grey | Roll-off from | Roll-off | Cap |
+|---|---|---|---|---|---|---|
+| Dark lift | +0.50 EV | 35 nits | 225 | -- | -- | -- |
+| Highlight guard | -- | -- | 203 | 450 | 120 % | 1000 |
+| Dark and bright | +0.50 EV | 35 nits | 220 | 450 | 120 % | 1000 |
+| Bright room | +0.30 EV | 30 nits | 250 | -- | -- | -- |
+| Dark room | +0.40 EV | 35 nits | 185 | 600 | 130 % | 800 |
+| Punch | -- | -- | 175 | 450 | 110 % | 1200 |
+
+*Strength* takes every value towards no change, 0 % doing nothing and 200 % twice as much;
+the roll-off's start moves the other way, a lower start being the stronger effect, and the
+cap, a protection, does not follow it. With a cap, the HDR10 metadata sent to the display in
+passthrough says no peak above it (MaxCLL, the mastering display's peak, MaxFALL), so that a
+display which tone maps from the metadata does not compress the highlights a second time.
+RTX Video HDR sends no metadata.
+
+`dlssnr_harness --thdrcurve` puts the shader that ships (`ps_hdr_curve.cso`) against the sum
+in double, on PQ ramps and random colours: within 1.03 steps of the half float it writes, in
+twelve cases from every preset to the ends of each range. With nothing to do, it gives the
+picture back to its last half float. The lift leaves everything at or above its range alone
+(1 step at most) and darkens nothing; no channel passes the cap; no pixel's colour moves by
+more than 0.12 % of its share. And the sum is Veyra's: the six presets at nine strengths on six
+display peaks resolve to the same 324 sets of values as Veyra's `resolveHdrTuning`, written out
+again in the suite, and the curve gives its light to 9×10⁻⁷.
+
+On the screen, read off an HDR desktop on the same paused picture with the curve and without it
+(`playback_test --hdrcurve`, *Nits* 2000):
+
+| | Shadows (under 10 nits) | Mid tones (10 to 200) | Brightest |
+|---|---|---|---|
+| The bench's film under RTX Video HDR, *Dark and bright* | 1.59 → 2.58 nits | 40.7 → 47.2 | 661 → 710 |
+| An HDR10 film peaking at 4000 nits, passthrough, *Highlight guard* | 1.60 → 1.59 | 27.8 → 27.8 | 6049 → 1909 |
+
+and the metadata of the second said 2000 nits, the cap on that display. It costs 0.3 to 0.4 ms a
+picture at 3840x2160 on an RTX 4060 (Finish 0.7 ms against 0.3 and 0.4 without it, in turns).
+
+---
+
 ## Render ahead
 
 The renderer wakes up 8 ms before a picture's time and only then processes it, so whatever
@@ -2856,7 +2926,7 @@ and was not the fault: the pointer stayed exactly as before.
 
 ## Settings
 
-All the settings are on one page of the renderer's properties, in eight tabs, and are stored
+All the settings are on one page of the renderer's properties, in nine tabs, and are stored
 under `HKCU\Software\MPC-BE Filters\MPC Video Renderer Plus`, apart from the original
 renderer's (*In MPC-BE and in MPC-HC*). Each tab opens on a line saying what it
 is for, and each control has a tooltip saying what it does, when it applies and what it needs.
@@ -2963,6 +3033,22 @@ key, both DLL paths, and the working size, which is what the card can carry.
 | SDR brightness | 125 nits | The target of that conversion, 25 to 400. Applies as the slider is dragged |
 | RTX Video HDR | off | The NVIDIA driver turns SDR video into HDR. Needs HDR output on Passthrough or a tone map method, an HDR display with Windows HDR on, an RTX card, the 64-bit filter, a bit depth other than 8-bit and a format the video processor converts. The statistics star it (`RTX Video HDR*`) while it runs. The driver leaves out a picture the processor writes in fewer than 640x360 pixels, and the line then adds `left out by the driver under 640x360`; where the shaders resize, the processor first enlarges such a picture just past that, which the Processor step says (`to 740x312 for RTX Video HDR`) -- see *RTX Video HDR on a small picture*. The driver applies it only when the NVIDIA app has it on, as bright as the app says: the statistics give both, and what the driver wrote (*What the driver is set to, and what it writes*) |
 | Start over at a scene cut | off | Beside *Measured peak*. The measured peak, of the tone mapping (*Measured peak*) and of the conversion to SDR (*Measured*), is smoothed over three seconds; with this, a jump in the mean brightness is taken for a cut and the smoothing starts over, so that the new scene's peak is used from its first picture (`SdrPeakSceneCuts`, upstream's registry-only value, on the page since 3.0). A cut that changes the highlights and not the mean is not seen as one; a one-frame flash is drawn with its own peak and leaves the smoothing alone. Available while one of the two measurements is in use; not carried by a preset (see *Following the peak*) |
+
+### HDR curve
+
+See *The HDR curve*. Direct3D 11 and Windows 10; it changes nothing to a picture that leaves in SDR.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Adjust the light of HDR pictures | off | A curve on the light of every picture sent in HDR: HDR10, HDR10+, Dolby Vision, and SDR video turned into HDR by RTX Video HDR. After the tone mapping, before sharpening; subtitles and the OSD are not touched. Registry `HdrCurve` |
+| Preset | Custom | Veyra's: *Dark lift*, *Highlight guard*, *Dark and bright*, *Bright room*, *Dark room*, *Punch*, written for a 1000-nit display and scaled to *Nits* on the HDR tab; *Custom* applies the values as typed. Choosing one shows its values; typing a value makes it *Custom*. Registry `HdrCurvePreset` |
+| Strength | 100 % | 0 changes nothing, 200 % does twice as much; the cap does not follow it. Applies as the slider is dragged. Registry `HdrCurveStrength` |
+| Shadow lift | 0 | In hundredths of an exposure value, −200 to 200: 100 doubles the darkest parts, a negative value darkens them. Registry `HdrCurveShadowLift` |
+| Shadows up to | 10 nits | Where the lift has faded out, 1 to 100; nothing brighter moves with it. Registry `HdrCurveShadowRange` |
+| Mid grey | 203 nits | Where the mid grey goes, 100 to 500, the peak held: 203, the HDR reference white, changes nothing. Registry `HdrCurveMidGrey` |
+| Highlights roll off from | 0 (none) | Where the highlights start to be softened, 100 to 2000 nits. Registry `HdrCurveHighlightStart` |
+| Roll-off | 100 % | 10 to 200: at 100 the brightest highlights approach the cap, or 1000 nits, and never pass it. Registry `HdrCurveRollOff` |
+| Peak cap | 0 (none) | The brightest the picture may be, 100 to 4000 nits, with no colour above it. The HDR10 metadata then says no more than the cap. Registry `HdrCurvePeakCap` |
 
 ### Presentation
 
@@ -3091,7 +3177,10 @@ to SDR is in Finish's. **HDR measured** follows it while the peak is measured (*
 or the *Measured* method of the conversion to SDR): the brightest of the last picture measured
 and the peak the curve was given, smoothed over the window. The GPU measures the picture just
 before the correction or the tone mapping reads it, so that time is in Finish's too.
-**NVIDIA app**, **RTX HDR set** and **RTX HDR out** say what the NVIDIA app has the driver do
+**HDR curve** gives the curve's preset and strength and the values they come to on this
+display, and the peak the HDR10 metadata now says where a cap lowered it; `changes nothing
+here` where the picture leaves in SDR. Its time is in Finish's, which names it (see *The HDR
+curve*). **NVIDIA app**, **RTX HDR set** and **RTX HDR out** say what the NVIDIA app has the driver do
 with RTX Video and what the driver wrote (see *What the driver is set to, and what it writes*).
 
 **The timing**, in the order it happens to a picture. Its figures change with every picture,
@@ -3541,6 +3630,7 @@ playback_test.exe --afternr --file <mkv> --seek 1740   who enlarges after DLSS 5
 playback_test.exe --vpturns --file <film> --rtxhdr 1 --hdrout 1   the shaders, the processor, the processor with Super Resolution: one still each, read off the desktop unclipped (vpturns_N.pfm)
 playback_test.exe --file <film> --hdrtm 7 --measurepeak 1   HDR output: -1 off, 0 passthrough, 1..7 a tone mapping; --dovitm 0|6, --sdrtm 0..2, --tosdr, --prefdovi
 playback_test.exe --file <film> --aftergrab   the same paused picture on the screen before and after GetCurrentImage (a player's Save image)
+playback_test.exe --file <film> --hdrcurve N   the HDR curve with preset N (1..6): its step in the statistics, and the same paused picture off an HDR desktop with it and without it
 playback_test.exe --hz 30 --fps 30 --jolt   a film at the screen's own rate, and the queue it builds
 playback_test.exe --presets     two presets saved, each recalled by its key while it plays
 playback_test.exe --rewindow    the video window made again from another thread, and whose it is
@@ -3552,6 +3642,8 @@ dlssnr_harness.exe --tdither     the dither before output: the final passes that
                                  moved, what rounding, the dither and ten-bit textures leave of a ramp, and what half
                                  floats cost at 4K (--study: pictures for CAMBI)
 dlssnr_harness.exe --ttonemap    the measured peak HDR tone mapping follows, against libplacebo's, across cuts
+dlssnr_harness.exe --thdrcurve   the HDR curve: the shader that ships against its sum, what it keeps, and the sum
+                                 against Veyra's for every preset, strength and display peak
 dlssnr_harness.exe --tupscale|--tdownscale --mpvextra <dir>   more mpv shaders, translated by mpv_shaders.py, beside
                                  the ones measured: candidates kept out of upscalers\hlsl and of the battery
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio
@@ -3686,6 +3778,11 @@ were the anchors it was measured against.
 at revision 8d3eac3 (`github.com/Echo-Storm/ls-addon-manager`), Copyright (c) 2026 Echo-Storm and
 andreiday, under the **MIT** licence, whose text is in `Source/FrameGen/echo/EchoStorm-LICENSE.txt`;
 its notice travels with each file. Here they make the picture a cadence slip adds.
+
+**The HDR curve** (`Source/HdrCurve.h`, `Shaders/d3d11/ps_hdr_curve.hlsl`) is **Veyra**'s
+(`github.com/Likely7/Veyra-NRVideo`, GPL-3.0, commit c663312: `include/veyra/engine/HdrOutputTuning.h`,
+`shaders/PresentBlit.hlsl`): the curve, its presets, and how the strength and the display's peak
+resolve them, written again for this renderer's PQ BT.2020 picture.
 
 `Source/DLSS/NvOF/` holds the two interface headers of the NVIDIA Optical Flow SDK 5.0.7,
 copied unchanged. Each carries its own permission notice ("This copyright notice applies to

@@ -29,6 +29,7 @@
 #include "VideoRendererInputPin.h"
 #include "Version.h"
 #include "VideoRenderer.h"
+#include "HdrCurve.h"
 #include "SubPic/XySubPicProvider.h"
 #include "SubPic/XySubPicQueueImpl.h"
 
@@ -109,6 +110,15 @@
 #define OPT_DitherMoving                   L"DitherMoving"
 #define OPT_DlaaAfterScaling               L"DlaaAfterScaling"
 #define OPT_DlaaAfterNR                    L"DlaaAfterNR"
+#define OPT_HdrCurve                       L"HdrCurve"
+#define OPT_HdrCurvePreset                 L"HdrCurvePreset"
+#define OPT_HdrCurveShadowLift             L"HdrCurveShadowLift"
+#define OPT_HdrCurveShadowRange            L"HdrCurveShadowRange"
+#define OPT_HdrCurveMidGrey                L"HdrCurveMidGrey"
+#define OPT_HdrCurveHighlightStart         L"HdrCurveHighlightStart"
+#define OPT_HdrCurveRollOff                L"HdrCurveRollOff"
+#define OPT_HdrCurvePeakCap                L"HdrCurvePeakCap"
+#define OPT_HdrCurveStrength               L"HdrCurveStrength"
 #define OPT_SdrToneMappingType             L"SdrToneMappingType"
 // registry only, not saved
 #define OPT_SdrPeakWindowMs                L"SdrPeakWindowMs"
@@ -374,6 +384,36 @@ static void ReadSettings(CRegKey& key, Settings_t& sets)
 	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlaaAfterNR, dw)) {
 		sets.bDlaaAfterNR = !!dw;
 	}
+	// The HDR curve, each value held to HdrCurve.h's range; a roll-off's start and a cap
+	// are 0, none, or within theirs. The lift is negative to darken, through the DWORD as
+	// two's complement.
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrCurve, dw)) {
+		sets.bHdrCurve = !!dw;
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrCurvePreset, dw)) {
+		sets.iHdrCurvePreset = discard<int>((int)dw, HdrCurve::Custom, HdrCurve::Custom, HdrCurve::PresetCount - 1);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrCurveShadowLift, dw)) {
+		sets.iHdrCurveShadowLift = discard<int>((int)dw, 0, HdrCurve::kLiftMin, HdrCurve::kLiftMax);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrCurveShadowRange, dw)) {
+		sets.iHdrCurveShadowRange = discard<int>((int)dw, HdrCurve::kRangeDef, HdrCurve::kRangeMin, HdrCurve::kRangeMax);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrCurveMidGrey, dw)) {
+		sets.iHdrCurveMidGrey = discard<int>((int)dw, HdrCurve::kMidNeutral, HdrCurve::kMidMin, HdrCurve::kMidMax);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrCurveHighlightStart, dw)) {
+		sets.iHdrCurveHighlightStart = HdrCurve::ClampOrZero((int)dw, HdrCurve::kStartMin, HdrCurve::kStartMax);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrCurveRollOff, dw)) {
+		sets.iHdrCurveRollOff = discard<int>((int)dw, HdrCurve::kRollDef, HdrCurve::kRollMin, HdrCurve::kRollMax);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrCurvePeakCap, dw)) {
+		sets.iHdrCurvePeakCap = HdrCurve::ClampOrZero((int)dw, HdrCurve::kCapMin, HdrCurve::kCapMax);
+	}
+	if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrCurveStrength, dw)) {
+		sets.iHdrCurveStrength = discard<int>((int)dw, HdrCurve::kStrengthDef, HdrCurve::kStrengthMin, HdrCurve::kStrengthMax);
+	}
 }
 
 static void WriteSettings(CRegKey& key, const Settings_t& sets)
@@ -454,6 +494,15 @@ static void WriteSettings(CRegKey& key, const Settings_t& sets)
 	key.SetDWORDValue(OPT_DitherMoving,        sets.bDitherMoving);
 	key.SetDWORDValue(OPT_DlaaAfterScaling,    sets.bDlaaAfterScaling);
 	key.SetDWORDValue(OPT_DlaaAfterNR,         sets.bDlaaAfterNR);
+	key.SetDWORDValue(OPT_HdrCurve,            sets.bHdrCurve);
+	key.SetDWORDValue(OPT_HdrCurvePreset,      sets.iHdrCurvePreset);
+	key.SetDWORDValue(OPT_HdrCurveShadowLift,  (DWORD)sets.iHdrCurveShadowLift);
+	key.SetDWORDValue(OPT_HdrCurveShadowRange, sets.iHdrCurveShadowRange);
+	key.SetDWORDValue(OPT_HdrCurveMidGrey,     sets.iHdrCurveMidGrey);
+	key.SetDWORDValue(OPT_HdrCurveHighlightStart, sets.iHdrCurveHighlightStart);
+	key.SetDWORDValue(OPT_HdrCurveRollOff,     sets.iHdrCurveRollOff);
+	key.SetDWORDValue(OPT_HdrCurvePeakCap,     sets.iHdrCurvePeakCap);
+	key.SetDWORDValue(OPT_HdrCurveStrength,    sets.iHdrCurveStrength);
 }
 
 // The settings are this renderer's own. The original is often on the same machine -- MPC-HC

@@ -402,6 +402,21 @@ struct Settings_t {
 	bool bDlaaAfterScaling;
 	bool bDlaaAfterNR;
 
+	// The HDR curve on every picture that leaves in HDR (Source/HdrCurve.h): a preset
+	// (HdrCurve::Custom, DarkLift...: appended only), the values Custom applies -- the
+	// shadow lift in 1/100 EV and the nits it fades out at, the mid grey, where the
+	// highlights roll off and how softly, the cap, 0 for none -- and the strength, per cent.
+	// Direct3D 11.
+	bool bHdrCurve;
+	int  iHdrCurvePreset;
+	int  iHdrCurveShadowLift;
+	int  iHdrCurveShadowRange;
+	int  iHdrCurveMidGrey;
+	int  iHdrCurveHighlightStart;
+	int  iHdrCurveRollOff;
+	int  iHdrCurvePeakCap;
+	int  iHdrCurveStrength;
+
 	Settings_t() {
 		SetDefault();
 	}
@@ -501,6 +516,16 @@ struct Settings_t {
 		bDitherMoving                   = false;
 		bDlaaAfterScaling               = false;
 		bDlaaAfterNR                    = false;
+		// HdrCurve.h's neutral values: off, Custom, and nothing changed were it on.
+		bHdrCurve                       = false;
+		iHdrCurvePreset                 = 0;
+		iHdrCurveShadowLift             = 0;
+		iHdrCurveShadowRange            = 10;
+		iHdrCurveMidGrey                = 203;
+		iHdrCurveHighlightStart         = 0;
+		iHdrCurveRollOff                = 100;
+		iHdrCurvePeakCap                = 0;
+		iHdrCurveStrength               = 100;
 	}
 };
 

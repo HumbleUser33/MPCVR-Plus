@@ -53,6 +53,8 @@ CALL :Run "chroma upsamplers on film"          "dlssnr_harness.exe --tchroma --n
 CALL :Run "sharpeners on film"                 "dlssnr_harness.exe --tsharpen --nonr --nomodels"
 CALL :Run "the dither before output"           "dlssnr_harness.exe --tdither --nonr"
 CALL :Run "the peak HDR tone mapping follows"  "dlssnr_harness.exe --ttonemap --nonr"
+REM The HDR curve: the shader against its sum, and the sum against Veyra's.
+CALL :Run "the HDR curve against its sum"      "dlssnr_harness.exe --thdrcurve --nonr"
 REM Deblocking and debanding on the decoded planes, at their five levels, and their
 REM shaders against the reference in double precision.
 CALL :Run "artifact removal on film"           "dlssnr_harness.exe --tclean --nonr --srrefs 4"
@@ -78,11 +80,14 @@ CALL :Run "artifact removal through the filter, 8-bit"  "playback_test.exe --cle
 CALL :Run "artifact removal through the filter, 10-bit" "playback_test.exe --clean10 %REF% --seconds 3"
 CALL :Run "settings changed while playing"     "playback_test.exe --toggle --seconds 3"
 CALL :Run "the processor's extras, both ways"  "playback_test.exe --switch --toggle --seconds 3"
+REM With HDR passthrough, on an HDR desktop: RTX Video HDR, and the HDR curve on its picture.
+CALL :Run "HDR settings changed while playing"  "playback_test.exe --toggle --hdr --seconds 3"
 CALL :Run "pictures from a decoder's device"   "playback_test.exe --gpu --toggle --seconds 3"
 CALL :Run "the Settings page and its lists"    "playback_test.exe --mainpage 2"
 CALL :Run "the Settings page, DLSS 5 NR"       "playback_test.exe --mainpage 2 --section 4"
 CALL :Run "the Settings page, Detail"          "playback_test.exe --mainpage 2 --section 3"
-CALL :Run "the Settings page, Presentation"    "playback_test.exe --mainpage 2 --section 6"
+CALL :Run "the Settings page, HDR curve"       "playback_test.exe --mainpage 2 --section 6"
+CALL :Run "the Settings page, Presentation"    "playback_test.exe --mainpage 2 --section 7"
 REM Five graphs made and unmade in one process, DLSS off and on: what a player does
 REM from one film to the next. It was called "the DLSS page" and ran a switch that no
 REM longer existed, so it played these without saying so -- and it is where the fault of
@@ -101,6 +106,9 @@ REM And with "Apply after upscaling": the processor's one turn enlarges, the net
 CALL :Run "the processor enlarging after DLSS 5 NR" "playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --file" "%FILM%"
 CALL :Run "the processor enlarging before DLSS 5 NR" "playback_test.exe --afternr --nrafter --seek 1740 --seconds 4 --window 2880x1200 --file" "%FILM%"
 CALL :Run "the processor after DLSS 5 NR, PQ picture" "playback_test.exe --afternr --seek 1740 --seconds 4 --window 2880x1200 --hdrout 1 --rtxhdr 1 --file" "%FILM%"
+REM The HDR curve on what RTX Video HDR makes of the film: shadows raised and a cap, read off
+REM the desktop with the curve and without it.
+CALL :Run "the HDR curve on an RTX Video HDR picture" "playback_test.exe --hdrcurve 3 --seek 1740 --seconds 4 --hdrout 1 --rtxhdr 1 --only 0 --file" "%FILM%"
 CALL :Run "a snapshot leaves RTX Video HDR's picture as it was" "playback_test.exe --aftergrab --seek 1740 --seconds 4 --rtxhdr 1 --hdrtm 1 --measurepeak 1 --stats 1 --only 0 --file" "%FILM%"
 
 REM Every step named above has to be in the report: one left out prints no verdict, so

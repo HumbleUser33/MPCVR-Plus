@@ -63,6 +63,8 @@ struct Greying {
 	bool bDlssPresetList;    // the DLSS preset, which both use
 	bool bDlaaAfterBox;      // "Apply DLAA after scaling", and its note
 	bool bDlaaAfterNRBox;    // "Run it after DLSS 5 NR"
+	bool bHdrCurveBox;       // "Adjust the light of HDR pictures"
+	bool bHdrCurveValues;    // its preset, strength and values
 };
 
 inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDoViNow)
@@ -127,5 +129,11 @@ inline Greying GreyingFor(const Settings_t& s, bool bWin8, bool bWin10, bool bDo
 	g.bDlaaAfterBox = s.bUseD3D11 && !bDlssSR;
 	// Where DLSS 5 NR runs before the upscaling, the DLAA is after it whatever the box says.
 	g.bDlaaAfterNRBox = bDlaaAfter && !bDlssSR && s.bDlssNR && s.bDlssNRAfterUpscale;
+
+	// The HDR curve is a Direct3D 11 step on a picture that leaves in HDR, which needs
+	// Windows 10. Whether this film leaves in HDR is not asked: the box is for every film,
+	// and does nothing to one that leaves in SDR.
+	g.bHdrCurveBox = s.bUseD3D11 && bWin10;
+	g.bHdrCurveValues = g.bHdrCurveBox && s.bHdrCurve;
 	return g;
 }

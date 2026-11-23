@@ -53,6 +53,16 @@ static const Toggle g_togglesHdr[] = {
 	{ "Replace VP chroma off, RTX Video HDR on",[](Settings_t& s) { s.bVPReplaceChroma = false; } },
 	{ "RTX Video HDR off",                      [](Settings_t& s) { s.bVPRTXVideoHDR = false; } },
 	{ "RTX Video HDR on again",                 [](Settings_t& s) { s.bVPRTXVideoHDR = true; } },
+	// The HDR curve on the picture RTX Video HDR makes: a step of the chain that comes, goes
+	// with a strength of 0 and comes back, the post-scale textures counted again each time,
+	// and that stays out of the way when RTX Video HDR, and with it HDR output, stops.
+	{ "HDR curve on, Dark and bright",          [](Settings_t& s) { s.bHdrCurve = true; s.iHdrCurvePreset = 3; s.iHdrCurveStrength = 100; } },
+	{ "HDR curve to Highlight guard",           [](Settings_t& s) { s.iHdrCurvePreset = 2; } },
+	{ "HDR curve at 0 %, no step",              [](Settings_t& s) { s.iHdrCurveStrength = 0; } },
+	{ "HDR curve at 150 %",                     [](Settings_t& s) { s.iHdrCurveStrength = 150; } },
+	{ "RTX Video HDR off, curve on",            [](Settings_t& s) { s.bVPRTXVideoHDR = false; } },
+	{ "RTX Video HDR on, curve on",             [](Settings_t& s) { s.bVPRTXVideoHDR = true; } },
+	{ "HDR curve off",                          [](Settings_t& s) { s.bHdrCurve = false; } },
 };
 
 // --toggle --switch: the processor's own extras as the chroma moves to the shaders
@@ -165,6 +175,7 @@ static int RunToggleSuite(HMODULE hFilter, HWND hwnd, SIZE source, SIZE window, 
 	sets.iChromaScaling = g_bToggleHdr ? CHROMA_RAVU : CHROMA_CatmullRom;
 	sets.bVPRTXVideoHDR = false;
 	sets.bVPScaling = false;
+	sets.bHdrCurve = false;   // the --hdr toggles turn it on
 	if (g_bToggleHdrOff) {
 		sets.bHdrLocalToneMapping = false;
 		sets.bConvertToSdr = true;

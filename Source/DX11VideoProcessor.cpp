@@ -470,6 +470,12 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_strDlssSRDllPath     = config.szDlssSRDllPath;
 	m_bDlaaAfterScaling    = config.bDlaaAfterScaling;
 	m_bDlaaAfterNR         = config.bDlaaAfterNR;
+	m_bHdrCurve            = config.bHdrCurve;
+	m_iHdrCurvePreset      = config.iHdrCurvePreset;
+	m_iHdrCurveStrength    = config.iHdrCurveStrength;
+	m_HdrCurveValues       = HdrCurve::ValuesOf(config);
+	m_HdrCurveConstants    = HdrCurve::ShaderConstants(HdrCurve::Applied(m_iHdrCurvePreset, m_HdrCurveValues,
+	                                                                     m_iHdrDisplayMaxNits, m_iHdrCurveStrength));
 	// Only Configure() used to take it, so the renderer made for each film had it on
 	// whatever the setting said: unticked, it stayed off until the next file.
 	m_bDlssRenderAhead     = config.bDlssRenderAhead;
@@ -825,6 +831,8 @@ void CDX11VideoProcessor::ReleaseDevice()
 	m_pPSConvertColorDeint.Release();
 
 	m_pPSHDR10ToneMapping.Release();
+	m_pPSHdrCurve.Release();
+	m_pHdrCurveConstantBuffer.Release();
 	m_pPSSharpen.Release();
 	m_pPSSharpenDither.Release();
 	m_pSharpenConstants.Release();
@@ -927,6 +935,9 @@ UINT CDX11VideoProcessor::GetPostScaleSteps()
 		nSteps++;
 	}
 	if (m_pPSHDR10ToneMapping) {
+		nSteps++;
+	}
+	if (HdrCurveStepCounted()) {
 		nSteps++;
 	}
 	if (m_pPSSharpen) {
@@ -3595,6 +3606,12 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	}
 
 	if (m_pDXGISwapChain4) {
+		// The metadata as the display is to be told it: no peak above the HDR curve's cap.
+		const auto SendHdrMetadata = [&](const DXGI_HDR_METADATA_HDR10& hdr10) {
+			DXGI_HDR_METADATA_HDR10 sent = HdrMetadataToSend(hdr10);
+			return m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(sent), &sent);
+		};
+
 		if (m_Dovi.bValid) {
 			if (!m_hdr10.bValid && m_lastHdr10.bValid) {
 				m_hdr10.bValid = true;
@@ -3630,7 +3647,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 					if (!m_bVPUseRTXVideoHDR) {
 						if (m_hdr10.bValid) {
 							if (m_bHdrPassthrough) {
-								hr = m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &m_hdr10.hdr10);
+								hr = SendHdrMetadata(m_hdr10.hdr10);
 								DLogIf(FAILED(hr), L"CDX11VideoProcessor::Render() : SetHDRMetaData(hdr) failed with error {}", HR2Str(hr));
 							}
 
@@ -3638,7 +3655,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 							UpdateStatsStatic();
 						} else if (m_lastHdr10.bValid) {
 							if (m_bHdrPassthrough) {
-								hr = m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &m_lastHdr10.hdr10);
+								hr = SendHdrMetadata(m_lastHdr10.hdr10);
 								DLogIf(FAILED(hr), L"CDX11VideoProcessor::Render() : SetHDRMetaData(lastHdr) failed with error {}", HR2Str(hr));
 							}
 						} else {
@@ -3662,7 +3679,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 							}
 
 							if (m_bHdrPassthrough) {
-								hr = m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &m_lastHdr10.hdr10);
+								hr = SendHdrMetadata(m_lastHdr10.hdr10);
 								DLogIf(FAILED(hr), L"CDX11VideoProcessor::Render() : SetHDRMetaData(Display P3 standard) failed with error {}", HR2Str(hr));
 							}
 
@@ -3674,13 +3691,22 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 		} else if (m_currentSwapChainColorSpace == colorSpace && m_hdr10.bValid) {
 			if (memcmp(&m_hdr10.hdr10, &m_lastHdr10.hdr10, sizeof(m_hdr10.hdr10)) != 0) {
 				if (m_bHdrPassthrough) {
-					hr = m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &m_hdr10.hdr10);
+					hr = SendHdrMetadata(m_hdr10.hdr10);
 					DLogIf(FAILED(hr), L"CDX11VideoProcessor::Render() : SetHDRMetaData(hdr) failed with error {}", HR2Str(hr));
 				}
 
 				m_lastHdr10 = m_hdr10;
 				UpdateStatsStatic();
 			}
+		}
+
+		// The HDR curve's cap came, went or moved while the film plays: the display is told
+		// again, the film's own metadata through the new cap.
+		if (m_bHdrPassthrough && !m_bVPUseRTXVideoHDR && m_currentSwapChainColorSpace == colorSpace && m_lastHdr10.bValid
+				&& (m_bHdrCurveStep ? (unsigned)m_HdrCurveConstants.capNits : 0u) != m_uHdrCurveSentCap) {
+			hr = SendHdrMetadata(m_lastHdr10.hdr10);
+			DLogIf(FAILED(hr), L"CDX11VideoProcessor::Render() : SetHDRMetaData(curve cap) failed with error {}", HR2Str(hr));
+			UpdateStatsStatic();
 		}
 
 		if (m_bHdrLocalToneMapping && m_currentSwapChainColorSpace == colorSpace) {
@@ -4201,6 +4227,10 @@ void CDX11VideoProcessor::UpdatePostScaleTexures()
 	// Sharpening takes the dither on when it is the last step before it, which the
 	// count below has to know.
 	UpdateSharpenDitherShader();
+	// The HDR curve is a step only where the picture leaves in HDR -- not for the
+	// snapshot's SDR copy -- and only where it changes something. Decided here, with the
+	// count, so that the steps drawn are the steps the textures were made for.
+	m_bHdrCurveStep = m_bHdrCurve && !m_bSnapshot && HdrOutput() && !HdrCurve::Neutral(m_HdrCurveConstants);
 
 	const UINT numPostScaleSteps = GetPostScaleSteps();
 	HRESULT hr = m_TexsPostScale.CheckCreate(m_pDevice, m_InternalTexFmt, m_windowRect.Width(), m_windowRect.Height(), numPostScaleSteps);
@@ -4765,7 +4795,7 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 		// picture: DLSS 5 NR after the resize, or the 3D conversion, which draws the
 		// subtitles first on what it reads. rRead is the part of its input a step reads:
 		// the picture where it lies, the first time, and where it was put from then on.
-		const bool bFirstStepDraws = m_pPSCorrection || m_pPSHDR10ToneMapping || m_pPSSharpen
+		const bool bFirstStepDraws = m_pPSCorrection || m_pPSHDR10ToneMapping || HdrCurveStepCounted() || m_pPSSharpen
 			|| !m_pPostScaleShaders.empty() || (m_bFinalPass && !m_pPSHalfOUtoInterlace);
 		const bool bDlaaStep = DlaaAfterStepCounted();
 		const bool bPlaceInFirstStep = rSrc != dstRect && rSrc.Size() == dstRect.Size() && rotation == 0 && !m_bFlip
@@ -4865,6 +4895,14 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 				m_pDeviceContext->PSSetShaderResources(1, 1, &pNullSRV);
 				ReadHdrMeasureStats();
 			}
+			rRead = rect;
+		}
+
+		// The HDR curve, on the picture as it leaves in PQ: after the HLG conversion and the
+		// tone mapping, before the sharpening and the dither (DX11VideoProcessorHdrCurve.cpp).
+		if (HdrCurveStepCounted()) {
+			StepSetting();
+			hr = HdrCurvePass(pInputTexture, pRT, rRead, rect);
 			rRead = rect;
 		}
 
@@ -5125,6 +5163,8 @@ HRESULT CDX11VideoProcessor::GetCurentImage(long *pDIBImage)
 	const auto backupWndRect = m_windowRect;
 	m_videoRect  = imageRect;
 	m_windowRect = imageRect;
+	// The snapshot is an SDR copy: the HDR curve, made for the display, stays out of it.
+	m_bSnapshot = true;
 	UpdateTexures();
 	UpdatePostScaleTexures();
 
@@ -5135,6 +5175,7 @@ HRESULT CDX11VideoProcessor::GetCurentImage(long *pDIBImage)
 
 	m_pFilter->m_pSub11CallBack = pSub11CallBack;
 
+	m_bSnapshot = false;
 	m_videoRect  = backupVidRect;
 	m_windowRect = backupWndRect;
 	UpdateTexures();
@@ -5702,6 +5743,21 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	if (config.iHdrDisplayMaxNits != m_iHdrDisplayMaxNits) {
 		m_iHdrDisplayMaxNits = config.iHdrDisplayMaxNits;
 		//changeHDR = true;
+	}
+
+	{
+		// The HDR curve. New values only reach its constants, the display's peak among
+		// them, which scales the presets; a step that comes or goes counts the post-scale
+		// textures again.
+		const bool bCurveBefore = m_bHdrCurve && !HdrCurve::Neutral(m_HdrCurveConstants);
+		m_bHdrCurve         = config.bHdrCurve;
+		m_iHdrCurvePreset   = config.iHdrCurvePreset;
+		m_iHdrCurveStrength = config.iHdrCurveStrength;
+		m_HdrCurveValues    = HdrCurve::ValuesOf(config);
+		UpdateHdrCurve();
+		if ((m_bHdrCurve && !HdrCurve::Neutral(m_HdrCurveConstants)) != bCurveBefore) {
+			changeNumTextures = true;
+		}
 	}
 
 	if (config.iHdrToggleDisplay != m_iHdrToggleDisplay) {

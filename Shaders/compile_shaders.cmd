@@ -109,6 +109,9 @@ SET fxc_ps4=%fxcexe% /nologo /O2 /T ps_4_0
 
 %fxc_ps4% /Fo "%workdir%\ps_final_pass_10.cso"           "d3d11\ps_final_pass.hlsl" /DQUANTIZATION=1023
 
+REM The HDR curve, on every picture that leaves in HDR (Source\HdrCurve.h).
+%fxc_ps4% /Fo "%workdir%\ps_hdr_curve.cso"               "d3d11\ps_hdr_curve.hlsl"
+
 %fxc_ps4% /Fo "%workdir%\ps_convert_bitmap_to_pq1.cso"   "d3d11\ps_convert_bitmap_to_pq.hlsl" /DSDR_PEAK_LUM=50
 %fxc_ps4% /Fo "%workdir%\ps_convert_bitmap_to_pq2.cso"   "d3d11\ps_convert_bitmap_to_pq.hlsl" /DSDR_PEAK_LUM=30
 

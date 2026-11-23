@@ -58,6 +58,9 @@
 //   playback_test.exe --file <film> --peakcuts 0|1   the measured peak's window starts over at a
 //                                     scene cut (SdrPeakSceneCuts); with MPCVR_PACING_TRACE,
 //                                     pacing_report.py --peak says how the peak followed each cut
+//   playback_test.exe --file <film> --hdrcurve N   the HDR curve with preset N (1..6): its step in
+//                                     the statistics, and the same paused picture read off an HDR
+//                                     desktop with it and without it (shadows, mid tones, peak)
 
 #include <windows.h>
 #include <VersionHelpers.h>
@@ -78,6 +81,7 @@
 #include <commctrl.h>
 #include <shlobj.h>
 #include "../../Source/SettingsPage/Greying.h"
+#include "../../Source/HdrCurve.h"
 #include <map>
 #include <thread>
 #include <vector>
@@ -149,6 +153,10 @@ static int g_filmToSdr = -1;      // --tosdr 0|1
 static int g_filmPreferDovi = -1; // --prefdovi 0|1
 static int g_filmCadence = -1;    // --cadence 0..2: where the cadence slips go (CADENCE_SLIPS_*)
 static int g_filmPeakCuts = -1;   // --peakcuts 0|1: the measured peak starts over at a cut
+// --hdrcurve N: the HDR curve with preset N (HdrCurve.h, 1..6) at 100 %; without it the curve
+// is off, whatever the registry holds. With --file, the same paused picture is read off the
+// desktop with the curve and without it.
+static int g_filmHdrCurve = 0;
 // --asis: leave the settings exactly as the registry has them. The only way to drive a
 // renderer this bench did not build: Settings_t has grown fields since, so SetSettings
 // on the stock filter writes a layout it does not know and it ignores the lot. Each
@@ -1028,6 +1036,7 @@ struct Result {
 	DXGI_FORMAT stillFormat = DXGI_FORMAT_UNKNOWN;  // what the desktop frame came in
 	double stopSeconds[3] = {};
 	bool bSnapshotChanged = false;  // --aftergrab: the screen was not the same after a snapshot
+	int curveFailures = 0;          // --hdrcurve: what the curve did on the screen, against what it is for
 	std::string error;
 };
 
@@ -1441,6 +1450,40 @@ static int ShowGreying()
 		: "DLSS SR and the DLAA after scaling grey each other, the preset serves both, and the DLAA\n"
 		  "leaves every list as it is without it.");
 	wrong += wrongDlaa;
+
+	// The HDR curve: its box with Direct3D 11 on Windows 10, its values with the box; and it
+	// leaves every other control of the page as it is without it.
+	printf("\nThe HDR curve\n\n");
+	printf("%-9s %-9s %-7s %-8s %-8s %-6s\n", "D3D11", "Win 10", "curve", "box", "values", "others");
+	int wrongCurve = 0;
+	for (const bool bD3D11 : { false, true }) {
+		for (const bool bWin10 : { false, true }) {
+			for (const bool bCurve : { false, true }) {
+				Settings_t sets;
+				sets.bUseD3D11 = bD3D11;
+				sets.bHdrCurve = bCurve;
+				const Greying g = GreyingFor(sets, true, bWin10, false);
+				Settings_t plain = sets;
+				plain.bHdrCurve = false;
+				const Greying p = GreyingFor(plain, true, bWin10, false);
+				const bool bOthersKept = g.bUpscalingList == p.bUpscalingList && g.bDownscalingList == p.bDownscalingList
+					&& g.bSuperRes == p.bSuperRes && g.bChromaList == p.bChromaList && g.bCleaning == p.bCleaning
+					&& g.bDlssSRBox == p.bDlssSRBox && g.bDlaaAfterBox == p.bDlaaAfterBox;
+				const bool bWrong = g.bHdrCurveBox != (bD3D11 && bWin10) || g.bHdrCurveValues != (bD3D11 && bWin10 && bCurve)
+					|| !bOthersKept;
+				wrongCurve += bWrong;
+				printf("%-9s %-9s %-7s %-8s %-8s %-6s%s\n", bD3D11 ? "yes" : "no", bWin10 ? "yes" : "no",
+					bCurve ? "ticked" : "off", g.bHdrCurveBox ? "live" : "GREYED", g.bHdrCurveValues ? "live" : "GREYED",
+					bOthersKept ? "kept" : "MOVED", bWrong ? "   <-- WRONG" : "");
+			}
+		}
+	}
+	printf("\n%s\n", wrongCurve
+		? "The HDR curve's box has to be live with Direct3D 11 on Windows 10, its values with the box,\n"
+		  "and nothing else on the page may move with it."
+		: "The HDR curve's box is live with Direct3D 11 on Windows 10, its values with the box, and\n"
+		  "nothing else on the page moves with it.");
+	wrong += wrongCurve;
 	printf("%d failure(s)\n", wrong);
 	return wrong ? 1 : 0;
 }
@@ -1548,6 +1591,13 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	// without them, whatever the registry holds.
 	sets.bDlaaAfterScaling = g_bDlaaAfter;
 	sets.bDlaaAfterNR = g_bDlaaAfterNR;
+	// --hdrcurve N: the HDR curve, preset N at its full strength. Off without it, whatever the
+	// registry holds.
+	sets.bHdrCurve = g_filmHdrCurve > 0;
+	if (g_filmHdrCurve > 0) {
+		sets.iHdrCurvePreset = g_filmHdrCurve;
+		sets.iHdrCurveStrength = 100;
+	}
 	// --small N: the Upscaling method that stands in under five per cent, by its
 	// UPSCALE_ value. Without it the option is off, whatever the registry holds, so
 	// that every other run measures the method it names.
@@ -1733,6 +1783,11 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		if (g_filmPeakCuts >= 0) {
 			printf("   peak kept    : start over at a cut %d, dither moving %d\n", (int)back.bSdrPeakSceneCuts,
 				(int)back.bDitherMoving);
+		}
+		// The HDR curve, the last fields of Settings_t now.
+		if (g_filmHdrCurve > 0) {
+			printf("   curve kept   : on %d, preset %d, strength %d, cap %d\n", (int)back.bHdrCurve,
+				back.iHdrCurvePreset, back.iHdrCurveStrength, back.iHdrCurvePeakCap);
 		}
 	}
 	}
@@ -2041,6 +2096,95 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		Pump(500);
 		SeekTo(pGraph, g_filmSeek);
 		Pump(2500);
+	}
+	// --hdrcurve: its step in the statistics, then the same paused picture off the desktop,
+	// statistics off, with the curve and without it. The shadows are the pixels under 10 nits
+	// without it, the mid tones those from 10 to 200: their mean light either way, in nits,
+	// and the brightest pixel's. What the preset is for is checked on them: shadows raised
+	// where it lifts, nothing above its cap, the mid tones darker where only its mid grey moves
+	// them down.
+	if (g_filmHdrCurve > 0 && g_filmFile) {
+		double finishMs = -1;
+		const std::wstring finish = StepLine(text, L"Finish", &finishMs);
+		const std::wstring curveLine = StepLine(text, L"HDR curve");
+		wprintf(L"   Finish       : %s%s\n", finish.c_str(), finishMs >= 0 ? std::format(L", {:.1f} ms", finishMs).c_str() : L"");
+		wprintf(L"   HDR curve    : %s\n", curveLine.empty() ? L"(no line)" : curveLine.c_str());
+		const bool bHdrOut = !result.hdrLine.empty();
+		if (bHdrOut && finish.find(L"HDR curve") == std::wstring::npos) {
+			printf("   FAIL: the picture leaves in HDR and Finish has no HDR curve\n");
+			result.curveFailures++;
+		}
+		if (bHdrOut && curveLine.empty()) {
+			printf("   FAIL: no HDR curve line in the statistics\n");
+			result.curveFailures++;
+		}
+		if (watch.Ready() && watch.Format() != DXGI_FORMAT_B8G8R8A8_UNORM && bHdrOut) {
+			const bool bStats = sets.bShowStats;
+			sets.bShowStats = false;
+			pVR->SetSettings(sets);
+			watch.m_bKeepLinear = true;
+			const auto ReadStill = [&]() {
+				SeekTo(pGraph, g_filmSeek);
+				Pump(2500);
+				SetForegroundWindow(hwnd);
+				BringWindowToTop(hwnd);
+				Pump(600);
+				return watch.Measure(hwnd);
+			};
+			const CScreenWatch::Reading on = ReadStill();
+			sets.bHdrCurve = false;
+			pVR->SetSettings(sets);
+			const CScreenWatch::Reading off = ReadStill();
+			sets.bHdrCurve = true;
+			sets.bShowStats = bStats;
+			pVR->SetSettings(sets);
+			watch.m_bKeepLinear = false;
+			if (on.ok && off.ok && !on.linear.empty() && on.linear.size() == off.linear.size()) {
+				double darkOn = 0, darkOff = 0, midOn = 0, midOff = 0, peakOn = 0, peakOff = 0;
+				size_t nDark = 0, nMid = 0;
+				for (size_t i = 0; i + 2 < on.linear.size(); i += 3) {
+					// scRGB, BT.709, 1.0 = 80 nits
+					const double yOn = 80.0 * (0.2126 * on.linear[i] + 0.7152 * on.linear[i + 1] + 0.0722 * on.linear[i + 2]);
+					const double yOff = 80.0 * (0.2126 * off.linear[i] + 0.7152 * off.linear[i + 1] + 0.0722 * off.linear[i + 2]);
+					peakOn = std::max(peakOn, yOn);
+					peakOff = std::max(peakOff, yOff);
+					if (yOff < 10.0) {
+						darkOn += yOn;
+						darkOff += yOff;
+						nDark++;
+					} else if (yOff < 200.0) {
+						midOn += yOn;
+						midOff += yOff;
+						nMid++;
+					}
+				}
+				darkOn /= std::max<size_t>(nDark, 1);
+				darkOff /= std::max<size_t>(nDark, 1);
+				midOn /= std::max<size_t>(nMid, 1);
+				midOff /= std::max<size_t>(nMid, 1);
+				const size_t n = on.linear.size() / 3;
+				printf("   on screen    : shadows %.3f -> %.3f nits (%.1f%% of the picture), mid tones %.2f -> %.2f (%.1f%%),"
+					" brightest %.1f -> %.1f\n", darkOff, darkOn, 100.0 * nDark / n, midOff, midOn, 100.0 * nMid / n, peakOff, peakOn);
+				const HdrCurve::Values v = HdrCurve::Applied(g_filmHdrCurve, {}, sets.iHdrDisplayMaxNits, 100);
+				if (v.liftEv100 > 0 && nDark && !(darkOn > darkOff)) {
+					printf("   FAIL: the preset lifts the shadows, and they are no brighter\n");
+					result.curveFailures++;
+				}
+				if (v.capNits && peakOn > v.capNits * 1.02) {
+					printf("   FAIL: %.1f nits on the screen, over the cap of %d\n", peakOn, v.capNits);
+					result.curveFailures++;
+				}
+				if (!v.liftEv100 && v.midGreyNits < HdrCurve::kMidNeutral && nMid && !(midOn < midOff)) {
+					printf("   FAIL: the preset's mid grey darkens the mid tones, and they are no darker\n");
+					result.curveFailures++;
+				}
+			} else {
+				printf("   FAIL: the paused picture could not be read off the desktop with and without the curve\n");
+				result.curveFailures++;
+			}
+		} else {
+			printf("   on screen    : not measured (%s)\n", !bHdrOut ? "the picture leaves in SDR" : "an SDR desktop");
+		}
 	}
 	// A snapshot (GetCurrentImage, the player's "save image") renders the picture again
 	// into a target of its own, and puts the renderer back as it found it. Whether it
@@ -2940,6 +3084,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_filmSeek = _wtof(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--rtxhdr")) {
 			g_filmRtxHdr = _wtoi(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--hdrcurve")) {
+			g_filmHdrCurve = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--superres")) {
 			g_filmSuperRes = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--prepass")) {
@@ -3377,6 +3523,7 @@ int wmain(int argc, wchar_t* argv[])
 		if (r.bSnapshotChanged) {
 			failures++;
 		}
+		failures += r.curveFailures;
 		CheckDlaaAfter(r, config);
 		if (g_bSharpenCal) {
 			if (r.picture.empty()) {
