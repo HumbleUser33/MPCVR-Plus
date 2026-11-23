@@ -1600,6 +1600,9 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	if (g_filmHdrCurve > 0) {
 		sets.iHdrCurvePreset = g_filmHdrCurve;
 		sets.iHdrCurveStrength = 100;
+		// The values typed for Custom as well, which a preset does not use but the "curve
+		// kept" line prints: the registry's would make the report the machine's.
+		HdrCurve::StoreValues(sets, HdrCurve::ValuesOf(Settings_t{}));
 	}
 	// --small N: the Upscaling method that stands in under five per cent, by its
 	// UPSCALE_ value. Without it the option is off, whatever the registry holds, so
@@ -2896,29 +2899,52 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 
 	// --typenits: the display's peak typed into the HDR curve's box, as a user would, which
 	// must be written into the HDR tab's Nits, the one setting both stand for; and the roll-off's
-	// start the curve's tab then shows, which a preset scales by it. Typed only: the page is
-	// closed without Apply, and nothing reaches the registry.
+	// start the curve's tab then shows, which a preset scales by it. Dark and bright is chosen
+	// first, as a user would: the preset the registry holds may be Custom, which nothing scales.
+	// Typed only: the page is closed without Apply, and nothing reaches the registry.
 	int failures = 0;
 	if (g_typeNits > 0) {
 		const HWND hDlg = GetWindow(hwnd, GW_CHILD);
 		const HWND hCurveNits = hDlg ? FindItem(hDlg, 1294) : nullptr;   // IDC_HDRCURVE_NITS
 		const HWND hHdrNits = hDlg ? FindItem(hDlg, 1003) : nullptr;     // IDC_EDIT_DISPLAYMAX
 		const HWND hStart = hDlg ? FindItem(hDlg, 1398) : nullptr;       // IDC_HDRCURVE_START
-		if (!hCurveNits || !hHdrNits || !hStart) {
-			printf("FAIL: the display peak boxes are not on the page\n");
+		const HWND hPreset = hDlg ? FindItem(hDlg, 1392) : nullptr;      // IDC_HDRCURVE_PRESET
+		int item = -1;
+		if (hPreset) {
+			const int count = (int)SendMessageW(hPreset, CB_GETCOUNT, 0, 0);
+			for (int i = 0; i < count && item < 0; i++) {
+				if ((int)SendMessageW(hPreset, CB_GETITEMDATA, i, 0) == HdrCurve::DarkAndBright) {
+					item = i;
+				}
+			}
+		}
+		if (!hCurveNits || !hHdrNits || !hStart || item < 0) {
+			printf("FAIL: the display peak boxes, or Dark and bright, are not on the page\n");
 			failures++;
 		} else {
-			wchar_t before[16] = {}, typed[16] = {}, mirrored[16] = {}, start[16] = {};
+			SendMessageW(hPreset, CB_SETCURSEL, item, 0);
+			SendMessageW(GetParent(hPreset), WM_COMMAND, MAKEWPARAM(1392, CBN_SELCHANGE), (LPARAM)hPreset);
+			Pump(100);
+			wchar_t nits[16] = {}, before[16] = {}, typed[16] = {}, mirrored[16] = {}, start[16] = {};
+			GetWindowTextW(hCurveNits, nits, (int)std::size(nits));
 			GetWindowTextW(hStart, before, (int)std::size(before));
 			SetWindowTextW(hCurveNits, std::to_wstring(g_typeNits).c_str());
 			Pump(200);
 			GetWindowTextW(hCurveNits, typed, (int)std::size(typed));
 			GetWindowTextW(hHdrNits, mirrored, (int)std::size(mirrored));
 			GetWindowTextW(hStart, start, (int)std::size(start));
-			wprintf(L"display peak typed %s on the HDR curve tab: the HDR tab's Nits says %s; roll-off from %s, was %s\n",
-				typed, mirrored, start, before);
+			const HdrCurve::Values preset = HdrCurve::PresetValues(HdrCurve::DarkAndBright);
+			const int wantBefore = HdrCurve::ForDisplay(preset, _wtoi(nits)).startNits;
+			const int want = HdrCurve::ForDisplay(preset, g_typeNits).startNits;
+			wprintf(L"display peak typed %s on the HDR curve tab: the HDR tab's Nits says %s; "
+				L"Dark and bright's roll-off from %s, was %s at %s nits\n", typed, mirrored, start, before, nits);
 			if (wcscmp(typed, mirrored)) {
 				printf("FAIL: the HDR tab's Nits did not follow the HDR curve's\n");
+				failures++;
+			}
+			if (_wtoi(before) != wantBefore || _wtoi(start) != want) {
+				printf("FAIL: the roll-off shown is not the preset's on this display: %d then %d wanted\n",
+					wantBefore, want);
 				failures++;
 			}
 		}
