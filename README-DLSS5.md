@@ -1287,6 +1287,26 @@ measured on film frames halved from 4K, against the same frame through the proce
 it is on the control's side of the choice: with it set to *Disable* the picture goes round in
 4:4:4 and keeps what it had.
 
+**Super Resolution with nothing to enlarge, as a DLAA.** That it ran on a picture held at its
+own size raised the question the other way round: could it clean a film the screen shows at its
+own size, as DLSS does in its DLAA mode? `vp444_probe --native` asks the driver itself, with the
+renderer's own stream extension and without upstream's size check, on a film frame at five sizes
+converted at the same size, clean and with its planes coded as MPEG-2 intra blocks (RTX 4060,
+the NVIDIA app at its quality level 4, 23 November 2026):
+
+| picture | what it changes | detail (Laplacian), without -> with | coded against clean, without -> with | GPU a picture |
+|---|---|---|---|---|
+| 1920x1080 | 1.23 levels | 4.24 -> 5.76 | 38.62 -> 37.88 dB | 13 ms |
+| 2560x1440 | 1.19 levels | 3.03 -> 4.47 | 39.88 -> 39.16 dB | 22 ms |
+| 3200x1800, 3840x1600, 3840x2160 | nothing | the same | the same | nothing |
+
+The driver takes the request at every size and acts only up to 2560x1440, the size upstream's
+last level stops at: on a 4K film, scope or full frame, it does nothing at all. Below that it
+sharpens -- a third to a half more detail -- and takes nothing out of what a codec left: the
+coded picture ends further from the clean one with it than without. So there is no Super
+Resolution for a 4K film at its own size to be had from the driver, and none is offered;
+*Apply DLAA after scaling* is the way to clean one (16.6 ms a picture at 4K).
+
 In MPC-HC, a 1080p film at 25 fps on a television at 25Hz, RTX Video HDR on: with DLSS 5 NR
 and the processor enlarging, a picture is ready 26 ms after it arrives, and 36 to 39 ms with
 Super Resolution as well (the *Render ahead* line) -- of the 40 ms a frame lasts. That is the
@@ -3347,8 +3367,10 @@ packing into AYUV and Y410 is exact, `--views` which bind flags still make an in
 `--hdrconv` which conversions the processor declares. `--after` is the processor's second
 turn, after DLSS 5 NR: a picture written back from R'G'B' by the filter's own shaders, in P010
 and in Y410, SDR and PQ -- whether the processor takes it, how exact the trip is, whether
-Super Resolution acts on it, and what a second trip costs a film frame. The numbers quoted in
-the chroma section above come from it.
+Super Resolution acts on it, and what a second trip costs a film frame. `--native [png]` is
+Super Resolution with nothing to enlarge, on a processor of its own that asks for it without
+upstream's size check: at what sizes the driver acts, what it changes, whether it takes out
+what a codec left, and what it costs. The numbers quoted in the chroma section above come from it.
 
 **The pacing trace, and `pacing_report.py`** — what became of every picture on its way to the
 screen, in any player. Set the environment variable `MPCVR_PACING_TRACE` to a file name before

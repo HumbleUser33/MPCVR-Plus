@@ -1508,6 +1508,294 @@ static void FilmTest(Gpu& g)
 	}
 }
 
+// ---------------------------------------------------------------------------
+// --native: RTX Video Super Resolution with nothing to enlarge -- a picture shown at its
+// own size, a 4K film on a 4K screen -- as DLSS's DLAA is. The renderer never asks for it
+// there: it belongs to the turn that resizes, and upstream's levels stop at a source of
+// 2560x1440 (CD3D11VP::SetSuperRes). So this asks the driver itself, on a processor of
+// its own, with the same stream extension the renderer sends (SetSuperResNvidia): does
+// the driver take it at that size, what does it change, does it take out what a codec
+// leaves, and what does it cost. The quality level is the NVIDIA app's.
+
+#include "mpeg2_intra.inl"
+
+static bool LoadWhole(IWICImagingFactory* f, const wchar_t* path, int& w, int& h, std::vector<float>& rgb)
+{
+	CComPtr<IWICBitmapDecoder> dec;
+	CComPtr<IWICBitmapFrameDecode> frame;
+	CComPtr<IWICFormatConverter> cv;
+	if (FAILED(f->CreateDecoderFromFilename(path, nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec))
+		|| FAILED(dec->GetFrame(0, &frame)) || FAILED(f->CreateFormatConverter(&cv))
+		|| FAILED(cv->Initialize(frame, GUID_WICPixelFormat64bppRGBA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom))) {
+		return false;
+	}
+	UINT W = 0, H = 0;
+	cv->GetSize(&W, &H);
+	std::vector<UINT16> px((size_t)W * H * 4);
+	if (FAILED(cv->CopyPixels(nullptr, W * 8, (UINT)(px.size() * 2), (BYTE*)px.data()))) {
+		return false;
+	}
+	w = (int)W & ~1;
+	h = (int)H & ~1;
+	rgb.resize((size_t)w * h * 3);
+	for (int j = 0; j < h; j++) {
+		for (int i = 0; i < w; i++) {
+			for (int c = 0; c < 3; c++) {
+				rgb[((size_t)j * w + i) * 3 + c] = px[((size_t)j * W + i) * 4 + c] / 65535.0f;
+			}
+		}
+	}
+	return true;
+}
+
+// The picture brought to w x h by an area average: each pixel the mean of what it covers.
+static std::vector<float> Shrink(const std::vector<float>& rgb, int W, int H, int w, int h)
+{
+	std::vector<float> out((size_t)w * h * 3);
+	const double fx = (double)W / w, fy = (double)H / h;
+	for (int y = 0; y < h; y++) {
+		const double y0 = y * fy, y1 = y0 + fy;
+		for (int x = 0; x < w; x++) {
+			const double x0 = x * fx, x1 = x0 + fx;
+			double s[3] = {}, area = 0;
+			for (int sy = (int)y0; sy < (int)std::ceil(y1) && sy < H; sy++) {
+				const double wy = std::min(y1, sy + 1.0) - std::max(y0, (double)sy);
+				for (int sx = (int)x0; sx < (int)std::ceil(x1) && sx < W; sx++) {
+					const double wx = std::min(x1, sx + 1.0) - std::max(x0, (double)sx);
+					for (int c = 0; c < 3; c++) {
+						s[c] += wx * wy * rgb[((size_t)sy * W + sx) * 3 + c];
+					}
+					area += wx * wy;
+				}
+			}
+			for (int c = 0; c < 3; c++) {
+				out[((size_t)y * w + x) * 3 + c] = (float)(s[c] / area);
+			}
+		}
+	}
+	return out;
+}
+
+// PSNR of two outputs, RGB, in dB.
+static double Psnr(const Output& a, const Output& b)
+{
+	if (a.rgb.size() != b.rgb.size() || a.rgb.empty()) {
+		return -1;
+	}
+	double se = 0;
+	for (size_t i = 0; i < a.rgb.size(); i++) {
+		const double d = a.rgb[i] - b.rgb[i];
+		se += d * d;
+	}
+	const double mse = se / a.rgb.size();
+	return mse > 0 ? 10.0 * std::log10(1.0 / mse) : 99.0;
+}
+
+// The picture's fine detail: the mean absolute 3x3 Laplacian of its luma, 8-bit levels.
+static double Detail(const Output& o)
+{
+	auto luma = [&](int x, int y) {
+		const float* p = &o.rgb[3 * ((size_t)y * o.w + x)];
+		return 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+	};
+	double s = 0;
+	size_t n = 0;
+	for (int y = 1; y + 1 < o.h; y++) {
+		for (int x = 1; x + 1 < o.w; x++) {
+			s += std::abs(4 * luma(x, y) - luma(x - 1, y) - luma(x + 1, y) - luma(x, y - 1) - luma(x, y + 1));
+			n++;
+		}
+	}
+	return n ? 255.0 * s / n : 0;
+}
+
+struct NativeRun {
+	HRESULT hrVp = E_FAIL;     // the processor and its views
+	HRESULT hrExt = E_FAIL;    // the Super Resolution extension
+	HRESULT hrBlt = E_FAIL;
+	Output out;
+	double msPerPicture = -1;  // a Blt, from the flush before it to its output read
+};
+
+// NV12 at w x h converted to 8-bit RGB at the same size, with Super Resolution asked for or
+// not, the same picture given `warm` times and then `timed` times more.
+static NativeRun NativeConvert(Gpu& g, const Planes& p, bool bSuperRes, int warm, int timed)
+{
+	NativeRun r;
+	CComQIPtr<ID3D11VideoDevice> vd(g.dev);
+	CComQIPtr<ID3D11VideoContext> vc(g.ctx);
+	CComQIPtr<ID3D11VideoContext1> vc1(g.ctx);
+	if (!vd || !vc) {
+		r.hrVp = E_NOINTERFACE;
+		return r;
+	}
+	const UINT w = (UINT)p.w, h = (UINT)p.h;
+	D3D11_VIDEO_PROCESSOR_CONTENT_DESC cd = { D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, { 24000, 1001 }, w, h,
+		{ 24000, 1001 }, w, h, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL };
+	CComPtr<ID3D11VideoProcessorEnumerator> en;
+	CComPtr<ID3D11VideoProcessor> proc;
+	r.hrVp = vd->CreateVideoProcessorEnumerator(&cd, &en);
+	if (SUCCEEDED(r.hrVp)) {
+		r.hrVp = vd->CreateVideoProcessor(en, 0, &proc);
+	}
+	CComPtr<ID3D11Texture2D> in, rt, sync;
+	CComPtr<ID3D11Texture2D> staged = UploadPlanes(g, DXGI_FORMAT_NV12, p);
+	if (SUCCEEDED(r.hrVp)) {
+		D3D11_TEXTURE2D_DESC di = CreateTex2DDesc(DXGI_FORMAT_NV12, w, h, Tex2D_Default);
+		D3D11_TEXTURE2D_DESC dr = CreateTex2DDesc(DXGI_FORMAT_B8G8R8A8_UNORM, w, h, Tex2D_DefaultRTarget);
+		D3D11_TEXTURE2D_DESC ds = CreateTex2DDesc(DXGI_FORMAT_B8G8R8A8_UNORM, 1, 1, Tex2D_Default);
+		ds.Usage = D3D11_USAGE_STAGING;
+		ds.BindFlags = 0;
+		ds.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		r.hrVp = (!staged || FAILED(g.dev->CreateTexture2D(&di, nullptr, &in)) || FAILED(g.dev->CreateTexture2D(&dr, nullptr, &rt))
+			|| FAILED(g.dev->CreateTexture2D(&ds, nullptr, &sync))) ? E_OUTOFMEMORY : S_OK;
+	}
+	CComPtr<ID3D11VideoProcessorInputView> iv;
+	CComPtr<ID3D11VideoProcessorOutputView> ov;
+	if (SUCCEEDED(r.hrVp)) {
+		g.ctx->CopyResource(in, staged);
+		D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC ivd = { 0, D3D11_VPIV_DIMENSION_TEXTURE2D, { 0, 0 } };
+		D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC ovd = { D3D11_VPOV_DIMENSION_TEXTURE2D, { 0 } };
+		r.hrVp = vd->CreateVideoProcessorInputView(in, en, &ivd, &iv);
+		if (SUCCEEDED(r.hrVp)) {
+			r.hrVp = vd->CreateVideoProcessorOutputView(rt, en, &ovd, &ov);
+		}
+	}
+	if (FAILED(r.hrVp)) {
+		return r;
+	}
+
+	// BT.709 studio range in, full-range RGB out, as the renderer converts an SDR film.
+	if (vc1) {
+		vc1->VideoProcessorSetStreamColorSpace1(proc, 0, DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709);
+		vc1->VideoProcessorSetOutputColorSpace1(proc, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+	} else {
+		D3D11_VIDEO_PROCESSOR_COLOR_SPACE cs = {};
+		cs.YCbCr_Matrix = 1;
+		cs.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_16_235;
+		vc->VideoProcessorSetStreamColorSpace(proc, 0, &cs);
+		D3D11_VIDEO_PROCESSOR_COLOR_SPACE os = {};
+		os.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_0_255;
+		vc->VideoProcessorSetOutputColorSpace(proc, &os);
+	}
+	vc->VideoProcessorSetStreamFrameFormat(proc, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
+	vc->VideoProcessorSetStreamAutoProcessingMode(proc, 0, FALSE);
+	const RECT rc = { 0, 0, (LONG)w, (LONG)h };
+	vc->VideoProcessorSetStreamSourceRect(proc, 0, TRUE, &rc);
+	vc->VideoProcessorSetStreamDestRect(proc, 0, TRUE, &rc);
+	vc->VideoProcessorSetOutputTargetRect(proc, TRUE, &rc);
+
+	// The renderer's own request (CD3D11VP::SetSuperResNvidia), made without its size check.
+	constexpr GUID kNvidiaPPEInterfaceGUID = { 0xd43ce1b3, 0x1f4b, 0x48ac, { 0xba, 0xee, 0xc3, 0xc2, 0x53, 0x75, 0xe6, 0xf7 } };
+	struct { UINT version, method, enable; } info = { 0x1, 0x2, bSuperRes ? 1u : 0u };
+	r.hrExt = vc->VideoProcessorSetStreamExtension(proc, 0, &kNvidiaPPEInterfaceGUID, sizeof(info), &info);
+
+	D3D11_VIDEO_PROCESSOR_STREAM s = {};
+	s.Enable = TRUE;
+	s.pInputSurface = iv;
+	LARGE_INTEGER freq = {};
+	QueryPerformanceFrequency(&freq);
+	double total = 0;
+	int counted = 0;
+	for (int n = 0; n < warm + timed; n++) {
+		// The processor works on an engine of its own: timed from a flushed queue to its
+		// output read back, a texel of it, which waits for it to be done.
+		g.ctx->Flush();
+		LARGE_INTEGER t0 = {}, t1 = {};
+		QueryPerformanceCounter(&t0);
+		r.hrBlt = vc->VideoProcessorBlt(proc, ov, (UINT)n, 1, &s);
+		if (FAILED(r.hrBlt)) {
+			return r;
+		}
+		const D3D11_BOX box = { 0, 0, 0, 1, 1, 1 };
+		g.ctx->CopySubresourceRegion(sync, 0, 0, 0, 0, rt, 0, &box);
+		D3D11_MAPPED_SUBRESOURCE m = {};
+		if (SUCCEEDED(g.ctx->Map(sync, 0, D3D11_MAP_READ, 0, &m))) {
+			g.ctx->Unmap(sync, 0);
+		}
+		QueryPerformanceCounter(&t1);
+		if (n >= warm) {
+			total += (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / freq.QuadPart;
+			counted++;
+		}
+	}
+	r.msPerPicture = counted ? total / counted : -1;
+	ReadOutput(g, rt, r.out);
+	return r;
+}
+
+static Planes PlanesOf(const std::vector<float>& rgb, int w, int h, int q)
+{
+	Planes p = To420(ToYCbCr444(rgb, w, h));
+	if (q > 0) {
+		// What a codec leaves: every 8 x 8 block an MPEG-2 intra block, as the artifact
+		// removal's tests degrade their pictures (mpeg2_intra.inl, which takes and gives
+		// code values over 255, where these planes hold them as they are).
+		const auto Code = [q](std::vector<float>& plane, int w, int h) {
+			for (float& v : plane) {
+				v /= 255.0f;
+			}
+			Mpeg2Intra(plane, w, h, q, 0, 0);
+			for (float& v : plane) {
+				v *= 255.0f;
+			}
+		};
+		Code(p.y, p.w, p.h);
+		Code(p.cb, p.cw, p.ch);
+		Code(p.cr, p.cw, p.ch);
+	}
+	return p;
+}
+
+static void NativeTest(Gpu& g, const wchar_t* path)
+{
+	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	CComPtr<IWICImagingFactory> f;
+	int W = 0, H = 0;
+	std::vector<float> full;
+	if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&f)))
+			|| !LoadWhole(f, path, W, H, full)) {
+		printf("cannot read %S\n", path);
+		return;
+	}
+	constexpr int kQ = 8;                 // playback_test --clean's quantiser_scale_code
+	constexpr int kWarm = 8, kTimed = 24;
+	printf("\nRTX Video Super Resolution at the picture's own size, %S (%dx%d)\n", path, W, H);
+	printf("The processor converts NV12 to 8-bit RGB at the same size, with Super Resolution asked for and\n");
+	printf("not, at the NVIDIA app's quality level. clean: the picture as it is; coded: its planes coded as\n");
+	printf("MPEG-2 intra blocks at quantiser_scale_code %d. changes: mean difference with it against without,\n", kQ);
+	printf("8-bit levels. coded vs clean: PSNR of the coded picture's output against the clean one's without\n");
+	printf("it -- higher with it is what a codec left taken out. detail: mean |3x3 Laplacian| of the luma.\n");
+	printf("ms: a picture, from a flushed queue to its output read (%d after %d to warm up).\n\n", kTimed, kWarm);
+
+	// Where the driver stops, too: a scope film at 4K (3840x1600), and one between.
+	const struct { int w, h; } sizes[] = { { 1920, 1080 }, { 2560, 1440 }, { 3200, 1800 }, { 3840, 1600 }, { 3840, 2160 } };
+	for (const auto& sz : sizes) {
+		if (sz.w > W || sz.h > H) {
+			continue;
+		}
+		const std::vector<float> rgb = (sz.w == W && sz.h == H) ? full : Shrink(full, W, H, sz.w, sz.h);
+		const Planes clean = PlanesOf(rgb, sz.w, sz.h, 0), coded = PlanesOf(rgb, sz.w, sz.h, kQ);
+		const NativeRun cOff = NativeConvert(g, clean, false, kWarm, kTimed);
+		const NativeRun cOn = NativeConvert(g, clean, true, kWarm, kTimed);
+		const NativeRun qOff = NativeConvert(g, coded, false, kWarm, kTimed);
+		const NativeRun qOn = NativeConvert(g, coded, true, kWarm, kTimed);
+		printf("%dx%d\n", sz.w, sz.h);
+		if (FAILED(cOn.hrVp) || FAILED(cOn.hrBlt) || FAILED(qOn.hrBlt) || FAILED(cOff.hrBlt) || FAILED(qOff.hrBlt)) {
+			printf("  the processor failed: views 0x%08X, Blt 0x%08X\n\n", (unsigned)cOn.hrVp, (unsigned)cOn.hrBlt);
+			continue;
+		}
+		printf("  extension          0x%08X (asked on), 0x%08X (asked off)\n", (unsigned)cOn.hrExt, (unsigned)cOff.hrExt);
+		printf("  changes            clean %.3f, coded %.3f\n", Diff(cOn.out, cOff.out), Diff(qOn.out, qOff.out));
+		printf("  coded vs clean     %.2f dB without, %.2f dB with\n", Psnr(qOff.out, cOff.out), Psnr(qOn.out, cOff.out));
+		printf("  clean with vs without  %.2f dB\n", Psnr(cOn.out, cOff.out));
+		printf("  detail             clean %.3f without, %.3f with; coded %.3f without, %.3f with\n",
+			Detail(cOff.out), Detail(cOn.out), Detail(qOff.out), Detail(qOn.out));
+		printf("  ms a picture       %.2f without, %.2f with (clean); %.2f without, %.2f with (coded)\n\n",
+			cOff.msPerPicture, cOn.msPerPicture, qOff.msPerPicture, qOn.msPerPicture);
+	}
+}
+
 int wmain(int argc, wchar_t* argv[])
 {
 	Gpu g;
@@ -1534,6 +1822,11 @@ int wmain(int argc, wchar_t* argv[])
 	}
 	if (argc > 1 && !wcscmp(argv[1], L"--after")) {
 		AfterTest(g);
+		return 0;
+	}
+	if (argc > 1 && !wcscmp(argv[1], L"--native")) {
+		// vp444_probe --native [png]: Super Resolution with nothing to enlarge.
+		NativeTest(g, argc > 2 ? argv[2] : L"upscale_refs\\4K1.png");
 		return 0;
 	}
 
