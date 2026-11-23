@@ -323,6 +323,14 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 					extra = Ms(CGpuStageTimes::MpvLuma);
 				}
 			}
+		} else if (bVPResizesHere && m_bVPUseSuperRes && !m_bChromaReplacedVP) {
+			// Nothing to resize, and the driver's Super Resolution runs all the same: upstream
+			// asks for it on the turn that resizes whatever the sizes, the level checked
+			// against the source alone, and the driver acts on a picture at its own size up
+			// to 2560x1440 -- a 1080p film at 1920x1080, the processor's step 13.2 ms against
+			// 0.4 without it (playback_test --vpturns), its time in that step. Shrinking it
+			// does not (vp444_probe --native), which is why only the same size says so.
+			text.append(L" D3D11 SuperResolution*");
 		}
 		Step(L"Scaling", text, Sum(extra, Ms(CGpuStageTimes::Resize)));
 		if (bDlssSR && !m_strDlssSRMotion.empty()) {

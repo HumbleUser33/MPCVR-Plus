@@ -1314,8 +1314,10 @@ level checked against the source alone, whichever way the picture goes and at th
 too. So a 1080p film shown at 1920x1080 by the processor, with a level of *Up to 1080p* or more,
 has it, and the driver runs it there: `playback_test --vpturns` with a 1080p H.264 clip, the
 processor's step at 13.2 ms against 0.4 without it, and the still's detail 0.0209 against 0.0191.
-The *Scaling* line says *SuperResolution\** only when the picture grows both ways, so it does
-not show there. Shrunk to 1280x720, the same film's processor takes 0.4 ms either way.
+The *Scaling* line used to say *SuperResolution\** only when the picture grew both ways, and so
+said nothing of it there; it now says so at the same size too, `1920x1080 -> 1920x1080 D3D11
+SuperResolution*`, its time in the processor's step. Shrunk to 1280x720, the same film's
+processor takes 0.4 ms either way, and the line says nothing, as the driver does nothing.
 
 In MPC-HC, a 1080p film at 25 fps on a television at 25Hz, RTX Video HDR on: with DLSS 5 NR
 and the processor enlarging, a picture is ready 26 ms after it arrives, and 36 to 39 ms with
