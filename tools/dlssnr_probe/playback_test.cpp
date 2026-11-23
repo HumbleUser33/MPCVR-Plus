@@ -3422,7 +3422,9 @@ int wmain(int argc, wchar_t* argv[])
 			}
 		}
 		if (g_bVPTurns) {
-			wprintf(L"   processor    : %s\n", r.vprocLine.c_str());
+			// Its GPU time too, Super Resolution's included, which says when the driver ran it.
+			const double vpMs = StepMs(r.statsAll, L"Processor");
+			wprintf(L"   processor    : %s%s\n", r.vprocLine.c_str(), vpMs >= 0 ? std::format(L", {:.1f} ms", vpMs).c_str() : L"");
 			wprintf(L"   scaling      : %s\n", r.scalingLine.c_str());
 			printf("   the processor: %s\n", !(r.vpUse & (VPUSE_Converting | VPUSE_Resizing)) ? "not in the chain"
 				: (r.vpUse & VPUSE_Resizing) ? "converts and resizes" : "converts");

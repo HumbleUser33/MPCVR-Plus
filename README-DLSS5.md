@@ -1307,6 +1307,16 @@ coded picture ends further from the clean one with it than without. So there is 
 Resolution for a 4K film at its own size to be had from the driver, and none is offered;
 *Apply DLAA after scaling* is the way to clean one (16.6 ms a picture at 4K).
 
+Nor does it act when the processor shrinks the picture: 2560x1440 to 1920x1080 or to 1280x720,
+1920x1080 to 1280x720, nothing changed and nothing spent (`--native`'s second table). What the
+renderer asks for, though, is upstream's rule: Super Resolution on the turn that resizes, the
+level checked against the source alone, whichever way the picture goes and at the same size
+too. So a 1080p film shown at 1920x1080 by the processor, with a level of *Up to 1080p* or more,
+has it, and the driver runs it there: `playback_test --vpturns` with a 1080p H.264 clip, the
+processor's step at 13.2 ms against 0.4 without it, and the still's detail 0.0209 against 0.0191.
+The *Scaling* line says *SuperResolution\** only when the picture grows both ways, so it does
+not show there. Shrunk to 1280x720, the same film's processor takes 0.4 ms either way.
+
 In MPC-HC, a 1080p film at 25 fps on a television at 25Hz, RTX Video HDR on: with DLSS 5 NR
 and the processor enlarging, a picture is ready 26 ms after it arrives, and 36 to 39 ms with
 Super Resolution as well (the *Render ahead* line) -- of the 40 ms a frame lasts. That is the

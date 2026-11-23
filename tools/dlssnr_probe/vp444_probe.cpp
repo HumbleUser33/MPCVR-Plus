@@ -1617,9 +1617,10 @@ struct NativeRun {
 	double msPerPicture = -1;  // a Blt, from the flush before it to its output read
 };
 
-// NV12 at w x h converted to 8-bit RGB at the same size, with Super Resolution asked for or
-// not, the same picture given `warm` times and then `timed` times more.
-static NativeRun NativeConvert(Gpu& g, const Planes& p, bool bSuperRes, int warm, int timed)
+// NV12 at w x h converted to 8-bit RGB at outW x outH -- the same size unless told -- with
+// Super Resolution asked for or not, the same picture given `warm` times and then `timed`
+// times more.
+static NativeRun NativeConvert(Gpu& g, const Planes& p, bool bSuperRes, int warm, int timed, int outW = 0, int outH = 0)
 {
 	NativeRun r;
 	CComQIPtr<ID3D11VideoDevice> vd(g.dev);
@@ -1630,8 +1631,9 @@ static NativeRun NativeConvert(Gpu& g, const Planes& p, bool bSuperRes, int warm
 		return r;
 	}
 	const UINT w = (UINT)p.w, h = (UINT)p.h;
+	const UINT ow = outW > 0 ? (UINT)outW : w, oh = outH > 0 ? (UINT)outH : h;
 	D3D11_VIDEO_PROCESSOR_CONTENT_DESC cd = { D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, { 24000, 1001 }, w, h,
-		{ 24000, 1001 }, w, h, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL };
+		{ 24000, 1001 }, ow, oh, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL };
 	CComPtr<ID3D11VideoProcessorEnumerator> en;
 	CComPtr<ID3D11VideoProcessor> proc;
 	r.hrVp = vd->CreateVideoProcessorEnumerator(&cd, &en);
@@ -1642,7 +1644,7 @@ static NativeRun NativeConvert(Gpu& g, const Planes& p, bool bSuperRes, int warm
 	CComPtr<ID3D11Texture2D> staged = UploadPlanes(g, DXGI_FORMAT_NV12, p);
 	if (SUCCEEDED(r.hrVp)) {
 		D3D11_TEXTURE2D_DESC di = CreateTex2DDesc(DXGI_FORMAT_NV12, w, h, Tex2D_Default);
-		D3D11_TEXTURE2D_DESC dr = CreateTex2DDesc(DXGI_FORMAT_B8G8R8A8_UNORM, w, h, Tex2D_DefaultRTarget);
+		D3D11_TEXTURE2D_DESC dr = CreateTex2DDesc(DXGI_FORMAT_B8G8R8A8_UNORM, ow, oh, Tex2D_DefaultRTarget);
 		D3D11_TEXTURE2D_DESC ds = CreateTex2DDesc(DXGI_FORMAT_B8G8R8A8_UNORM, 1, 1, Tex2D_Default);
 		ds.Usage = D3D11_USAGE_STAGING;
 		ds.BindFlags = 0;
@@ -1680,10 +1682,10 @@ static NativeRun NativeConvert(Gpu& g, const Planes& p, bool bSuperRes, int warm
 	}
 	vc->VideoProcessorSetStreamFrameFormat(proc, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
 	vc->VideoProcessorSetStreamAutoProcessingMode(proc, 0, FALSE);
-	const RECT rc = { 0, 0, (LONG)w, (LONG)h };
+	const RECT rc = { 0, 0, (LONG)w, (LONG)h }, ro = { 0, 0, (LONG)ow, (LONG)oh };
 	vc->VideoProcessorSetStreamSourceRect(proc, 0, TRUE, &rc);
-	vc->VideoProcessorSetStreamDestRect(proc, 0, TRUE, &rc);
-	vc->VideoProcessorSetOutputTargetRect(proc, TRUE, &rc);
+	vc->VideoProcessorSetStreamDestRect(proc, 0, TRUE, &ro);
+	vc->VideoProcessorSetOutputTargetRect(proc, TRUE, &ro);
 
 	// The renderer's own request (CD3D11VP::SetSuperResNvidia), made without its size check.
 	constexpr GUID kNvidiaPPEInterfaceGUID = { 0xd43ce1b3, 0x1f4b, 0x48ac, { 0xba, 0xee, 0xc3, 0xc2, 0x53, 0x75, 0xe6, 0xf7 } };
@@ -1791,6 +1793,43 @@ static void NativeTest(Gpu& g, const wchar_t* path)
 		printf("  clean with vs without  %.2f dB\n", Psnr(cOn.out, cOff.out));
 		printf("  detail             clean %.3f without, %.3f with; coded %.3f without, %.3f with\n",
 			Detail(cOff.out), Detail(cOn.out), Detail(qOff.out), Detail(qOn.out));
+		printf("  ms a picture       %.2f without, %.2f with (clean); %.2f without, %.2f with (coded)\n\n",
+			cOff.msPerPicture, cOn.msPerPicture, qOff.msPerPicture, qOn.msPerPicture);
+	}
+
+	// The processor shrinking the picture, where the renderer asks for Super Resolution as
+	// well: it is asked for on the turn that resizes, whichever way, as long as the source is
+	// within the level chosen (UpdateVPSuperRes, CD3D11VP::SetSuperRes).
+	printf("Super Resolution while the processor shrinks the picture, from the size on the left to the one on\n");
+	printf("the right. against exact: PSNR of the output against the clean picture shrunk by an area average\n");
+	printf("to that size, what a perfect shrink shows. The 3840x2160 row is above where it acts at its own size.\n\n");
+	const struct { int w, h, ow, oh; } shrinks[] = {
+		{ 2560, 1440, 1920, 1080 }, { 1920, 1080, 1280, 720 }, { 2560, 1440, 1280, 720 }, { 3840, 2160, 1920, 1080 } };
+	for (const auto& sz : shrinks) {
+		if (sz.w > W || sz.h > H) {
+			continue;
+		}
+		const std::vector<float> rgb = (sz.w == W && sz.h == H) ? full : Shrink(full, W, H, sz.w, sz.h);
+		Output exact;
+		exact.w = sz.ow;
+		exact.h = sz.oh;
+		exact.rgb = Shrink(full, W, H, sz.ow, sz.oh);
+		const Planes clean = PlanesOf(rgb, sz.w, sz.h, 0), coded = PlanesOf(rgb, sz.w, sz.h, kQ);
+		const NativeRun cOff = NativeConvert(g, clean, false, kWarm, kTimed, sz.ow, sz.oh);
+		const NativeRun cOn = NativeConvert(g, clean, true, kWarm, kTimed, sz.ow, sz.oh);
+		const NativeRun qOff = NativeConvert(g, coded, false, kWarm, kTimed, sz.ow, sz.oh);
+		const NativeRun qOn = NativeConvert(g, coded, true, kWarm, kTimed, sz.ow, sz.oh);
+		printf("%dx%d -> %dx%d\n", sz.w, sz.h, sz.ow, sz.oh);
+		if (FAILED(cOn.hrVp) || FAILED(cOn.hrBlt) || FAILED(qOn.hrBlt) || FAILED(cOff.hrBlt) || FAILED(qOff.hrBlt)) {
+			printf("  the processor failed: views 0x%08X, Blt 0x%08X\n\n", (unsigned)cOn.hrVp, (unsigned)cOn.hrBlt);
+			continue;
+		}
+		printf("  extension          0x%08X (asked on), 0x%08X (asked off)\n", (unsigned)cOn.hrExt, (unsigned)cOff.hrExt);
+		printf("  changes            clean %.3f, coded %.3f\n", Diff(cOn.out, cOff.out), Diff(qOn.out, qOff.out));
+		printf("  against exact      clean %.2f dB without, %.2f dB with; coded %.2f dB without, %.2f dB with\n",
+			Psnr(cOff.out, exact), Psnr(cOn.out, exact), Psnr(qOff.out, exact), Psnr(qOn.out, exact));
+		printf("  detail             clean %.3f without, %.3f with; coded %.3f without, %.3f with (exact %.3f)\n",
+			Detail(cOff.out), Detail(cOn.out), Detail(qOff.out), Detail(qOn.out), Detail(exact));
 		printf("  ms a picture       %.2f without, %.2f with (clean); %.2f without, %.2f with (coded)\n\n",
 			cOff.msPerPicture, cOn.msPerPicture, qOff.msPerPicture, qOn.msPerPicture);
 	}
