@@ -449,10 +449,10 @@
 #define IDC_HDRCURVE_START                 1398
 #define IDC_HDRCURVE_ROLLOFF               1399
 #define IDC_HDRCURVE_CAP                   1293
-#define IDC_CARD_HDRCURVE                  1294
+#define IDC_HDRCURVE_NITS                  1294
 #define IDC_CARD_HDRCURVE_VALUES           1295
 #define IDC_STATIC_HDRCURVE_PRESET         1296
-#define IDC_STATIC_HDRCURVE_NOTE           1297
+#define IDC_STATIC_HDRCURVE_NITS           1297
 #define IDC_STATIC_HDRCURVE_STRENGTH       1298
 #define IDC_STATIC_HDRCURVE_LIFT           1299
 #define IDC_STATIC_HDRCURVE_RANGE          1223

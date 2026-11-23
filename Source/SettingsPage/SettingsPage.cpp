@@ -481,7 +481,8 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Available while a tone map method is chosen." },
 	{ IDC_EDIT_DISPLAYMAX,
 		L"Your display's real peak brightness in nits (100 to 10000), used by the tone mapping "
-		"methods.\n"
+		"methods, and by the HDR curve's presets (HDR curve tab, where the same value can be "
+		"set in passthrough).\n"
 		"Available while a tone mapping method is chosen." },
 	{ IDC_COMBO7,
 		L"Whether the filter may switch Windows HDR mode on by itself when HDR video (or RTX Video "
@@ -536,8 +537,8 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"a higher peak of the film's, so that the display does not compress the highlights again.\n"
 		"Needs Direct3D 11 and HDR output. The curve and the presets come from Veyra." },
 	{ IDC_HDRCURVE_PRESET,
-		L"Ready-made curves, written for a 1000-nit display and scaled to Display max nits (HDR "
-		"tab): where the highlights roll off and the cap follow your display's peak.\n"
+		L"Ready-made curves, written for a 1000-nit display and scaled to the display's peak "
+		"below: where the highlights roll off and the cap follow it.\n"
 		"Dark lift: shadows raised, mid grey a little brighter.\n"
 		"Highlight guard: highlights softened from 450 nits, capped at 1000.\n"
 		"Dark and bright: both.\n"
@@ -545,6 +546,11 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 		"Dark room: a darker mid grey, highlights softened and capped at 800.\n"
 		"Punch: a darker mid grey, for more contrast, highlights softened.\n"
 		"Custom: the values on the right, as typed." },
+	{ IDC_HDRCURVE_NITS,
+		L"Your display's real peak brightness, in nits (100 to 10000): the same setting as Nits on "
+		"the HDR tab, which is greyed there in passthrough while the curve still uses it.\n"
+		"The presets' roll-off and cap follow it: written for 1000 nits, they are scaled by this "
+		"value over 1000. The shadows and the mid grey do not change with it." },
 	{ IDC_HDRCURVE_STRENGTH,
 		L"How much of the curve is applied: 0 % changes nothing, 100 % is the preset or the values "
 		"as they are, 200 % twice as much. The peak cap does not follow it." },
@@ -884,8 +890,9 @@ void CVRSettingsPPage::FillCombos()
 	Combo_AddData(Item(IDC_HDRCURVE_PRESET), L"Custom",          HdrCurve::Custom);
 	Send(IDC_HDRCURVE_STRENGTH, TBM_SETRANGE, 0, MAKELONG(HdrCurve::kStrengthMin, HdrCurve::kStrengthMax));
 	Send(IDC_HDRCURVE_STRENGTH, TBM_SETTIC, 0, HdrCurve::kStrengthDef);
-	Send(IDC_HDRCURVE_STRENGTH, TBM_SETLINESIZE, 0, 5);
-	Send(IDC_HDRCURVE_STRENGTH, TBM_SETPAGESIZE, 0, 25);
+	// One per cent a key or a notch of the wheel, ten a click beside the thumb.
+	Send(IDC_HDRCURVE_STRENGTH, TBM_SETLINESIZE, 0, 1);
+	Send(IDC_HDRCURVE_STRENGTH, TBM_SETPAGESIZE, 0, 10);
 
 	Combo_AddData(Item(IDC_DEBLOCK), L"Off",                     DEBLOCK_Off);
 	Combo_AddData(Item(IDC_DEBLOCK), L"PP7 (light)",             DEBLOCK_PP7);
@@ -1234,10 +1241,11 @@ void CVRSettingsPPage::EnableControls()
 	Enable(IDC_DLAA_AFTER_NR, grey.bDlaaAfterNRBox);
 
 	// The HDR curve (Greying.h): its box with Direct3D 11 on Windows 10, the rest with the box.
-	Enable(IDC_CARD_HDRCURVE, grey.bHdrCurveBox);
+	// The display's peak is the HDR tab's Nits, greyed there in passthrough, where the curve
+	// still uses it: here it follows the curve's box.
 	Enable(IDC_HDRCURVE_ENABLE, grey.bHdrCurveBox);
 	for (const int id : { IDC_STATIC_HDRCURVE_PRESET, IDC_HDRCURVE_PRESET, IDC_STATIC_HDRCURVE_STRENGTH,
-			IDC_HDRCURVE_STRENGTH, IDC_HDRCURVE_STRENGTH_TEXT, IDC_STATIC_HDRCURVE_NOTE, IDC_CARD_HDRCURVE_VALUES,
+			IDC_HDRCURVE_STRENGTH, IDC_HDRCURVE_STRENGTH_TEXT, IDC_STATIC_HDRCURVE_NITS, IDC_HDRCURVE_NITS, IDC_CARD_HDRCURVE_VALUES,
 			IDC_STATIC_HDRCURVE_LIFT, IDC_HDRCURVE_LIFT, IDC_STATIC_HDRCURVE_RANGE, IDC_HDRCURVE_RANGE,
 			IDC_STATIC_HDRCURVE_MIDGREY, IDC_HDRCURVE_MIDGREY, IDC_STATIC_HDRCURVE_START, IDC_HDRCURVE_START,
 			IDC_STATIC_HDRCURVE_ROLLOFF, IDC_HDRCURVE_ROLLOFF, IDC_STATIC_HDRCURVE_CAP, IDC_HDRCURVE_CAP }) {
@@ -1625,8 +1633,25 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 		}
 
 		if (action == EN_CHANGE) {
-			if (nID == IDC_EDIT_DISPLAYMAX) {
-				SetDirty();
+			// The display's peak, in two boxes for the one setting: the HDR tab's Nits and the
+			// HDR curve's, each written into the other. Kept as it is typed while it is within
+			// its range, so that a preset's values follow it at once; read again on Apply.
+			if (nID == IDC_EDIT_DISPLAYMAX || nID == IDC_HDRCURVE_NITS) {
+				if (!m_bSyncingNits) {
+					wchar_t text[16] = {};
+					if (HWND h = Item(nID)) {
+						::GetWindowTextW(h, text, (int)std::size(text));
+					}
+					m_bSyncingNits = true;
+					SetText(nID == IDC_EDIT_DISPLAYMAX ? IDC_HDRCURVE_NITS : IDC_EDIT_DISPLAYMAX, text);
+					m_bSyncingNits = false;
+					const int nits = _wtoi(text);
+					if (nits >= HDR_NITS_MIN && nits <= HDR_NITS_MAX && nits != m_SetsPP.iHdrDisplayMaxNits) {
+						m_SetsPP.iHdrDisplayMaxNits = nits;
+						ShowHdrCurveValues();
+					}
+					SetDirty();
+				}
 				return (INT_PTR)1;
 			}
 			// The HDR curve's values, kept as they are typed while they are within their
@@ -2188,7 +2213,7 @@ HRESULT CVRSettingsPPage::OnApplyChanges()
 	}
 	// Both ends are allowed, as the message says and as the registry reads it back.
 	if (!translated || displayMaxNits < HDR_NITS_MIN || displayMaxNits > HDR_NITS_MAX) {
-		MessageBoxW(L"Invalid display peak brightness (HDR tab): enter a number of nits from 100 to 10000.", L"MPCVR-Plus",
+		MessageBoxW(L"Invalid display peak brightness (HDR tab, or HDR curve tab): enter a number of nits from 100 to 10000.", L"MPCVR-Plus",
 			MB_OK | MB_ICONERROR);
 	}
 	else {

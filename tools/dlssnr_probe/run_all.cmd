@@ -86,7 +86,8 @@ CALL :Run "pictures from a decoder's device"   "playback_test.exe --gpu --toggle
 CALL :Run "the Settings page and its lists"    "playback_test.exe --mainpage 2"
 CALL :Run "the Settings page, DLSS 5 NR"       "playback_test.exe --mainpage 2 --section 4"
 CALL :Run "the Settings page, Detail"          "playback_test.exe --mainpage 2 --section 3"
-CALL :Run "the Settings page, HDR curve"       "playback_test.exe --mainpage 2 --section 6"
+REM And the display's peak typed on it, which the HDR tab's Nits must follow; nothing applied.
+CALL :Run "the Settings page, HDR curve"       "playback_test.exe --mainpage 2 --section 6 --typenits 800"
 CALL :Run "the Settings page, Presentation"    "playback_test.exe --mainpage 2 --section 7"
 REM Five graphs made and unmade in one process, DLSS off and on: what a player does
 REM from one film to the next. It was called "the DLSS page" and ran a switch that no

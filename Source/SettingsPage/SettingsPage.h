@@ -76,6 +76,7 @@ private:
 	// the ones typed. Filling them in is not an edit of the user's.
 	void ShowHdrCurveValues();
 	bool m_bFillingCurve = false;
+	bool m_bSyncingNits = false;   // one of the two display peak boxes being written into the other
 
 	// Dolby Vision is the one thing about the film the page still watches: it takes
 	// the processor out of the chain, which is a different page and not a shade of

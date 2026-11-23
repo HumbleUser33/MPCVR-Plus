@@ -2134,8 +2134,12 @@ picture is shown at; subtitles and the OSD are drawn after it and are not touche
 statistics add a line, `HDR curve`, with the preset, the strength and the values they come to.
 
 The presets are Veyra's, written for a 1000-nit display; the roll-off's start and the cap
-follow *Nits* on the HDR tab (×0.6 on a 600-nit display), the shadows and the mid grey do not,
-since they describe the film and the room:
+follow the display's peak, multiplied by it over 1000 (×0.6 on a 600-nit display, ×2 at 2000),
+and the shadows and the mid grey do not, since they describe the film and the room. The peak
+is upstream's *Nits*, on the HDR tab for the tone mapping and on the curve's tab as well, the
+same value, since passthrough greys it on the first. The display's own report says little: it
+is what its EDID claims (8300 nits for one OLED here), not what the panel shows. A reviewer's
+measurement of a small window is the number to give it:
 
 | Preset | Shadow lift | Shadows up to | Mid grey | Roll-off from | Roll-off | Cap |
 |---|---|---|---|---|---|---|
@@ -3041,8 +3045,9 @@ See *The HDR curve*. Direct3D 11 and Windows 10; it changes nothing to a picture
 | Setting | Default | What it does |
 |---|---|---|
 | Adjust the light of HDR pictures | off | A curve on the light of every picture sent in HDR: HDR10, HDR10+, Dolby Vision, and SDR video turned into HDR by RTX Video HDR. After the tone mapping, before sharpening; subtitles and the OSD are not touched. Registry `HdrCurve` |
-| Preset | Custom | Veyra's: *Dark lift*, *Highlight guard*, *Dark and bright*, *Bright room*, *Dark room*, *Punch*, written for a 1000-nit display and scaled to *Nits* on the HDR tab; *Custom* applies the values as typed. Choosing one shows its values; typing a value makes it *Custom*. Registry `HdrCurvePreset` |
-| Strength | 100 % | 0 changes nothing, 200 % does twice as much; the cap does not follow it. Applies as the slider is dragged. Registry `HdrCurveStrength` |
+| Preset | Custom | Veyra's: *Dark lift*, *Highlight guard*, *Dark and bright*, *Bright room*, *Dark room*, *Punch*, written for a 1000-nit display and scaled to the display's peak below; *Custom* applies the values as typed. Choosing one shows its values; typing a value makes it *Custom*. Registry `HdrCurvePreset` |
+| Strength | 100 % | 0 changes nothing, 200 % does twice as much; the cap does not follow it. Applies as the slider is dragged, a per cent at a time. Registry `HdrCurveStrength` |
+| Display peak | 1000 nits | The display's real peak: the same setting as *Nits* on the HDR tab, written into it as it is typed, and here because passthrough greys that one while the curve uses it. The presets' roll-off and cap are scaled by it over 1000. Registry `HdrDisplayNits`, upstream's |
 | Shadow lift | 0 | In hundredths of an exposure value, −200 to 200: 100 doubles the darkest parts, a negative value darkens them. Registry `HdrCurveShadowLift` |
 | Shadows up to | 10 nits | Where the lift has faded out, 1 to 100; nothing brighter moves with it. Registry `HdrCurveShadowRange` |
 | Mid grey | 203 nits | Where the mid grey goes, 100 to 500, the peak held: 203, the HDR reference white, changes nothing. Registry `HdrCurveMidGrey` |

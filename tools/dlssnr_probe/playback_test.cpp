@@ -226,6 +226,9 @@ static bool SetDisplayHz(int hz)
 static bool g_bGreying = false;        // --greying: the rules alone, without a film
 static std::vector<int> g_hoverIds;     // --hover <id>: put the pointer on it and read the tip
 static int g_pageSection = -1;         // --section N: which one to show, or the page's own choice
+// --typenits N: N typed into the HDR curve tab's display peak, which must reach the HDR tab's
+// Nits, and the roll-off's start it shows then read back. Nothing is applied.
+static int g_typeNits = 0;
 static bool g_bPageApply = false;      // --apply: press Apply before closing it
 // The picture is fed as NV12 wherever the hardware video processor has to be able
 // to take it; elsewhere RGB32 keeps the film exact.
@@ -2891,12 +2894,45 @@ static int ShowPropertyPage(HMODULE hFilter, HWND hwnd, int seconds, REFCLSID cl
 		Pump(300);
 	}
 
+	// --typenits: the display's peak typed into the HDR curve's box, as a user would, which
+	// must be written into the HDR tab's Nits, the one setting both stand for; and the roll-off's
+	// start the curve's tab then shows, which a preset scales by it. Typed only: the page is
+	// closed without Apply, and nothing reaches the registry.
+	int failures = 0;
+	if (g_typeNits > 0) {
+		const HWND hDlg = GetWindow(hwnd, GW_CHILD);
+		const HWND hCurveNits = hDlg ? FindItem(hDlg, 1294) : nullptr;   // IDC_HDRCURVE_NITS
+		const HWND hHdrNits = hDlg ? FindItem(hDlg, 1003) : nullptr;     // IDC_EDIT_DISPLAYMAX
+		const HWND hStart = hDlg ? FindItem(hDlg, 1398) : nullptr;       // IDC_HDRCURVE_START
+		if (!hCurveNits || !hHdrNits || !hStart) {
+			printf("FAIL: the display peak boxes are not on the page\n");
+			failures++;
+		} else {
+			wchar_t before[16] = {}, typed[16] = {}, mirrored[16] = {}, start[16] = {};
+			GetWindowTextW(hStart, before, (int)std::size(before));
+			SetWindowTextW(hCurveNits, std::to_wstring(g_typeNits).c_str());
+			Pump(200);
+			GetWindowTextW(hCurveNits, typed, (int)std::size(typed));
+			GetWindowTextW(hHdrNits, mirrored, (int)std::size(mirrored));
+			GetWindowTextW(hStart, start, (int)std::size(start));
+			wprintf(L"display peak typed %s on the HDR curve tab: the HDR tab's Nits says %s; roll-off from %s, was %s\n",
+				typed, mirrored, start, before);
+			if (wcscmp(typed, mirrored)) {
+				printf("FAIL: the HDR tab's Nits did not follow the HDR curve's\n");
+				failures++;
+			}
+		}
+	}
+
 	Pump(std::max(0, seconds * 1000 - 1000));
 
 	pPage->Deactivate();
 	pPage->SetObjects(0, nullptr);
 	pPage->SetPageSite(nullptr);
-	return 0;
+	if (g_typeNits > 0) {
+		printf("%d failure(s)\n", failures);
+	}
+	return failures ? 1 : 0;
 }
 
 // --clean: the displayed picture's luma against the clean picture's, and how much of the
@@ -3074,6 +3110,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_nrScaleTo = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--hover")) {
 			g_hoverIds.push_back(_wtoi(argv[i + 1]));
+		} else if (!wcscmp(argv[i], L"--typenits")) {
+			g_typeNits = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--click")) {
 			clickControls.push_back(_wtoi(argv[i + 1]));
 		} else if (!wcscmp(argv[i], L"--filter")) {

@@ -324,15 +324,17 @@ STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
 FONT 8, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
     LTEXT           "A curve on the light of every picture sent in HDR (HDR10, HDR10+, Dolby Vision, RTX Video HDR): shadows, mid grey, highlights.",IDC_STATIC,7,4,446,8
-    GROUPBOX        "HDR curve",IDC_CARD_HDRCURVE,7,16,222,112
+    GROUPBOX        "HDR curve",IDC_STATIC,7,16,222,130
     CONTROL         "Adjust the light of HDR pictures",IDC_HDRCURVE_ENABLE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,30,208,10
     LTEXT           "Preset",IDC_STATIC_HDRCURVE_PRESET,14,50,44,8
     COMBOBOX        IDC_HDRCURVE_PRESET,60,48,122,110,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT           "Strength",IDC_STATIC_HDRCURVE_STRENGTH,14,70,44,8
     CONTROL         "",IDC_HDRCURVE_STRENGTH,"msctls_trackbar32",WS_TABSTOP | 0x400,56,68,126,14
     EDITTEXT        IDC_HDRCURVE_STRENGTH_TEXT,186,69,36,12,ES_AUTOHSCROLL | ES_READONLY,WS_EX_RIGHT
-    LTEXT           "The presets are written for a 1000-nit display and follow Display max nits, on the HDR tab. A value changed by hand makes the preset Custom.",IDC_STATIC_HDRCURVE_NOTE,14,90,208,32
-    GROUPBOX        "Values",IDC_CARD_HDRCURVE_VALUES,235,16,218,112
+    LTEXT           "Display peak, nits (as Nits on the HDR tab)",IDC_STATIC_HDRCURVE_NITS,14,90,168,8
+    EDITTEXT        IDC_HDRCURVE_NITS,186,88,36,12,ES_AUTOHSCROLL | ES_NUMBER,WS_EX_RIGHT
+    LTEXT           "The presets are written for a 1000-nit display: where their highlights roll off and their cap follow the display's peak. A value changed by hand makes the preset Custom.",IDC_STATIC,14,108,208,32
+    GROUPBOX        "Values",IDC_CARD_HDRCURVE_VALUES,235,16,218,130
     LTEXT           "Shadow lift, 1/100 EV",IDC_STATIC_HDRCURVE_LIFT,242,32,156,8
     EDITTEXT        IDC_HDRCURVE_LIFT,404,30,42,12,ES_AUTOHSCROLL,WS_EX_RIGHT
     LTEXT           "Shadows up to, nits",IDC_STATIC_HDRCURVE_RANGE,242,48,156,8
