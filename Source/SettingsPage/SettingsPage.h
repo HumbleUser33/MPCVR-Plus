@@ -89,6 +89,14 @@ private:
 	// What the renderer last held for DLSS, so the toggle key can be told apart
 	// from an edit of the page's own that has not been applied yet.
 	bool m_bDlssNRSeen = false;
+	// And for the HDR curve, which its tune's key sets while the page is open.
+	Settings_t m_curveSeen;
+	static bool SameCurve(const Settings_t& a, const Settings_t& b);
+	void SeeCurve(const Settings_t& from);
+
+	// The HDR curve's tune key: its two lists, filled from the presets' keys, and the key they show.
+	void FillTuneKeyCombos();
+	int  TuneKeyShown();
 
 	HWND m_hSections[SECTION_COUNT] = {};
 	int m_iSection = SECTION_Source;

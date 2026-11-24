@@ -2177,6 +2177,61 @@ On the screen, read off an HDR desktop on the same paused picture with the curve
 and the metadata of the second said 2000 nits, the cap on that display. It costs 0.3 to 0.4 ms a
 picture at 3840x2160 on an RTX 4060 (Finish 0.7 ms against 0.3 and 0.4 without it, in turns).
 
+### Tuning it to the film
+
+A preset is the same for every film, and so is RTX Video HDR's guess at an HDR picture: one
+film comes out with its shadows sunk, the next dim all through. *Auto tune*, on the HDR curve
+tab, binds a key that tunes the curve to the film playing. On the key the film pauses, the
+picture goes to sixteen places spread from 4 to 92 % of the film (the opening logos and the
+credits left out), the light the curve receives is measured at each, and the film comes back to
+the picture it was on and plays again if it was playing. The values found are kept as the
+curve's *Custom* ones at 100 %, as a preset's key keeps its preset; the key pressed again during
+it stops it and changes nothing, and so do the player's Stop and closing the film. A notice says
+how far it is, then what it found.
+
+What is measured is two histograms of the picture over PQ, its light and its brightest channel,
+taken where the curve's step reads it (`cs_hdr_tune_hist.hlsl`): after the hardware video
+processor and RTX Video HDR, after DLSS and the tone mapping, before the curve. So a second
+press with the curve on finds the same values. While the film is moved, the step is drawn for
+the measurement alone if the curve changes nothing; outside it, nothing of this runs.
+
+The values bring the film towards real HDR masters, measured with the same tool, and only by
+what the film's content does not decide on its own:
+
+- **the shadows**: how far a picture's shadows sit under its key, its log-average light, as
+  ln(key / 10th percentile). A dark scene graded well has its shadows as far under its own key
+  as a bright one. Where the film's are deeper than the masters' by more than their spread, the
+  shadows are lifted three quarters of the way back, one EV at most, the lift fading out at twice
+  the film's key so that the mid tones hardly move;
+- **the mid grey**: the film's key over its sixteen pictures, which its content does move, so
+  only where it is far from the masters' (beyond their spread), three quarters of the way, as a
+  power of 0.9 to 1.1 and half an EV at most at the key;
+- **the highlights**: no master needed. Where the film's peak (the second brightest place's, all
+  but 0.05 % of its pixels) does not fit the display's, the cap is the display's peak and the
+  roll-off starts at BT.2390's knee for the two, its peak landing at 95 to 99 % of the cap: 4000
+  nits on an 800-nit display start at about 360. What fits is not limited;
+- **a guard**: the pictures' contrast, ln(p90 / p10), keeps 85 % of the film's at least -- light
+  given to a colour also raises its colourfulness, and a flatter picture reads as washed out --
+  the lift taken back first, then the mid grey.
+
+The targets come from six HDR10 and Dolby Vision masters of 30 to 40 s each, sixteen pictures
+each in passthrough (`playback_test --hdrtunescan`, read by `hdr_tune_targets.py`): a depth of
+2.36 and a key of 2.35 nits, all 96 pictures as one film, with bands of 0.46 and 0.71 (ln), half
+the interquartile range of the six taken one at a time. Thirty seconds of a film are a scene or
+three, further apart than whole films would be, so the bands are wide: the darkest of the six
+(depth 3.62, key 0.89 nits) and the brightest (key 6.84) are themselves moved, the four others
+not, but for the roll-off of what an 800-nit display cannot show.
+
+| On an RTX 4060, *Nits* 2000 | Places | Time | Depth | Key | Found |
+|---|---|---|---|---|---|
+| The bench's film under RTX Video HDR | 16 of 16 | 3.2 s | 2.95 → 2.66 | 1.31 → 1.70 nits | lift +1.00 EV to 3 nits, the rest left alone |
+
+Sixteen paused seeks took 3.3 s on that film and 4.9 to 14.9 s on the masters (`playback_test
+--seektime 16`), the 4K AV1 the slowest; the moves stop at 22 s so that the tune is over within
+30. The film came back to its picture to the millisecond each time. In a real MPC-HC, the key
+pressed as a user presses it, the curve was kept and the player's own record of where the film
+was when it closed agreed with the film having come back and played on.
+
 ---
 
 ## Render ahead
@@ -3054,6 +3109,7 @@ See *The HDR curve*. Direct3D 11 and Windows 10; it changes nothing to a picture
 | Highlights roll off from | 0 (none) | Where the highlights start to be softened, 100 to 2000 nits. Registry `HdrCurveHighlightStart` |
 | Roll-off | 100 % | 10 to 200: at 100 the brightest highlights approach the cap, or 1000 nits, and never pass it. Registry `HdrCurveRollOff` |
 | Peak cap | 0 (none) | The brightest the picture may be, 100 to 4000 nits, with no colour above it. The HDR10 metadata then says no more than the cap. Registry `HdrCurvePeakCap` |
+| Auto tune key | None | A key, with what is held with it, that tunes the curve to the film playing (*Tuning it to the film*) and keeps what it found as the values above, *Custom*, at 100 %. Not taken by a preset, and refused when the DLSS 5 NR toggle or a preset has it. Needs HDR output. Registry `HdrCurveTuneKey`, in no preset |
 
 ### Presentation
 
@@ -3636,6 +3692,11 @@ playback_test.exe --vpturns --file <film> --rtxhdr 1 --hdrout 1   the shaders, t
 playback_test.exe --file <film> --hdrtm 7 --measurepeak 1   HDR output: -1 off, 0 passthrough, 1..7 a tone mapping; --dovitm 0|6, --sdrtm 0..2, --tosdr, --prefdovi
 playback_test.exe --file <film> --aftergrab   the same paused picture on the screen before and after GetCurrentImage (a player's Save image)
 playback_test.exe --file <film> --hdrcurve N   the HDR curve with preset N (1..6): its step in the statistics, and the same paused picture off an HDR desktop with it and without it
+playback_test.exe --file <film> --hdrtune   the curve tuned to the film as its key does it, then again measuring only: the places, the time, the film back on its picture and playing, the values in the filter and the registry, the same twice (the registry put back)
+playback_test.exe --file <film> --hdrtunescan   the tune measuring only: each place's percentiles, key and peak, for hdr_tune_targets.py
+playback_test.exe --file <film> --cancelat S | --playat S | --stopat S   the tune stopped by its key, by the player's Play, by its Stop with the graph let go at once (the tune's thread looked for after)
+playback_test.exe --file <film> --bykey   the tune started by Ctrl+F9 pressed with SendInput, the window in front
+playback_test.exe --file <film> --seektime N   N paused seeks over the film, exact and to the key frame, each timed
 playback_test.exe --hz 30 --fps 30 --jolt   a film at the screen's own rate, and the queue it builds
 playback_test.exe --presets     two presets saved, each recalled by its key while it plays
 playback_test.exe --rewindow    the video window made again from another thread, and whose it is
@@ -3649,6 +3710,11 @@ dlssnr_harness.exe --tdither     the dither before output: the final passes that
 dlssnr_harness.exe --ttonemap    the measured peak HDR tone mapping follows, against libplacebo's, across cuts
 dlssnr_harness.exe --thdrcurve   the HDR curve: the shader that ships against its sum, what it keeps, and the sum
                                  against Veyra's for every preset, strength and display peak
+dlssnr_harness.exe --thdrtune    its tune: the measuring shader that ships against the CPU's bins, the percentiles
+                                 against exact ones, and the sums on made-up films (left alone at the targets, the
+                                 knee, the bounds, the curve monotonic, nothing turned back)
+python hdr_tune_targets.py <log>...   the tune's targets and bands from --hdrtunescan reports of HDR masters, and
+                                 where another film stands against them
 dlssnr_harness.exe --tupscale|--tdownscale --mpvextra <dir>   more mpv shaders, translated by mpv_shaders.py, beside
                                  the ones measured: candidates kept out of upscalers\hlsl and of the battery
 playback_test.exe --scalers --size 1920x1038 --window 2496x1349   every upscaler at a small ratio

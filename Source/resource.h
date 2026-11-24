@@ -15,6 +15,8 @@
 //               Shaders/mpv/mpv_shaders.py: do not number these by hand
 //   2100-2149   frame generation: the motion, the generators
 //   1200-1399   our controls                     (upstream stops at 1065)
+//   4020-4099   our controls, once 1200-1399 was full (the frame generation branch's
+//               1371-1380 among it)
 //
 // tools/upstream_check.py checks that no number is used by both sides.
 #define IDD_MAINPROPPAGE                102
@@ -462,6 +464,12 @@
 #define IDC_STATIC_HDRCURVE_START          1235
 #define IDC_STATIC_HDRCURVE_ROLLOFF        1236
 #define IDC_STATIC_HDRCURVE_CAP            1264
+// The HDR curve's tune key, the first of the second band of our controls.
+#define IDC_CARD_HDRCURVE_TUNE             4020
+#define IDC_STATIC_HDRCURVE_TUNEKEY        4021
+#define IDC_HDRCURVE_TUNE_MOD              4022
+#define IDC_HDRCURVE_TUNE_KEY              4023
+#define IDC_STATIC_HDRCURVE_TUNE_NOTE      4024
 #define IDC_STATIC_SDRTM                1066
 #define IDC_COMBO_SDRTM                 1067
 #define IDC_STATIC_DVTM                 1068

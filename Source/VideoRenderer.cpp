@@ -125,6 +125,7 @@
 #define OPT_SdrPeakFloorNits               L"SdrPeakFloorNits"
 // upstream's name, saved here: it is on the HDR tab
 #define OPT_SdrPeakSceneCuts               L"SdrPeakSceneCuts"
+#define OPT_HdrCurveTuneKey                L"HdrCurveTuneKey"
 
 static std::atomic_int g_nInstance = 0;
 
@@ -665,6 +666,11 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_SdrPeakSceneCuts, dw)) {
 			m_Sets.bSdrPeakSceneCuts = !!dw;
 		}
+		// The HDR curve's tune key, as a preset's key: read here, written by SaveSettings, in
+		// no preset.
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrCurveTuneKey, dw)) {
+			m_Sets.iHdrCurveTuneKey = (dw & 0xFF) ? (int)(dw & PRESETKEY_Mask) : 0;
+		}
 	}
 	ReadPresetKeys();
 
@@ -738,6 +744,26 @@ LRESULT CALLBACK CMpcVideoRenderer::ToggleKeyProc(int code, WPARAM wParam, LPARA
 					pThis->RecallPreset(slot);
 				}
 				return 1; // consumed, like the toggle key
+			}
+		}
+	}
+
+	// The HDR curve's tune: its key with what is held, as a preset's. Pressed again while it
+	// runs, it stops it (StartHdrTune). Before the toggle key, which answers whatever is held.
+	if (code == HC_ACTION && pThis && wParam && pThis->m_Sets.iHdrCurveTuneKey
+			&& (int)wParam == (pThis->m_Sets.iHdrCurveTuneKey & 0xFF)) {
+		GUITHREADINFO gui = { sizeof(gui) };
+		if (!(GetGUIThreadInfo(GetCurrentThreadId(), &gui) && gui.hwndCaret)) {
+			const int held = (GetKeyState(VK_SHIFT) < 0 ? PRESETKEY_Shift : 0)
+			               | (GetKeyState(VK_CONTROL) < 0 ? PRESETKEY_Ctrl : 0)
+			               | (GetKeyState(VK_MENU) < 0 ? PRESETKEY_Alt : 0);
+			if (((int)wParam | held) == pThis->m_Sets.iHdrCurveTuneKey) {
+				const bool bKeyUp = (lParam & 0x80000000) != 0;
+				const bool bRepeat = (lParam & 0x40000000) != 0;
+				if (!bKeyUp && !bRepeat) {
+					pThis->StartHdrTune(1);
+				}
+				return 1;
 			}
 		}
 	}
@@ -879,7 +905,7 @@ STDMETHODIMP CMpcVideoRenderer::SetPresetInfo(int slot, LPCWSTR name, int vk)
 
 void CMpcVideoRenderer::InstallToggleKeyHook()
 {
-	bool bAnyKey = m_Sets.iDlssNRToggleKey != 0;
+	bool bAnyKey = m_Sets.iDlssNRToggleKey != 0 || m_Sets.iHdrCurveTuneKey != 0;
 	for (const int vk : m_presetKeys) {
 		bAnyKey = bAnyKey || vk != 0;
 	}
@@ -2246,8 +2272,9 @@ STDMETHODIMP CMpcVideoRenderer::SaveSettings()
 	CRegKey key;
 	if (ERROR_SUCCESS == key.Create(HKEY_CURRENT_USER, OPT_REGKEY_VIDEORENDERER)) {
 		WriteSettings(key, m_Sets);
-		// Here and not in WriteSettings, which writes the presets too: none carries it.
+		// Here and not in WriteSettings, which writes the presets too: none carries them.
 		key.SetDWORDValue(OPT_SdrPeakSceneCuts, m_Sets.bSdrPeakSceneCuts);
+		key.SetDWORDValue(OPT_HdrCurveTuneKey, m_Sets.iHdrCurveTuneKey);
 	}
 
 	return S_OK;

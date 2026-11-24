@@ -31,7 +31,8 @@ It is published as **MPCVR-Plus**: `origin` is HumbleUser33/MPCVR-Plus, the bran
 - **Resource numbers live in reserved ranges.** Upstream owns everything below 1900, and
   every control below 1200. Ours go in 4000-4019 (dialogs), 1900-1999 (shaders),
   2000-2099 (generated), 2100-2149 (EchoStorm's motion and synthesis, numbered as the
-  frame generation branch numbers them) and 1200-1399 (controls). The head of `Source/resource.h` says so,
+  frame generation branch numbers them), 1200-1399 (controls) and, once that was full,
+  4020-4099 (controls). The head of `Source/resource.h` says so,
   and section 5 of the pre-flight checks it. A number used by both sides compiles without
   a word and loads the wrong resource.
 
@@ -183,6 +184,9 @@ A copy of the working folder carries all of this; a clone carries none of it, an
   (`file_graph.inl`), read and never written.
 - `tools/dlssnr_probe/upscalers/`: the mpv shaders the generator translates, with glslang and
   SPIRV-Cross in its `tools` folder.
+- `tools/TestBattery/`: short test films, one a format. The six HDR ones (01 to 06) are the
+  masters the HDR curve's tune takes its targets from (`hdr_tune_targets.py`). Not ours to
+  redistribute either.
 - `external/onnxruntime/` and `tools/dlssnr_probe/models/`: the harness's neural rows
   (EfRLFN, measured and not integrated). The tools build without them, minus those rows.
 - `Optical_Flow_SDK_5.0.7/`: reference only. The two headers the filter compiles are in

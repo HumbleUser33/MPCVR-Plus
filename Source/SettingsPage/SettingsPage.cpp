@@ -573,6 +573,20 @@ static const struct { int id; const wchar_t* text; } g_hints[] = {
 	{ IDC_HDRCURVE_CAP,
 		L"The brightest the picture may be, in nits (100 to 4000), with no colour above it. "
 		"0: no cap." },
+	{ IDC_HDRCURVE_TUNE_KEY,
+		L"A key that tunes the curve to the film playing, with what is held with it.\n"
+		"The film pauses, the picture goes to 16 places spread over it -- 30 s at most, usually "
+		"4 to 15 -- and comes back to the picture it was on, playing again if it was. At each "
+		"place the light the curve receives is measured, RTX Video HDR's included. The values "
+		"found bring the film towards real HDR masters: the shadows raised where they sit "
+		"deeper than a master's under the picture's average (one EV at most), the mid grey moved "
+		"only where the whole film is far darker or brighter than a master (half an EV at most), "
+		"and the highlights rolled off under the display's peak where they do not fit it.\n"
+		"They are kept as the Custom values, at 100 %, as a preset's key keeps its preset. "
+		"Pressed again during it, it stops and changes nothing. Needs HDR output.\n"
+		"Set the display's peak above first: the roll-off and the cap follow it." },
+	{ IDC_HDRCURVE_TUNE_MOD,
+		L"What is held with the tune's key: none, Ctrl, Shift, Alt or two of them." },
 
 	// Presentation
 	{ IDC_COMBO4,
@@ -893,6 +907,7 @@ void CVRSettingsPPage::FillCombos()
 	// One per cent a key or a notch of the wheel, ten a click beside the thumb.
 	Send(IDC_HDRCURVE_STRENGTH, TBM_SETLINESIZE, 0, 1);
 	Send(IDC_HDRCURVE_STRENGTH, TBM_SETPAGESIZE, 0, 10);
+	FillTuneKeyCombos();
 
 	Combo_AddData(Item(IDC_DEBLOCK), L"Off",                     DEBLOCK_Off);
 	Combo_AddData(Item(IDC_DEBLOCK), L"PP7 (light)",             DEBLOCK_PP7);
@@ -1046,6 +1061,8 @@ void CVRSettingsPPage::SetControls()
 	Send(IDC_HDRCURVE_STRENGTH, TBM_SETPOS, TRUE, m_SetsPP.iHdrCurveStrength);
 	SetText(IDC_HDRCURVE_STRENGTH_TEXT, std::format(L"{} %", m_SetsPP.iHdrCurveStrength).c_str());
 	ShowHdrCurveValues();
+	Combo_SelectData(Item(IDC_HDRCURVE_TUNE_KEY), m_SetsPP.iHdrCurveTuneKey & 0xFF);
+	Combo_SelectData(Item(IDC_HDRCURVE_TUNE_MOD), m_SetsPP.iHdrCurveTuneKey & ~0xFF);
 
 	Send(IDC_COMBO4, CB_SETCURSEL, m_SetsPP.iSwapEffect, 0);
 	SetCheck(IDC_CHECK11, m_SetsPP.bExclusiveFS);
@@ -1251,6 +1268,11 @@ void CVRSettingsPPage::EnableControls()
 			IDC_STATIC_HDRCURVE_ROLLOFF, IDC_HDRCURVE_ROLLOFF, IDC_STATIC_HDRCURVE_CAP, IDC_HDRCURVE_CAP }) {
 		Enable(id, grey.bHdrCurveValues);
 	}
+	// The tune switches the curve on itself: its key follows the curve's box, not its tick.
+	for (const int id : { IDC_CARD_HDRCURVE_TUNE, IDC_STATIC_HDRCURVE_TUNEKEY, IDC_HDRCURVE_TUNE_MOD, IDC_HDRCURVE_TUNE_KEY,
+			IDC_STATIC_HDRCURVE_TUNE_NOTE }) {
+		Enable(id, grey.bHdrCurveBox);
+	}
 }
 
 void CVRSettingsPPage::ShowHdrCurveValues()
@@ -1277,6 +1299,7 @@ HRESULT CVRSettingsPPage::OnActivate()
 	m_oldVideoDelay = m_SetsPP.iVideoDelay;
 	m_oldHdrCurveStrength = m_SetsPP.iHdrCurveStrength;
 	m_bDlssNRSeen = m_SetsPP.bDlssNR;
+	SeeCurve(m_SetsPP);
 	m_bDoViByShaders = (m_pVideoRenderer->GetVideoProcessorUse() & VPUSE_DoViByShaders) != 0;
 
 	HWND hTabs = ::GetDlgItem(m_hwnd, IDC_SECTION_TABS);
@@ -1446,12 +1469,28 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 		// Only a change the page did not make is the toggle key's: comparing against
 		// what the page holds would undo a tick that has not been applied yet.
 		const bool bToggled = (current.bDlssNR != m_bDlssNRSeen);
-		if (bToggled || bDoVi != m_bDoViByShaders || uMsg == WM_SHOWWINDOW) {
+		// The HDR curve's tune key sets the curve while the page is open: what it found is
+		// shown, and an Apply or a Cancel no longer puts the page's older copy back over it.
+		const bool bTuned = !SameCurve(current, m_curveSeen);
+		if (bToggled || bTuned || bDoVi != m_bDoViByShaders || uMsg == WM_SHOWWINDOW) {
 			m_bDoViByShaders = bDoVi;
 			if (bToggled) {
 				m_bDlssNRSeen = current.bDlssNR;
 				m_SetsPP.bDlssNR = current.bDlssNR;
 				SetCheck(IDC_DLSSNR_ENABLE, m_SetsPP.bDlssNR);
+			}
+			if (bTuned) {
+				SeeCurve(current);
+				m_SetsPP.bHdrCurve = current.bHdrCurve;
+				m_SetsPP.iHdrCurvePreset = current.iHdrCurvePreset;
+				m_SetsPP.iHdrCurveStrength = current.iHdrCurveStrength;
+				m_oldHdrCurveStrength = current.iHdrCurveStrength;
+				HdrCurve::StoreValues(m_SetsPP, HdrCurve::ValuesOf(current));
+				SetCheck(IDC_HDRCURVE_ENABLE, m_SetsPP.bHdrCurve);
+				Combo_SelectData(Item(IDC_HDRCURVE_PRESET), m_SetsPP.iHdrCurvePreset);
+				Send(IDC_HDRCURVE_STRENGTH, TBM_SETPOS, TRUE, m_SetsPP.iHdrCurveStrength);
+				SetText(IDC_HDRCURVE_STRENGTH_TEXT, std::format(L"{} %", m_SetsPP.iHdrCurveStrength).c_str());
+				ShowHdrCurveValues();
 			}
 			EnableControls();
 		}
@@ -1470,6 +1509,7 @@ INT_PTR CVRSettingsPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, 
 			// in its own section -- the same split the two old pages had.
 			Settings_t defaults;
 			CopyDlssSettings(defaults, m_SetsPP);
+			defaults.iHdrCurveTuneKey = m_SetsPP.iHdrCurveTuneKey; // a key, as the toggle's is kept
 			m_SetsPP = defaults;
 			SetControls();
 			EnableControls();
@@ -1734,6 +1774,37 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				}
 			}
 
+			// The HDR curve's tune key: one key, one job, as a preset's. The DLSS toggle takes
+			// its key whatever is held with it, so the bare key is all it needs to clash.
+			if (nID == IDC_HDRCURVE_TUNE_KEY || nID == IDC_HDRCURVE_TUNE_MOD) {
+				const int key = TuneKeyShown();
+				std::wstring taken;
+				if (key && (key & 0xFF) == m_SetsPP.iDlssNRToggleKey) {
+					taken = L"the DLSS 5 NR toggle";
+				}
+				for (int slot = 0; key && slot < PRESET_COUNT; slot++) {
+					if (PresetKeyShown(slot) == key) {
+						taken = std::format(L"preset {}", slot + 1);
+					}
+				}
+				if (!taken.empty()) {
+					MessageBoxW(std::format(L"This shortcut is already used by {}.", taken).c_str(), L"HDR curve", MB_OK | MB_ICONINFORMATION);
+					Combo_SelectData(Item(IDC_HDRCURVE_TUNE_KEY), 0);
+				}
+				if (TuneKeyShown() != m_SetsPP.iHdrCurveTuneKey) {
+					m_SetsPP.iHdrCurveTuneKey = TuneKeyShown();
+					SetDirty();
+				}
+				return (INT_PTR)1;
+			}
+			if (nID == IDC_COMBO13) {
+				const int vk = (int)Combo_CurData(Item(IDC_COMBO13));
+				if (vk && vk == (TuneKeyShown() & 0xFF)) {
+					MessageBoxW(L"This key is already used by the HDR curve's tune.", L"DLSS 5 NR", MB_OK | MB_ICONINFORMATION);
+					Combo_SelectData(Item(IDC_COMBO13), 0);
+				}
+			}
+
 			// Lists that carry their value as item data, so they can be ordered freely.
 			const struct { int id; int* pValue; bool bEnables; } byData[] = {
 				{ IDC_COMBO2,  &m_SetsPP.iUpscaling,       false },
@@ -1879,6 +1950,7 @@ INT_PTR CVRSettingsPPage::OnSectionMessage(HWND hDlg, UINT uMsg, WPARAM wParam, 
 				m_pVideoRenderer->GetSettings(sets);
 				sets.iHdrCurveStrength = m_SetsPP.iHdrCurveStrength;
 				m_pVideoRenderer->SetSettings(sets);
+				m_curveSeen.iHdrCurveStrength = sets.iHdrCurveStrength; // the page's change, not a tune's
 			}
 			return (INT_PTR)1;
 		}
@@ -1983,6 +2055,37 @@ int CVRSettingsPPage::PresetKeyShown(int slot)
 {
 	const int vk = (int)Combo_CurData(Item(IDC_PRESET_KEY1 + slot));
 	return vk ? (vk | (int)Combo_CurData(Item(IDC_PRESET_MOD1 + slot))) : 0;
+}
+
+// The HDR curve's tune key takes the presets' keys and what may be held with them.
+void CVRSettingsPPage::FillTuneKeyCombos()
+{
+	for (const auto& k : g_presetKeys) {
+		Combo_AddData(Item(IDC_HDRCURVE_TUNE_KEY), k.name, k.vk);
+	}
+	for (const auto& h : g_presetHeld) {
+		Combo_AddData(Item(IDC_HDRCURVE_TUNE_MOD), h.name, h.held);
+	}
+}
+
+int CVRSettingsPPage::TuneKeyShown()
+{
+	const int vk = (int)Combo_CurData(Item(IDC_HDRCURVE_TUNE_KEY));
+	return vk ? (vk | (int)Combo_CurData(Item(IDC_HDRCURVE_TUNE_MOD))) : 0;
+}
+
+bool CVRSettingsPPage::SameCurve(const Settings_t& a, const Settings_t& b)
+{
+	return a.bHdrCurve == b.bHdrCurve && a.iHdrCurvePreset == b.iHdrCurvePreset && a.iHdrCurveStrength == b.iHdrCurveStrength
+		&& HdrCurve::ValuesOf(a) == HdrCurve::ValuesOf(b);
+}
+
+void CVRSettingsPPage::SeeCurve(const Settings_t& from)
+{
+	m_curveSeen.bHdrCurve = from.bHdrCurve;
+	m_curveSeen.iHdrCurvePreset = from.iHdrCurvePreset;
+	m_curveSeen.iHdrCurveStrength = from.iHdrCurveStrength;
+	HdrCurve::StoreValues(m_curveSeen, HdrCurve::ValuesOf(from));
 }
 
 void CVRSettingsPPage::ShowLogoStatus()
@@ -2133,6 +2236,9 @@ bool CVRSettingsPPage::OnPresetCommand(int nID, int action)
 		if (key && key == m_SetsPP.iDlssNRToggleKey) {
 			taken = L"the DLSS 5 NR toggle";
 		}
+		if (key && key == TuneKeyShown()) {
+			taken = L"the HDR curve's tune";
+		}
 		for (int other = 0; key && other < PRESET_COUNT; other++) {
 			if (other != slot && PresetKeyShown(other) == key) {
 				taken = std::format(L"preset {}", other + 1);
@@ -2236,6 +2342,7 @@ HRESULT CVRSettingsPPage::OnApplyChanges()
 	m_oldVideoDelay = m_SetsPP.iVideoDelay;
 	m_oldHdrCurveStrength = m_SetsPP.iHdrCurveStrength;
 	m_bDlssNRSeen = m_SetsPP.bDlssNR;
+	SeeCurve(m_SetsPP);
 
 	ShowHdrCurveValues(); // a value typed out of its range shows the one kept
 	EnableControls(); // what was just applied decides part of the greying

@@ -55,6 +55,8 @@ CALL :Run "the dither before output"           "dlssnr_harness.exe --tdither --n
 CALL :Run "the peak HDR tone mapping follows"  "dlssnr_harness.exe --ttonemap --nonr"
 REM The HDR curve: the shader against its sum, and the sum against Veyra's.
 CALL :Run "the HDR curve against its sum"      "dlssnr_harness.exe --thdrcurve --nonr"
+REM Its tune: the shader that measures against the CPU, the sums on made-up films.
+CALL :Run "the HDR curve's tune, its sums"     "dlssnr_harness.exe --thdrtune --nonr"
 REM Deblocking and debanding on the decoded planes, at their five levels, and their
 REM shaders against the reference in double precision.
 CALL :Run "artifact removal on film"           "dlssnr_harness.exe --tclean --nonr --srrefs 4"
@@ -110,6 +112,13 @@ CALL :Run "the processor after DLSS 5 NR, PQ picture" "playback_test.exe --after
 REM The HDR curve on what RTX Video HDR makes of the film: shadows raised and a cap, read off
 REM the desktop with the curve and without it.
 CALL :Run "the HDR curve on an RTX Video HDR picture" "playback_test.exe --hdrcurve 3 --seek 1740 --seconds 4 --hdrout 1 --rtxhdr 1 --only 0 --file" "%FILM%"
+REM The curve tuned to the film: sixteen places, back on its picture and playing, the values
+REM kept, and the same again with the curve on; then the tune cancelled by its key, the
+REM player playing during it, and the player stopping with the graph let go at once.
+CALL :Run "the HDR curve tuned to the film" "playback_test.exe --hdrtune --seek 1740 --seconds 1 --hdrout 1 --rtxhdr 1 --only 0 --file" "%FILM%"
+CALL :Run "the HDR curve's tune cancelled" "playback_test.exe --cancelat 1.5 --seek 1740 --seconds 1 --hdrout 1 --rtxhdr 1 --only 0 --file" "%FILM%"
+CALL :Run "the HDR curve's tune and the player's Play" "playback_test.exe --playat 1.5 --seek 1740 --seconds 1 --hdrout 1 --rtxhdr 1 --only 0 --file" "%FILM%"
+CALL :Run "the HDR curve's tune and the player's Stop" "playback_test.exe --stopat 1.5 --seek 1740 --seconds 1 --hdrout 1 --rtxhdr 1 --only 0 --file" "%FILM%"
 CALL :Run "a snapshot leaves RTX Video HDR's picture as it was" "playback_test.exe --aftergrab --seek 1740 --seconds 4 --rtxhdr 1 --hdrtm 1 --measurepeak 1 --stats 1 --only 0 --file" "%FILM%"
 
 REM Every step named above has to be in the report: one left out prints no verdict, so

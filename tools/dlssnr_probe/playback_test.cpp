@@ -1329,6 +1329,9 @@ static void ReportSeekTime(IFilterGraph2* pGraph, IBaseFilter* pRenderer, int co
 // a tune keeps what it found with SaveSettings, which writes every setting in force.
 static int g_hdrTune = 0;
 static double g_hdrTuneCancelAt = 0, g_hdrTunePlayAt = 0, g_hdrTuneStopAt = 0;
+// --bykey: the tune started by its key, Ctrl+F9 bound for the run and pressed with SendInput,
+// the window in front: the hook reads real keys only.
+static bool g_bHdrTuneByKey = false;
 static const wchar_t* kPlusKey = L"Software\\MPC-BE Filters\\MPC Video Renderer Plus";
 
 struct RegValue {
@@ -1413,17 +1416,58 @@ static std::wstring TuneLine(const std::wstring& report, const wchar_t* what)
 	return report.substr(start == std::wstring::npos ? 0 : start + 1, (end == std::wstring::npos ? report.size() : end) - (start == std::wstring::npos ? 0 : start + 1));
 }
 
+// Ctrl+F9 pressed as a user presses it, the window brought to the front first: what has the
+// focus gets the key, and the hook is on the thread of the window's owner.
+static bool PressCtrlF9(HWND hwnd)
+{
+	SetForegroundWindow(hwnd);
+	BringWindowToTop(hwnd);
+	Pump(300);
+	if (GetForegroundWindow() != hwnd) {
+		printf("   the window is not in front: the key would go elsewhere\n");
+		return false;
+	}
+	INPUT in[4] = {};
+	for (INPUT& i : in) {
+		i.type = INPUT_KEYBOARD;
+	}
+	in[0].ki.wVk = VK_CONTROL;
+	in[1].ki.wVk = VK_F9;
+	in[2].ki.wVk = VK_F9;
+	in[2].ki.dwFlags = KEYEVENTF_KEYUP;
+	in[3].ki.wVk = VK_CONTROL;
+	in[3].ki.dwFlags = KEYEVENTF_KEYUP;
+	return SendInput(4, in, sizeof(INPUT)) == 4;
+}
+
 // The tune started as its key starts it, and waited for, the window's messages pumped; at
-// `at` seconds into it, `then`. Returns how long it ran, in seconds.
-static double RunTune(IBaseFilter* pRenderer, int mode, double at = 0, const std::function<void()>& then = {})
+// `at` seconds into it, `then`. With hwnd, by the key itself. Returns how long it ran, in seconds.
+static double RunTune(IBaseFilter* pRenderer, int mode, double at = 0, const std::function<void()>& then = {}, HWND byKey = nullptr)
 {
 	CComQIPtr<IExFilterConfig> pConfig{ pRenderer };
 	LARGE_INTEGER t0;
 	QueryPerformanceCounter(&t0);
-	const HRESULT hr = pConfig ? pConfig->Flt_SetInt("cmd_hdrCurveTune", mode) : E_NOINTERFACE;
-	if (FAILED(hr)) {
-		printf("   the tune did not start (0x%08X)\n", (unsigned)hr);
-		return 0;
+	if (byKey) {
+		if (!pConfig || !PressCtrlF9(byKey)) {
+			printf("   the key could not be pressed\n");
+			return 0;
+		}
+		// Up to a second for the hook to have it.
+		int running = 0;
+		for (int i = 0; i < 20 && !running; i++) {
+			Pump(50);
+			pConfig->Flt_GetInt("hdrCurveTune", &running);
+		}
+		if (!running) {
+			printf("   the key did not start the tune\n");
+			return 0;
+		}
+	} else {
+		const HRESULT hr = pConfig ? pConfig->Flt_SetInt("cmd_hdrCurveTune", mode) : E_NOINTERFACE;
+		if (FAILED(hr)) {
+			printf("   the tune did not start (0x%08X)\n", (unsigned)hr);
+			return 0;
+		}
 	}
 	bool bFired = false;
 	while (SinceMs(t0) < 45000) {
@@ -2278,7 +2322,14 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 			return result;
 		}
 
-		const double first = RunTune(pRenderer, g_hdrTune);
+		if (g_bHdrTuneByKey) {
+			Settings_t keyed;
+			pVR->GetSettings(keyed);
+			keyed.iHdrCurveTuneKey = VK_F9 | PRESETKEY_Ctrl;
+			pVR->SetSettings(keyed);
+			printf("   started by its key, Ctrl+F9\n");
+		}
+		const double first = RunTune(pRenderer, g_hdrTune, 0, {}, g_bHdrTuneByKey ? hwnd : nullptr);
 		const std::wstring report = TuneReport(pRenderer);
 		PrintTuneReport(report);
 		result.tuneFailures += CheckTune(report, first, pMC, g_hdrTune == 1, pVR, savedKey);
@@ -3638,6 +3689,9 @@ int wmain(int argc, wchar_t* argv[])
 			g_hdrTune = 1;
 		} else if (!wcscmp(argv[i], L"--hdrtunescan")) {
 			g_hdrTune = 2;
+		} else if (!wcscmp(argv[i], L"--bykey")) {
+			g_hdrTune = 1;
+			g_bHdrTuneByKey = true;
 		} else if (!wcscmp(argv[i], L"--cancelat") && i + 1 < argc) {
 			g_hdrTune = 1;
 			g_hdrTuneCancelAt = _wtof(argv[i + 1]);

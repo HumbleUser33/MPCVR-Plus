@@ -416,6 +416,10 @@ struct Settings_t {
 	int  iHdrCurveRollOff;
 	int  iHdrCurvePeakCap;
 	int  iHdrCurveStrength;
+	// The key that tunes the HDR curve to the film playing (VideoRendererHdrTune.cpp), as a
+	// preset's key is held: a virtual key in the low byte, PRESETKEY_* above it; 0, none.
+	// Kept out of the presets.
+	int  iHdrCurveTuneKey;
 
 	Settings_t() {
 		SetDefault();
@@ -526,6 +530,7 @@ struct Settings_t {
 		iHdrCurveRollOff                = 100;
 		iHdrCurvePeakCap                = 0;
 		iHdrCurveStrength               = 100;
+		iHdrCurveTuneKey                = 0;
 	}
 };
 
@@ -569,6 +574,7 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 inline void KeepOutOfPreset(Settings_t& sets, const Settings_t& current)
 {
 	sets.iDlssNRToggleKey     = current.iDlssNRToggleKey;
+	sets.iHdrCurveTuneKey     = current.iHdrCurveTuneKey;
 	sets.iSdrPeakWindowMs     = current.iSdrPeakWindowMs;
 	sets.iSdrPeakFloorNits    = current.iSdrPeakFloorNits;
 	sets.bSdrPeakSceneCuts    = current.bSdrPeakSceneCuts;
