@@ -114,6 +114,9 @@
     <ClCompile Include="DX11VideoProcessorHdrCurve.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="VideoRendererHdrTune.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Times.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -213,6 +216,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="HdrCurve.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HdrCurveTune.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HdrCurveTuneProbe.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DX9VideoProcessor.h">

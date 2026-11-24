@@ -178,6 +178,7 @@ REM the logo is looked for in, its box, the whole plane), and the logo taken out
 
 REM Cadence slips: the frame the scene cut detector compares (Source\Cadence\SceneCut.cpp).
 %fxc_cs5% /Fo "%workdir%\cs_scene_cut_luma.cso"  "d3d11\cs_scene_cut_luma.hlsl"
+%fxc_cs5% /Fo "%workdir%\cs_hdr_tune_hist.cso"   "d3d11\cs_hdr_tune_hist.hlsl"
 REM EchoStorm's motion estimate, a pass for each PASS, and its FlowFix, an entry point for
 REM each pass (Source\FrameGen\echo\EchoFlow.cpp), as the frame generation branch has them.
 %fxc_cs5% /Fo "%workdir%\cs_echo_luma.cso"       "d3d11\cs_echo_flow.hlsl" /DPASS=0

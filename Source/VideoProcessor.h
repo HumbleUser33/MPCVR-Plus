@@ -178,7 +178,7 @@ protected:
 	std::wstring m_strNotice;
 	ULONGLONG m_tickNoticeUntil = 0;
 public:
-	void ShowNotice(const std::wstring& text) { m_strNotice = text; m_tickNoticeUntil = GetTickCount64() + 2500; }
+	void ShowNotice(const std::wstring& text, DWORD ms = 2500) { m_strNotice = text; m_tickNoticeUntil = GetTickCount64() + ms; }
 protected:
 	UINT32 m_uHalfRefreshPeriodMs = 0;
 	double m_dRefreshPeriodMs = 0;   // the same, whole and not rounded
@@ -291,6 +291,11 @@ public:
 	virtual std::wstring GetLogoList() { return {}; }
 	virtual int GetLogoChoice() { return 0; }
 	virtual void ChooseLogo(int) {}
+
+	// The HDR curve's tune (DX11 only, VideoRendererHdrTune.cpp): why it cannot scan the
+	// film, nullptr when it can; and its measurement step taken in or out of the count.
+	virtual const wchar_t* HdrTuneRefusal() { return L"Direct3D 11 only"; }
+	virtual void HdrTuneStepChanged() {}
 
 	int GetRotation() const { return m_iRotation; }
 	virtual void SetRotation(int value) = 0;

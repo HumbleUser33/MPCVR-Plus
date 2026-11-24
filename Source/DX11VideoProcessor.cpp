@@ -833,6 +833,11 @@ void CDX11VideoProcessor::ReleaseDevice()
 	m_pPSHDR10ToneMapping.Release();
 	m_pPSHdrCurve.Release();
 	m_pHdrCurveConstantBuffer.Release();
+	m_pCSHdrTuneHist.Release();
+	m_pHdrTuneUAV.Release();
+	m_pHdrTuneBuffer.Release();
+	m_pHdrTuneStaging.Release();
+	m_pHdrTuneConstants.Release();
 	m_pPSSharpen.Release();
 	m_pPSSharpenDither.Release();
 	m_pSharpenConstants.Release();
@@ -3734,9 +3739,14 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 
 	m_tracePasses = 0;
 	m_traceNRTiming = {};
+	// The HDR curve's tune waits for the first new picture after its seek: never a redraw
+	// of the one before it, and a picture only once the seek's flush has gone through. It is
+	// measured in the curve's step, drawn for it alone or for the curve.
+	m_bHdrTunePicture = field && HdrCurveStepCounted() && m_pFilter->m_HdrTune.Wants(m_pFilter->m_nFlushGen);
 	if (!m_renderRect.IsRectEmpty()) {
 		hr = Process(pBackBuffer, m_srcRect, m_videoRect, m_FieldDrawn == 2);
 	}
+	m_bHdrTunePicture = false;
 
 	// The picture as drawn, before anything goes over it, for the cadence slips: whether
 	// it opens a shot, and what a picture made before it would be made from. Timed with
@@ -4231,6 +4241,10 @@ void CDX11VideoProcessor::UpdatePostScaleTexures()
 	// snapshot's SDR copy -- and only where it changes something. Decided here, with the
 	// count, so that the steps drawn are the steps the textures were made for.
 	m_bHdrCurveStep = m_bHdrCurve && !m_bSnapshot && HdrOutput() && !HdrCurve::Neutral(m_HdrCurveConstants);
+	// While the tune scans the film, the step is there to be measured even where the curve
+	// changes nothing: without it the picture the curve would receive may never be in a
+	// texture that can be read -- the step before it draws into the back buffer.
+	m_bHdrTuneStep = !m_bHdrCurveStep && !m_bSnapshot && HdrOutput() && m_pFilter->m_HdrTune.Active();
 
 	const UINT numPostScaleSteps = GetPostScaleSteps();
 	HRESULT hr = m_TexsPostScale.CheckCreate(m_pDevice, m_InternalTexFmt, m_windowRect.Width(), m_windowRect.Height(), numPostScaleSteps);

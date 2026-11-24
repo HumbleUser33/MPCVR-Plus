@@ -388,6 +388,8 @@ std::wstring CDX11VideoProcessor::GetStatsText()
 		}
 		if (m_bHdrCurveStep) {
 			Add(m_bHdrCurveRan ? L"HDR curve" : L"HDR curve (copied: not HDR now)");
+		} else if (m_bHdrTuneStep) {
+			Add(L"HDR curve tune, measuring");
 		}
 		if (m_pPSSharpen) {
 			Add(std::format(L"{} {}", m_iSharpen == SHARPEN_UnsharpClamp ? L"Unsharp + Clamp"

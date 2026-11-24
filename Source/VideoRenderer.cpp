@@ -780,20 +780,16 @@ void CMpcVideoRenderer::RecallPreset(int slot)
 	// one -- or none, or the wrong one, as the redraws fell.
 	wchar_t name[64] = {};
 	GetPresetInfo(slot, name, (int)std::size(name), nullptr);
-	m_VideoProcessor->ShowNotice(name[0] ? std::format(L"Preset {}: {}", slot + 1, name)
-	                                     : std::format(L"Preset {}", slot + 1));
+	// Under the renderer's lock, with its timer to take it down (PostNotice): the HDR curve's
+	// tune posts notices from a thread of its own.
+	PostNotice(name[0] ? std::format(L"Preset {}: {}", slot + 1, name) : std::format(L"Preset {}", slot + 1), 2500, false);
 	SetSettings(sets);
 	SaveSettings();
 
-	// Paused, nothing draws the name unless asked, and nothing takes it down either.
+	// Paused, nothing draws the name unless asked.
 	if (m_filterState != State_Running) {
 		Redraw();
 	}
-	if (m_hNoticeTimer) {
-		DeleteTimerQueueTimer(nullptr, m_hNoticeTimer, INVALID_HANDLE_VALUE);
-		m_hNoticeTimer = nullptr;
-	}
-	CreateTimerQueueTimer(&m_hNoticeTimer, nullptr, NoticeTimerProc, this, 2600, 0, WT_EXECUTEONLYONCE);
 }
 
 void CALLBACK CMpcVideoRenderer::NoticeTimerProc(void* pParam, BOOLEAN)
@@ -934,6 +930,12 @@ CMpcVideoRenderer::~CMpcVideoRenderer()
 	DLog(L"CMpcVideoRenderer::~CMpcVideoRenderer()");
 
 	RemoveToggleKeyHook();
+	// The HDR curve's tune holds the filter while it runs: by the time this runs, its worker
+	// has let it go and touches nothing of it again.
+	if (m_hHdrTuneThread) {
+		CloseHandle(m_hHdrTuneThread);
+		m_hHdrTuneThread = nullptr;
+	}
 	if (m_hNoticeTimer) {
 		// Waits for a callback that is running: it must not outlive what it draws with.
 		DeleteTimerQueueTimer(nullptr, m_hNoticeTimer, INVALID_HANDLE_VALUE);
@@ -983,6 +985,9 @@ HRESULT CMpcVideoRenderer::EndFlush()
 	HRESULT hr = __super::EndFlush();
 
 	m_bFlushing = false;
+	// The HDR curve's tune waits for a picture from after its seek: one that comes once this
+	// count has moved.
+	m_nFlushGen++;
 
 	return hr;
 }
@@ -1539,6 +1544,12 @@ STDMETHODIMP CMpcVideoRenderer::Run(REFERENCE_TIME rtStart)
 {
 	DLog(L"CMpcVideoRenderer::Run()");
 
+	// The player plays again while the HDR curve's tune moves the film: the tune stops
+	// there and puts the film back where it was. Its own Run comes after its scan.
+	if (m_HdrTune.Sampling()) {
+		m_HdrTune.Abort(CHdrTuneProbe::ExternalRun);
+	}
+
 	if (m_State == State_Running) {
 		return NOERROR;
 	}
@@ -1564,6 +1575,11 @@ STDMETHODIMP CMpcVideoRenderer::Stop()
 {
 	DLog(L"CMpcVideoRenderer::Stop()");
 
+	// The film stopped, or the player closing it: the HDR curve's tune asks nothing more of
+	// the graph. Never waited for here: the graph calls this holding its own lock, which a
+	// seek of the tune's may be waiting on.
+	m_HdrTune.Abort(CHdrTuneProbe::Stopped);
+
 	m_filterState = State_Stopped;
 	m_bValidBuffer = false;
 
@@ -1573,6 +1589,14 @@ STDMETHODIMP CMpcVideoRenderer::Stop()
 	}
 
 	return CBaseVideoRenderer2::Stop();
+}
+
+STDMETHODIMP CMpcVideoRenderer::JoinFilterGraph(IFilterGraph* pGraph, LPCWSTR pName)
+{
+	if (!pGraph) {
+		m_HdrTune.Abort(CHdrTuneProbe::Removed);
+	}
+	return __super::JoinFilterGraph(pGraph, pName);
 }
 
 #if _DEBUG
@@ -2297,6 +2321,12 @@ STDMETHODIMP CMpcVideoRenderer::Flt_GetInt(LPCSTR field, int* value)
 		*value = m_filterState;
 		return S_OK;
 	}
+	// 1 while the HDR curve's tune runs.
+	if (!strcmp(field, "hdrCurveTune")) {
+		CAutoLock lock(&m_HdrTuneLock);
+		*value = m_hHdrTuneThread && WaitForSingleObject(m_hHdrTuneThread, 0) == WAIT_TIMEOUT;
+		return S_OK;
+	}
 	if (!strcmp(field, "rotation")) {
 		*value = m_VideoProcessor->GetRotation();
 		return S_OK;
@@ -2342,10 +2372,15 @@ STDMETHODIMP CMpcVideoRenderer::Flt_GetString(LPCSTR field, LPWSTR* value, unsig
 	const bool bStats = !strcmp(field, "statsText");
 	const bool bLogo = !strcmp(field, "logoStatus");
 	const bool bLogoList = !strcmp(field, "logoList");
-	if (bNR || bSR || bStats || bLogo || bLogoList) {
+	// "hdrCurveTuneReport": what the HDR curve's last tune did, a line a place it visited.
+	const bool bTune = !strcmp(field, "hdrCurveTuneReport");
+	if (bNR || bSR || bStats || bLogo || bLogoList || bTune) {
 		CAutoLock cRendererLock(&m_RendererLock);
 		std::wstring str;
-		if (m_VideoProcessor) {
+		if (bTune) {
+			CAutoLock lock(&m_HdrTuneLock);
+			str = m_strHdrTuneReport;
+		} else if (m_VideoProcessor) {
 			str = bLogoList ? m_VideoProcessor->GetLogoList()
 				: bLogo ? m_VideoProcessor->GetLogoStatus()
 				: bStats ? m_VideoProcessor->GetStatsText()
@@ -2506,6 +2541,12 @@ STDMETHODIMP CMpcVideoRenderer::Flt_SetInt(LPCSTR field, int value)
 			m_VideoProcessor->SetStereo3dTransform(value);
 			return S_OK;
 		}
+	}
+
+	// The HDR curve's tune, as its key starts it: 1 tunes the curve and keeps it, 2 scans and
+	// reports only, 0 stops a scan under way.
+	if (!strcmp(field, "cmd_hdrCurveTune")) {
+		return StartHdrTune(value);
 	}
 
 	// A logo of the settings page's list taken at once, as its buttons act: the i-th of

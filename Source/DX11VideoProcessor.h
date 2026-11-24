@@ -398,6 +398,16 @@ private:
 	bool m_bHdrCurveStep = false;   // a step of the post-scale chain (UpdatePostScaleTexures)
 	bool m_bHdrCurveRan = false;    // the last picture went through it, for the statistics
 	bool m_bSnapshot = false;       // GetCurentImage is drawing its SDR copy
+	// The curve's tune (VideoRendererHdrTune.cpp): the step drawn for its measurement alone,
+	// while it scans the film and the curve changes nothing; the picture being one it waits
+	// for; and what it is measured with (cs_hdr_tune_hist.hlsl), made when first wanted.
+	bool m_bHdrTuneStep = false;
+	bool m_bHdrTunePicture = false;
+	CComPtr<ID3D11ComputeShader> m_pCSHdrTuneHist;
+	CComPtr<ID3D11Buffer> m_pHdrTuneBuffer;
+	CComPtr<ID3D11UnorderedAccessView> m_pHdrTuneUAV;
+	CComPtr<ID3D11Buffer> m_pHdrTuneStaging;
+	CComPtr<ID3D11Buffer> m_pHdrTuneConstants;
 	// The Upscaling method for an enlargement under five per cent, and the one of
 	// the two that the picture at hand is really getting.
 	bool m_bUpscalingSmall = false;
@@ -867,6 +877,11 @@ private:
 	void UpdateHdrCurve();
 	HRESULT HdrCurvePass(Tex2D_t* pInputTexture, ID3D11Texture2D* pRenderTarget, const CRect& rRead, const CRect& rect);
 	DXGI_HDR_METADATA_HDR10 HdrMetadataToSend(const DXGI_HDR_METADATA_HDR10& hdr10);
+	HRESULT MeasureHdrTune(const Tex2D_t& tex, const CRect& rect);
+public:
+	const wchar_t* HdrTuneRefusal() override;
+	void HdrTuneStepChanged() override;
+private:
 	bool DlssSRSupportedHere() const;
 	void UpdateDlssSR();
 	std::wstring GetDlssSRStatus() override;

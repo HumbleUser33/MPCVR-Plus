@@ -78,10 +78,14 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <numeric>
+#include <functional>
+#include <tlhelp32.h>
 #include <commctrl.h>
 #include <shlobj.h>
 #include "../../Source/SettingsPage/Greying.h"
 #include "../../Source/HdrCurve.h"
+#include "../../Source/HdrCurveTune.h"
 #include <map>
 #include <thread>
 #include <vector>
@@ -1040,6 +1044,9 @@ struct Result {
 	double stopSeconds[3] = {};
 	bool bSnapshotChanged = false;  // --aftergrab: the screen was not the same after a snapshot
 	int curveFailures = 0;          // --hdrcurve: what the curve did on the screen, against what it is for
+	int tuneFailures = 0;           // --hdrtune and its kin: what the curve's tune did, against what it is for
+	bool bTuneOnly = false;         // the run was the tune's alone: nothing else to judge
+	bool bTuneStopped = false;      // --stopat: the graph let go while the tune ran, its thread to be looked for after
 	std::string error;
 };
 
@@ -1214,6 +1221,349 @@ static int ParseLate(const std::wstring& text)
 }
 
 #include "file_graph.inl"
+
+// --seektime N: what a seek costs while the film is paused, N of them spread over the film
+// as the HDR curve's tune spreads them, exact and to the key frame. Each is timed in three
+// parts: SetPositions returning, the graph saying it is paused again (the decoder has a
+// picture for the renderer), and the renderer counting one more picture received. The
+// position it started from is put back, and the film plays again, at the end.
+static int g_seekTime = 0;
+
+static double SinceMs(const LARGE_INTEGER& from)
+{
+	LARGE_INTEGER now, freq;
+	QueryPerformanceCounter(&now);
+	QueryPerformanceFrequency(&freq);
+	return (now.QuadPart - from.QuadPart) * 1000.0 / freq.QuadPart;
+}
+
+static void ReportSeekTime(IFilterGraph2* pGraph, IBaseFilter* pRenderer, int count)
+{
+	CComQIPtr<IMediaSeeking> pMS(pGraph);
+	CComQIPtr<IMediaControl> pMC(pGraph);
+	if (!pMS || !pMC) {
+		printf("-- paused seeks: the graph has no IMediaSeeking\n");
+		return;
+	}
+	LONGLONG duration = 0;
+	DWORD caps = 0;
+	GUID format = {};
+	pMS->GetDuration(&duration);
+	pMS->GetCapabilities(&caps);
+	pMS->GetTimeFormat(&format);
+	printf("\n-- paused seeks, %d over the film\n", count);
+	printf("   duration %.1f s, media time %s, capabilities 0x%04X\n", duration / 1e7,
+		format == TIME_FORMAT_MEDIA_TIME ? "yes" : "no", (unsigned)caps);
+
+	pMC->Pause();
+	OAFilterState state = State_Stopped;
+	pMC->GetState(5000, &state);
+	Pump(300);
+	LONGLONG start = 0;
+	pMS->GetCurrentPosition(&start);
+
+	const auto Frames = [&]() {
+		int frames = -1, skipped = 0;
+		ParseSkipped(StatsText(pRenderer), frames, skipped);
+		return frames;
+	};
+
+	for (const bool bKey : { false, true }) {
+		std::vector<double> totals;
+		int missed = 0;
+		printf("   %s:\n", bKey ? "to the key frame" : "exact");
+		for (int i = 0; i < count; i++) {
+			LONGLONG target = (LONGLONG)(duration * (0.04 + 0.88 * (i + 0.5) / count));
+			const int before = Frames();
+			LARGE_INTEGER t0;
+			QueryPerformanceCounter(&t0);
+			const HRESULT hrSeek = pMS->SetPositions(&target,
+				AM_SEEKING_AbsolutePositioning | (bKey ? AM_SEEKING_SeekToKeyFrame : 0), nullptr, AM_SEEKING_NoPositioning);
+			const double seekMs = SinceMs(t0);
+			const HRESULT hrState = pMC->GetState(5000, &state);
+			const double stateMs = SinceMs(t0);
+			double pictureMs = -1;
+			while (SinceMs(t0) < 5000) {
+				Pump(2);
+				if (Frames() != before) {
+					pictureMs = SinceMs(t0);
+					break;
+				}
+			}
+			LONGLONG now = 0;
+			pMS->GetCurrentPosition(&now);
+			printf("   %2d  %7.1f s  SetPositions %5.0f ms (0x%08X), paused %5.0f ms (0x%08X), picture %5.0f ms, position %+.2f s\n",
+				i + 1, target / 1e7, seekMs, (unsigned)hrSeek, stateMs, (unsigned)hrState, pictureMs, (now - target) / 1e7);
+			if (pictureMs < 0) {
+				missed++;
+			} else {
+				totals.push_back(pictureMs);
+			}
+		}
+		std::sort(totals.begin(), totals.end());
+		const double sum = std::accumulate(totals.begin(), totals.end(), 0.0);
+		printf("   %s: %d pictures, %d missed, total %.0f ms, median %.0f, p95 %.0f, max %.0f\n",
+			bKey ? "to the key frame" : "exact", (int)totals.size(), missed, sum,
+			totals.empty() ? 0.0 : totals[totals.size() / 2],
+			totals.empty() ? 0.0 : totals[std::min(totals.size() - 1, (size_t)std::ceil(totals.size() * 0.95) - 1)],
+			totals.empty() ? 0.0 : totals.back());
+	}
+
+	LARGE_INTEGER t0;
+	QueryPerformanceCounter(&t0);
+	pMS->SetPositions(&start, AM_SEEKING_AbsolutePositioning, nullptr, AM_SEEKING_NoPositioning);
+	pMC->GetState(5000, &state);
+	printf("   back to %.2f s in %.0f ms\n", start / 1e7, SinceMs(t0));
+	pMC->Run();
+	Pump(500);
+}
+
+// --hdrtune: the HDR curve's tune, started as its key starts it, on the film playing. Then
+// again, measuring only, to see the same values: the tune measures before the curve. Checked:
+// within 30 s, twelve places of sixteen at least, the film back on its picture and playing,
+// the values the curve's Custom ones, at full strength, in the filter and in the registry.
+// --hdrtunescan: measuring only, once, for the targets (hdr_tune_targets.py reads its report).
+// --cancelat S, --playat S, --stopat S: its key pressed again, the player's Play, the player's
+// Stop at S seconds into it; after Stop the graph is let go at once and the tune's thread
+// must be gone a few seconds later. The registry key's values are put back as they were:
+// a tune keeps what it found with SaveSettings, which writes every setting in force.
+static int g_hdrTune = 0;
+static double g_hdrTuneCancelAt = 0, g_hdrTunePlayAt = 0, g_hdrTuneStopAt = 0;
+static const wchar_t* kPlusKey = L"Software\\MPC-BE Filters\\MPC Video Renderer Plus";
+
+struct RegValue {
+	std::wstring name;
+	DWORD type = 0;
+	std::vector<BYTE> data;
+};
+
+static std::vector<RegValue> g_tuneSavedKey;   // --stopat: put back once the tune is gone
+
+static std::vector<RegValue> ReadKeyValues(const wchar_t* path)
+{
+	std::vector<RegValue> values;
+	HKEY key = nullptr;
+	if (RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_READ, &key) != ERROR_SUCCESS) {
+		return values;
+	}
+	for (DWORD i = 0;; i++) {
+		wchar_t name[256];
+		DWORD nameLen = (DWORD)std::size(name), type = 0, size = 0;
+		if (RegEnumValueW(key, i, name, &nameLen, nullptr, &type, nullptr, &size) != ERROR_SUCCESS) {
+			break;
+		}
+		RegValue v{ name, type, std::vector<BYTE>(size) };
+		nameLen = (DWORD)std::size(name);
+		RegEnumValueW(key, i, name, &nameLen, nullptr, &type, v.data.data(), &size);
+		values.push_back(std::move(v));
+	}
+	RegCloseKey(key);
+	return values;
+}
+
+static void WriteKeyValues(const wchar_t* path, const std::vector<RegValue>& values)
+{
+	HKEY key = nullptr;
+	if (RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_READ | KEY_WRITE, &key) != ERROR_SUCCESS) {
+		return;
+	}
+	for (const RegValue& now : ReadKeyValues(path)) {
+		if (std::none_of(values.begin(), values.end(), [&](const RegValue& v) { return v.name == now.name; })) {
+			RegDeleteValueW(key, now.name.c_str());
+		}
+	}
+	for (const RegValue& v : values) {
+		RegSetValueExW(key, v.name.c_str(), 0, v.type, v.data.data(), (DWORD)v.data.size());
+	}
+	RegCloseKey(key);
+}
+
+static DWORD KeyDword(const std::vector<RegValue>& values, const wchar_t* name, DWORD missing = 0xFFFFFFFF)
+{
+	for (const RegValue& v : values) {
+		if (v.name == name && v.type == REG_DWORD && v.data.size() == 4) {
+			return *(const DWORD*)v.data.data();
+		}
+	}
+	return missing;
+}
+
+static std::wstring TuneReport(IBaseFilter* pRenderer)
+{
+	std::wstring text;
+	if (CComQIPtr<IExFilterConfig> pConfig{ pRenderer }) {
+		LPWSTR pstr = nullptr;
+		if (S_OK == pConfig->Flt_GetString("hdrCurveTuneReport", &pstr, nullptr) && pstr) {
+			text = pstr;
+			CoTaskMemFree(pstr);
+		}
+	}
+	return text;
+}
+
+// The line of the report holding `what`, without it.
+static std::wstring TuneLine(const std::wstring& report, const wchar_t* what)
+{
+	const size_t at = report.find(what);
+	if (at == std::wstring::npos) {
+		return {};
+	}
+	const size_t start = report.rfind(L'\n', at);
+	const size_t end = report.find(L'\n', at);
+	return report.substr(start == std::wstring::npos ? 0 : start + 1, (end == std::wstring::npos ? report.size() : end) - (start == std::wstring::npos ? 0 : start + 1));
+}
+
+// The tune started as its key starts it, and waited for, the window's messages pumped; at
+// `at` seconds into it, `then`. Returns how long it ran, in seconds.
+static double RunTune(IBaseFilter* pRenderer, int mode, double at = 0, const std::function<void()>& then = {})
+{
+	CComQIPtr<IExFilterConfig> pConfig{ pRenderer };
+	LARGE_INTEGER t0;
+	QueryPerformanceCounter(&t0);
+	const HRESULT hr = pConfig ? pConfig->Flt_SetInt("cmd_hdrCurveTune", mode) : E_NOINTERFACE;
+	if (FAILED(hr)) {
+		printf("   the tune did not start (0x%08X)\n", (unsigned)hr);
+		return 0;
+	}
+	bool bFired = false;
+	while (SinceMs(t0) < 45000) {
+		Pump(50);
+		if (!bFired && at > 0 && SinceMs(t0) >= at * 1000) {
+			bFired = true;
+			if (then) {
+				then();
+			}
+		}
+		int running = 0;
+		pConfig->Flt_GetInt("hdrCurveTune", &running);
+		if (!running) {
+			break;
+		}
+	}
+	return SinceMs(t0) / 1000.0;
+}
+
+static void PrintTuneReport(const std::wstring& report)
+{
+	size_t start = 0;
+	while (start < report.size()) {
+		const size_t end = report.find(L'\n', start);
+		wprintf(L"   | %s\n", report.substr(start, (end == std::wstring::npos ? report.size() : end) - start).c_str());
+		if (end == std::wstring::npos) {
+			break;
+		}
+		start = end + 1;
+	}
+}
+
+// How many threads of this process still carry the tune's name: 0 once it has ended.
+static int TuneThreadLeft()
+{
+	using PFN_GetThreadDescription = HRESULT(WINAPI*)(HANDLE, PWSTR*);
+	const auto pfn = (PFN_GetThreadDescription)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetThreadDescription");
+	if (!pfn) {
+		printf("   the tune's thread: cannot be looked for on this Windows\n");
+		return 0;
+	}
+	int left = -1;
+	for (int attempt = 0; attempt < 50 && left; attempt++) {
+		if (attempt) {
+			Pump(100);
+		}
+		left = 0;
+		const HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+		THREADENTRY32 te = { sizeof(te) };
+		for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te)) {
+			if (te.th32OwnerProcessID != GetCurrentProcessId()) {
+				continue;
+			}
+			const HANDLE h = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, te.th32ThreadID);
+			PWSTR name = nullptr;
+			if (h && SUCCEEDED(pfn(h, &name)) && name) {
+				left += !wcscmp(name, L"MPCVR HDR curve tune");
+				LocalFree(name);
+			}
+			if (h) {
+				CloseHandle(h);
+			}
+		}
+		CloseHandle(snap);
+	}
+	printf("   the tune's thread, 5 s after the graph was let go: %s\n", left ? "STILL THERE" : "gone");
+	if (left) {
+		printf("   FAIL: the tune's thread outlived the graph\n");
+	}
+	return left ? 1 : 0;
+}
+
+// The curve's values in the registry as they were before the tune.
+static bool CurveKeyUnchanged(const std::vector<RegValue>& savedKey)
+{
+	const std::vector<RegValue> key = ReadKeyValues(kPlusKey);
+	const wchar_t* names[] = { L"HdrCurve", L"HdrCurvePreset", L"HdrCurveStrength", L"HdrCurveShadowLift", L"HdrCurveShadowRange",
+		L"HdrCurveMidGrey", L"HdrCurveHighlightStart", L"HdrCurveRollOff", L"HdrCurvePeakCap" };
+	bool bSame = true;
+	for (const wchar_t* n : names) {
+		bSame &= KeyDword(key, n) == KeyDword(savedKey, n);
+	}
+	printf("   the curve in the registry: %s\n", bSame ? "as it was" : "CHANGED");
+	return bSame;
+}
+
+// The checks of a tune that ran to its end, on the film that was playing.
+static int CheckTune(const std::wstring& report, double seconds, IMediaControl* pMC, bool bKept,
+                     IVideoRenderer* pVR, const std::vector<RegValue>& savedKey)
+{
+	int failures = 0;
+	int measured = 0, places = 0, misses = 0;
+	swscanf_s(TuneLine(report, L" places measured").c_str(), L"%d of %d places measured, %d", &measured, &places, &misses);
+	double backSec = 0, delta = 1e9;
+	swscanf_s(TuneLine(report, L"back at ").c_str(), L"back at %lf s, %lf", &backSec, &delta);
+	OAFilterState state = State_Stopped;
+	pMC->GetState(2000, &state);
+	printf("   %.1f s, %d of %d places measured, back %+.3f s from its picture, %s\n", seconds, measured, places, delta,
+		state == State_Running ? "playing" : state == State_Paused ? "paused" : "stopped");
+	if (seconds > 30.0) {
+		printf("   FAIL: the tune took more than 30 s\n");
+		failures++;
+	}
+	if (measured < 12) {
+		printf("   FAIL: fewer than 12 places measured\n");
+		failures++;
+	}
+	if (std::abs(delta) > 0.05) {
+		printf("   FAIL: the film is not back on its picture\n");
+		failures++;
+	}
+	if (state != State_Running) {
+		printf("   FAIL: the film does not play again\n");
+		failures++;
+	}
+	if (bKept) {
+		Settings_t s;
+		pVR->GetSettings(s);
+		const std::wstring values = TuneLine(report, L"values: ");
+		const HdrCurve::Values v = HdrCurve::ValuesOf(s);
+		const std::vector<RegValue> key = ReadKeyValues(kPlusKey);
+		const bool bFilter = s.bHdrCurve && s.iHdrCurvePreset == HdrCurve::Custom && s.iHdrCurveStrength == 100
+			&& values.find(L"values: " + HdrCurveTune::Describe(v)) == 0;
+		const bool bRegistry = KeyDword(key, L"HdrCurve") == 1 && KeyDword(key, L"HdrCurvePreset") == HdrCurve::Custom
+			&& KeyDword(key, L"HdrCurveStrength") == 100 && (int)KeyDword(key, L"HdrCurveShadowLift") == v.liftEv100
+			&& (int)KeyDword(key, L"HdrCurveMidGrey") == v.midGreyNits && (int)KeyDword(key, L"HdrCurveHighlightStart") == v.startNits
+			&& (int)KeyDword(key, L"HdrCurvePeakCap") == v.capNits && (int)KeyDword(key, L"HdrCurveRollOff") == v.rollOffPercent
+			&& (int)KeyDword(key, L"HdrCurveShadowRange") == v.rangeNits;
+		wprintf(L"   kept         : %s, in the filter %s, in the registry %s\n", HdrCurveTune::Describe(v).c_str(),
+			bFilter ? L"yes" : L"NO", bRegistry ? L"yes" : L"NO");
+		if (!bFilter || !bRegistry) {
+			printf("   FAIL: the tuned values are not the curve's Custom ones, at full strength, in the filter and the registry\n");
+			failures++;
+		}
+	} else if (!CurveKeyUnchanged(savedKey)) {
+		printf("   FAIL: a tune that kept nothing changed the registry\n");
+		failures++;
+	}
+	return failures;
+}
 
 // --vpuse: what the hardware video processor is really doing with the film at hand,
 // and what the page would therefore grey. The settings that grey each other are
@@ -1853,6 +2203,100 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		} else {
 			printf("   screen watch: half floats asked for, 0x%08X\n", (unsigned)watch.HdrAttempt());
 		}
+	}
+
+	if (g_seekTime > 0 && g_filmFile) {
+		ReportSeekTime(pGraph, pRenderer, g_seekTime);
+	}
+
+	if (g_hdrTune && g_filmFile) {
+		const std::vector<RegValue> savedKey = ReadKeyValues(kPlusKey);
+		g_tuneSavedKey = savedKey;
+		result.bTuneOnly = true;
+		const char* what = g_hdrTuneStopAt > 0 ? "stopped by the player" : g_hdrTunePlayAt > 0 ? "the player playing again"
+			: g_hdrTuneCancelAt > 0 ? "cancelled by its key" : g_hdrTune == 2 ? "measuring only" : "tuning and keeping";
+		printf("\n-- the HDR curve's tune, %s\n", what);
+		if (g_hdrTuneStopAt > 0) {
+			// Stopped, and the graph let go at once, the tune still running: its last
+			// reference may be the tune's, and the filter go on the tune's thread.
+			CComQIPtr<IExFilterConfig> pConfig{ pRenderer.p };
+			LARGE_INTEGER t0;
+			QueryPerformanceCounter(&t0);
+			pConfig->Flt_SetInt("cmd_hdrCurveTune", 1);
+			while (SinceMs(t0) < g_hdrTuneStopAt * 1000) {
+				Pump(20);
+			}
+			int running = 0;
+			pConfig->Flt_GetInt("hdrCurveTune", &running);
+			pMC->Stop();
+			printf("   stopped %.1f s into it, the tune %s; the graph let go at once\n", SinceMs(t0) / 1000.0,
+				running ? "running" : "ALREADY OVER");
+			if (!running) {
+				printf("   FAIL: the tune was over before the film was stopped: nothing tested\n");
+				result.tuneFailures++;
+			}
+			result.bTuneStopped = true;
+			return result;   // the registry is put back by the caller, once the tune is gone
+		}
+		if (g_hdrTuneCancelAt > 0 || g_hdrTunePlayAt > 0) {
+			const bool bCancel = g_hdrTuneCancelAt > 0;
+			CComQIPtr<IExFilterConfig> pConfig{ pRenderer.p };
+			const double seconds = RunTune(pRenderer, 1, bCancel ? g_hdrTuneCancelAt : g_hdrTunePlayAt, [&]() {
+				if (bCancel) {
+					pConfig->Flt_SetInt("cmd_hdrCurveTune", 0);
+				} else {
+					pMC->Run();
+				}
+			});
+			const std::wstring report = TuneReport(pRenderer);
+			PrintTuneReport(report);
+			const wchar_t* said = bCancel ? L"stopped: cancelled by its key" : L"stopped: the player played the film";
+			if (report.find(said) == std::wstring::npos) {
+				wprintf(L"   FAIL: the tune did not say \"%s\"\n", said);
+				result.tuneFailures++;
+			}
+			// Cancelled, nothing is kept; with Play, what was measured by then may be.
+			int measured = 0;
+			swscanf_s(TuneLine(report, L" places measured").c_str(), L"%d", &measured);
+			const bool bKept = !bCancel && report.find(L"applied and kept") != std::wstring::npos;
+			// The checks of a whole tune, but for the places measured.
+			OAFilterState state = State_Stopped;
+			pMC->GetState(2000, &state);
+			double backSec = 0, delta = 1e9;
+			swscanf_s(TuneLine(report, L"back at ").c_str(), L"back at %lf s, %lf", &backSec, &delta);
+			printf("   %.1f s, %d places measured, back %+.3f s from its picture, %s, %s\n", seconds, measured, delta,
+				state == State_Running ? "playing" : "NOT PLAYING", bKept ? "kept" : "nothing kept");
+			if (state != State_Running || std::abs(delta) > 0.05) {
+				printf("   FAIL: the film is not playing again from its picture\n");
+				result.tuneFailures++;
+			}
+			if (bCancel && !CurveKeyUnchanged(savedKey)) {
+				printf("   FAIL: a cancelled tune changed the curve in the registry\n");
+				result.tuneFailures++;
+			}
+			WriteKeyValues(kPlusKey, savedKey);
+			return result;
+		}
+
+		const double first = RunTune(pRenderer, g_hdrTune);
+		const std::wstring report = TuneReport(pRenderer);
+		PrintTuneReport(report);
+		result.tuneFailures += CheckTune(report, first, pMC, g_hdrTune == 1, pVR, savedKey);
+		if (g_hdrTune == 1) {
+			// Again, measuring only: the same places, the same pictures before the curve, the
+			// same values -- whatever the curve now does to them.
+			Pump(1500);
+			const double second = RunTune(pRenderer, 2);
+			const std::wstring again = TuneReport(pRenderer);
+			const std::wstring a = TuneLine(report, L"values: "), b = TuneLine(again, L"values: ");
+			wprintf(L"   again, %.1f s, the curve on: %s; %s\n", second, TuneLine(again, L" places measured").c_str(), b.c_str());
+			if (a.empty() || a != b) {
+				printf("   FAIL: a second tune on the same film did not find the same values\n");
+				result.tuneFailures++;
+			}
+		}
+		WriteKeyValues(kPlusKey, savedKey);
+		return result;
 	}
 
 	std::wstring text = StatsText(pRenderer);
@@ -3146,6 +3590,8 @@ int wmain(int argc, wchar_t* argv[])
 			g_filmFile = argv[i + 1];
 		} else if (!wcscmp(argv[i], L"--seek")) {
 			g_filmSeek = _wtof(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--seektime")) {
+			g_seekTime = std::clamp(_wtoi(argv[i + 1]), 1, 64);
 		} else if (!wcscmp(argv[i], L"--rtxhdr")) {
 			g_filmRtxHdr = _wtoi(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--hdrcurve")) {
@@ -3188,6 +3634,19 @@ int wmain(int argc, wchar_t* argv[])
 			g_filmDeblockMethod = DEBLOCK_SPP;
 		} else if (!wcscmp(argv[i], L"--logo")) {
 			g_bLogo = true;
+		} else if (!wcscmp(argv[i], L"--hdrtune")) {
+			g_hdrTune = 1;
+		} else if (!wcscmp(argv[i], L"--hdrtunescan")) {
+			g_hdrTune = 2;
+		} else if (!wcscmp(argv[i], L"--cancelat") && i + 1 < argc) {
+			g_hdrTune = 1;
+			g_hdrTuneCancelAt = _wtof(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--playat") && i + 1 < argc) {
+			g_hdrTune = 1;
+			g_hdrTunePlayAt = _wtof(argv[i + 1]);
+		} else if (!wcscmp(argv[i], L"--stopat") && i + 1 < argc) {
+			g_hdrTune = 1;
+			g_hdrTuneStopAt = _wtof(argv[i + 1]);
 		} else if (!wcscmp(argv[i], L"--sharpencal")) {
 			g_bSharpenCal = true;
 		} else if (!wcscmp(argv[i], L"--calup") && i + 1 < argc) {
@@ -3588,6 +4047,14 @@ int wmain(int argc, wchar_t* argv[])
 			failures++;
 		}
 		failures += r.curveFailures;
+		failures += r.tuneFailures;
+		if (r.bTuneStopped) {
+			failures += TuneThreadLeft();
+			WriteKeyValues(kPlusKey, g_tuneSavedKey);
+		}
+		if (r.bTuneOnly) {
+			continue;
+		}
 		CheckDlaaAfter(r, config);
 		if (g_bSharpenCal) {
 			if (r.picture.empty()) {

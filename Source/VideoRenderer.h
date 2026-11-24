@@ -27,6 +27,7 @@
 #include "IVideoRenderer.h"
 #include "DX9VideoProcessor.h"
 #include "DX11VideoProcessor.h"
+#include "HdrCurveTuneProbe.h"
 #include <ISubRender.h>
 #include <ISubRender11.h>
 #include <ID3DFullscreenControl.h>
@@ -171,6 +172,24 @@ private:
 	// and never asked of the graph again (CompleteConnect).
 	std::wstring m_strFilm;
 
+	// The HDR curve's tune (VideoRendererHdrTune.cpp): what its worker and the render path
+	// share; how many flushes the input has been through, since a picture after a seek's
+	// flush is one from where the seek went; the worker; what it found, for the bench.
+	CHdrTuneProbe m_HdrTune;
+	std::atomic<unsigned> m_nFlushGen = 0;
+	HANDLE m_hHdrTuneThread = nullptr;
+	CCritSec m_HdrTuneLock;
+	std::wstring m_strHdrTuneReport;
+	HRESULT StartHdrTune(int mode);
+	static DWORD WINAPI HdrTuneThreadProc(LPVOID param);
+	void HdrTuneRun(IFilterGraph* pGraph, int mode);
+	void ApplyTunedCurve(const HdrCurve::Values& values);
+	void SetHdrTuneReport(const std::wstring& report);
+	// A notice for `ms`, drawn now if the film is paused, and taken down after: the timer
+	// under a lock of its own, never under the renderer's, which its callback takes.
+	CCritSec m_NoticeLock;
+	void PostNotice(const std::wstring& text, DWORD ms, bool bRedraw = true);
+
 	ISubRenderCallback* m_pSubCallBack = nullptr;
 	ISubRender11Callback* m_pSub11CallBack = nullptr;
 
@@ -231,6 +250,8 @@ public:
 	STDMETHODIMP Run(REFERENCE_TIME rtStart) override;
 	STDMETHODIMP Pause() override;
 	STDMETHODIMP Stop() override;
+	// IBaseFilter: leaving the graph stops the HDR curve's tune.
+	STDMETHODIMP JoinFilterGraph(IFilterGraph* pGraph, LPCWSTR pName) override;
 
 	// IKsPropertySet
 	STDMETHODIMP Set(REFGUID PropSet, ULONG Id, LPVOID pInstanceData, ULONG InstanceLength, LPVOID pPropertyData, ULONG DataLength);

@@ -182,8 +182,10 @@
 #define IDF_PS_11_SHARPEN_CAS_DITHER10  1946
 // Cadence slips: the frame the scene cut detector compares (Source/Cadence/SceneCut.cpp).
 #define IDF_CS_11_SCENE_CUT_LUMA        1947
-// The HDR curve, on every picture that leaves in HDR (Source/HdrCurve.h).
+// The HDR curve, on every picture that leaves in HDR (Source/HdrCurve.h), and its tune's
+// measurement (Source/HdrCurveTune.h).
 #define IDF_PS_11_HDR_CURVE             1948
+#define IDF_CS_11_HDR_TUNE_HIST         1949
 #define IDF_VS_11_MPV_HOOK              1950
 #define IDF_PS_11_MPV_LUMA              1951
 #define IDF_PS_11_MPV_COMBINE           1952

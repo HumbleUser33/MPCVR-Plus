@@ -28,6 +28,8 @@
 #include "resource.h"
 #include "VideoRenderer.h"
 #include "DX11VideoProcessor.h"
+#include "HdrCurveTune.h"
+#include "Times.h"
 
 // The picture leaves in HDR: the swap chain is PQ BT.2020, for an HDR source played as HDR
 // or tone mapped to the display, and for an SDR one RTX Video HDR turns into HDR. The
@@ -40,7 +42,7 @@ bool CDX11VideoProcessor::HdrOutput() const
 
 bool CDX11VideoProcessor::HdrCurveStepCounted() const
 {
-	return m_bHdrCurveStep;
+	return m_bHdrCurveStep || m_bHdrTuneStep;
 }
 
 // The constants from the settings, on this display: a preset's highlight numbers follow
@@ -53,11 +55,16 @@ void CDX11VideoProcessor::UpdateHdrCurve()
 
 // rRead of the input to rect of the target, through the curve. Where the picture no longer
 // leaves in HDR -- the display left HDR since the steps were counted -- it is copied
-// through, so that the steps after it find it where they expect it.
+// through, so that the steps after it find it where they expect it. So is it where the step
+// is only there for the tune to measure what the curve receives, which it does first.
 HRESULT CDX11VideoProcessor::HdrCurvePass(Tex2D_t* pInputTexture, ID3D11Texture2D* pRenderTarget, const CRect& rRead, const CRect& rect)
 {
+	if (m_bHdrTunePicture && HdrOutput()) {
+		m_bHdrTunePicture = false;
+		MeasureHdrTune(*pInputTexture, rRead);
+	}
 	m_bHdrCurveRan = false;
-	if (HdrOutput()) {
+	if (m_bHdrCurveStep && HdrOutput()) {
 		if (!m_pPSHdrCurve) {
 			CreatePShaderFromResource(&m_pPSHdrCurve, IDF_PS_11_HDR_CURVE);
 		}
@@ -98,4 +105,124 @@ DXGI_HDR_METADATA_HDR10 CDX11VideoProcessor::HdrMetadataToSend(const DXGI_HDR_ME
 	}
 	m_uHdrCurveSentCap = (unsigned)c.capNits;
 	return sent;
+}
+
+// The tune scans a film whose picture leaves in HDR, on a GPU that can measure it.
+const wchar_t* CDX11VideoProcessor::HdrTuneRefusal()
+{
+	if (!HdrOutput()) {
+		return L"the picture does not leave in HDR";
+	}
+	if (!HdrMeasureSupported()) {
+		return L"this GPU cannot measure the picture";
+	}
+	return nullptr;
+}
+
+// The tune's measurement step forced into the chain, or let go: the steps counted again.
+void CDX11VideoProcessor::HdrTuneStepChanged()
+{
+	UpdatePostScaleTexures();
+}
+
+// The picture the curve receives, as two histograms over PQ (cs_hdr_tune_hist.hlsl), read
+// back at once and handed to the tune's worker. At most once for each place the scan visits,
+// so the wait on the GPU costs nothing anyone sees: the film is paused.
+HRESULT CDX11VideoProcessor::MeasureHdrTune(const Tex2D_t& tex, const CRect& rect)
+{
+	if (!tex.pShaderResource) {
+		return E_POINTER;
+	}
+	constexpr UINT bins = 2 * HdrCurveTune::kBins;
+	HRESULT hr = S_OK;
+	if (!m_pCSHdrTuneHist) {
+		LPVOID data;
+		DWORD size;
+		hr = GetDataFromResource(data, size, IDF_CS_11_HDR_TUNE_HIST);
+		if (SUCCEEDED(hr)) {
+			hr = m_pDevice->CreateComputeShader(data, size, nullptr, &m_pCSHdrTuneHist);
+		}
+		if (FAILED(hr)) {
+			return hr;
+		}
+	}
+	if (!m_pHdrTuneBuffer) {
+		D3D11_BUFFER_DESC desc = {};
+		desc.ByteWidth = bins * sizeof(UINT);
+		desc.Usage = D3D11_USAGE_DEFAULT;
+		desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+		desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+		desc.StructureByteStride = sizeof(UINT);
+		hr = m_pDevice->CreateBuffer(&desc, nullptr, &m_pHdrTuneBuffer);
+		if (SUCCEEDED(hr)) {
+			D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+			uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+			uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+			uavDesc.Buffer.NumElements = bins;
+			hr = m_pDevice->CreateUnorderedAccessView(m_pHdrTuneBuffer, &uavDesc, &m_pHdrTuneUAV);
+		}
+		if (SUCCEEDED(hr)) {
+			desc.Usage = D3D11_USAGE_STAGING;
+			desc.BindFlags = 0;
+			desc.MiscFlags = 0;
+			desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+			hr = m_pDevice->CreateBuffer(&desc, nullptr, &m_pHdrTuneStaging);
+		}
+		if (SUCCEEDED(hr)) {
+			D3D11_BUFFER_DESC cbDesc = {};
+			cbDesc.ByteWidth = 4 * sizeof(UINT);
+			cbDesc.Usage = D3D11_USAGE_DEFAULT;
+			cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+			hr = m_pDevice->CreateBuffer(&cbDesc, nullptr, &m_pHdrTuneConstants);
+		}
+		if (FAILED(hr)) {
+			m_pHdrTuneUAV.Release();
+			m_pHdrTuneBuffer.Release();
+			m_pHdrTuneStaging.Release();
+			m_pHdrTuneConstants.Release();
+			return hr;
+		}
+	}
+
+	CRect r;
+	r.IntersectRect(rect, CRect(0, 0, tex.desc.Width, tex.desc.Height));
+	if (r.IsRectEmpty()) {
+		return S_FALSE;
+	}
+	const uint64_t start = GetPreciseTick();
+	const UINT constants[4] = { (UINT)r.left, (UINT)r.top, (UINT)r.Width(), (UINT)r.Height() };
+	m_pDeviceContext->UpdateSubresource(m_pHdrTuneConstants, 0, nullptr, constants, 0, 0);
+	const UINT zeros[4] = {};
+	m_pDeviceContext->ClearUnorderedAccessViewUint(m_pHdrTuneUAV, zeros);
+
+	// The step before has just drawn into this texture: left bound as a render target, it
+	// would be read as zeros (CLAUDE.md, "a compute pass sets no render target").
+	m_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+	ID3D11ShaderResourceView* pSRV = tex.pShaderResource;
+	m_pDeviceContext->CSSetShader(m_pCSHdrTuneHist, nullptr, 0);
+	m_pDeviceContext->CSSetShaderResources(0, 1, &pSRV);
+	m_pDeviceContext->CSSetConstantBuffers(0, 1, &m_pHdrTuneConstants.p);
+	m_pDeviceContext->CSSetUnorderedAccessViews(0, 1, &m_pHdrTuneUAV.p, nullptr);
+	m_pDeviceContext->Dispatch((r.Width() + 31) / 32, (r.Height() + 31) / 32, 1);
+	pSRV = nullptr;
+	ID3D11UnorderedAccessView* pNullUAV = nullptr;
+	m_pDeviceContext->CSSetShaderResources(0, 1, &pSRV);
+	m_pDeviceContext->CSSetUnorderedAccessViews(0, 1, &pNullUAV, nullptr);
+	m_pDeviceContext->CSSetShader(nullptr, nullptr, 0);
+
+	m_pDeviceContext->CopyResource(m_pHdrTuneStaging, m_pHdrTuneBuffer);
+	D3D11_MAPPED_SUBRESOURCE mr;
+	hr = m_pDeviceContext->Map(m_pHdrTuneStaging, 0, D3D11_MAP_READ, 0, &mr);
+	if (FAILED(hr)) {
+		return hr;
+	}
+	HdrTunePicture picture;
+	picture.hist.assign((const unsigned*)mr.pData, (const unsigned*)mr.pData + bins);
+	m_pDeviceContext->Unmap(m_pHdrTuneStaging, 0);
+	picture.rtFilm = m_pFilter->m_rtStartTime + m_rtStart;
+	picture.ms = (double)(GetPreciseTick() - start) * 1000.0 / GetPreciseTicksPerSecond();
+	picture.width = r.Width();
+	picture.height = r.Height();
+	m_pFilter->m_HdrTune.Deliver(std::move(picture));
+	return S_OK;
 }
