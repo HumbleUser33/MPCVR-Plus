@@ -1,9 +1,9 @@
 # The reference numbers
 
-`run_all_report.txt` here is what the whole battery measured on 22 November 2026, on an
+`run_all_report.txt` here is what the whole battery measured on 24 November 2026, on an
 RTX 4060 (driver 621.24) with the Windows desktop in HDR, Windows' hardware-accelerated GPU
 scheduling on and NVIDIA's *Prefer maximum performance* set in the driver's global settings,
-all thirty-eight steps green. The filter and the tools are the code of `13ec7929`, as the
+all forty-seven steps green. The filter and the tools are the code of `b7fe1402`, as the
 report's commit line says, both built by MSVC 14.44. `run_all.cmd` masks
 the working folder and the user's profile in it (`<repo>`, `%USERPROFILE%`). It is the thing a
 merge from upstream is compared against, at step 8 of
@@ -38,6 +38,49 @@ down. The tables move with:
 So the baseline is a local artefact of a known-good state, not a universal truth. When a
 merge lands and the numbers are explained, replace this file with the new report — that is
 step 10.
+
+## 24 November 2026: the HDR curve, and its tune to the film
+
+Against the report it replaces (`13ec7929`, 22 November), 3477 rows compared, 11 moved, none
+gone and 147 new, no failure in either; forty-seven steps where there were thirty-eight. The
+machine, its driver and RTX Video HDR's settings are those of the sections below, the driver
+from the same folder of the driver store in both reports, and the card ran at its full clocks
+(DLSS off ready in 3.3 ms, 3.4 before). The filter's settings were the registry's of the day,
+with the HDR curve set off for the run and put back after: the steps that do not ask for the
+curve measure the picture without it. The code since: the driver's Super Resolution at the
+picture's own size, measured and said in the statistics (`683145ca`, `568190e4`, `a8846a01`);
+the HDR curve, Veyra's, on every picture that leaves in HDR, with its tab (`b0c188df`,
+`5c08dcc2`, `fb023252`); and the curve tuned to the film on a key (`f8ac353c`, `b7fe1402`).
+
+- The 147 new rows are the curve's, in nine steps of its own:
+  - "the HDR curve against its sum" (32): the shader against the curve computed on the CPU,
+    and the presets against Veyra's values;
+  - "the HDR curve's tune, its sums" (29): the tune's histograms from the GPU against the
+    CPU's, the percentiles read from them within 0.002 bin, and the tune on made-up films --
+    one at the targets left as it is, 4000 nits brought under an 800-nit cap from BT.2390's
+    knee, sunk shadows lifted by +0.90 EV and wanting less a second time;
+  - "the Settings page, HDR curve" (29), the tab and the display's peak typed into it;
+  - "HDR settings changed while playing" (14): the curve, RTX Video HDR and the chroma
+    replacement switched while a film plays, the screen moving on through each;
+  - "the HDR curve on an RTX Video HDR picture" (11): *Dark and bright* at 100 %, the shadows
+    on screen 1.58 to 2.58 nits;
+  - "the HDR curve tuned to the film" (17): 16 places of 16 measured in 3.3 s, the film back
+    on its picture to the millisecond and playing, lift +1.00 EV to 3 nits kept in the filter
+    and in the registry, and the same values from a second tune made through the curve;
+  - "the HDR curve's tune cancelled" (7) and "the HDR curve's tune and the player's Play" (8):
+    7 and 8 places measured before the key or the Play, nothing kept the one way and the
+    values kept the other, the film back on its picture both times;
+  - "the HDR curve's tune and the player's Stop" prints a verdict and no row: the graph let go
+    at once, the tune's thread gone 5 s after.
+- 10 rows of the logo step, all of its three logos through x264, which does not encode the film
+  the same from one run to the next (the sections below); the largest in decibels, 41.21 to
+  40.59.
+- 1 row is a time printed bare: the pipeline's slowest picture from upload to done, 0.42 to
+  0.72 ms.
+
+None of the eleven is the new code's. Super Resolution at the picture's own size is in no step:
+the battery's films are enlarged, and `vp444_probe --native` and `playback_test --vpturns`
+measured it, as the manual says.
 
 ## 22 November 2026: Optical Flow at 2/3, and DLAA after scaling
 
